@@ -2,6 +2,9 @@ package com.mangotv.app
 
 import android.content.Context
 import com.mangotv.app.data.addon.AddonRepository
+import com.mangotv.app.data.entitlement.EntitlementRepository
+import com.mangotv.app.data.livetv.EpgRepository
+import com.mangotv.app.data.livetv.LiveTvRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
@@ -32,10 +35,19 @@ import com.mangotv.app.data.provider.MyListRepository
  *
  * myListRepository is the same story again — only Home's hero, Detail's
  * hero, and the My List screen ever touch it.
+ *
+ * entitlementRepository/liveTvRepository/epgRepository follow the same lazy
+ * pattern once more — only the Live TV screen and its player ever touch
+ * them, and entitlementRepository in particular starts a background polling
+ * loop once entered, so it shouldn't exist at all until Live TV is opened
+ * for the first time.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
     val playerPreferencesRepository: PlayerPreferencesRepository by lazy { PlayerPreferencesRepository(context) }
     val homeRowPreferencesRepository: HomeRowPreferencesRepository by lazy { HomeRowPreferencesRepository(context) }
     val myListRepository: MyListRepository by lazy { MyListRepository(context) }
+    val entitlementRepository: EntitlementRepository by lazy { EntitlementRepository(context) }
+    val liveTvRepository: LiveTvRepository by lazy { LiveTvRepository(context) }
+    val epgRepository: EpgRepository by lazy { EpgRepository(context) }
 }

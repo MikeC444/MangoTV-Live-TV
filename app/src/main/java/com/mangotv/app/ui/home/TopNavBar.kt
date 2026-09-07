@@ -35,7 +35,7 @@ import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
-val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Genres", "Search", "My List", "Settings")
+val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Live TV", "Genres", "Search", "My List", "Settings")
 
 @Composable
 fun TopNavBar(

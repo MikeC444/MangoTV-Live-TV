@@ -14,6 +14,8 @@ import com.mangotv.app.ui.genres.GenresScreen
 import com.mangotv.app.ui.search.SearchScreen
 import com.mangotv.app.ui.mylist.MyListScreen
 import com.mangotv.app.ui.home.HomeScreen
+import com.mangotv.app.ui.livetv.LiveTvPlayerScreen
+import com.mangotv.app.ui.livetv.LiveTvScreen
 import com.mangotv.app.ui.player.PlayerScreen
 import com.mangotv.app.ui.settings.AddAddonScreen
 import com.mangotv.app.ui.settings.AddonsScreen
@@ -29,7 +31,7 @@ import java.net.URLDecoder
 // HomeViewModel/MoviesViewModel/etc. from scratch, discarding all
 // already-fetched data and re-running every network fetch on every visit.
 private val TAB_ROOT_ROUTES = setOf(
-    MangoRoutes.HOME, MangoRoutes.MOVIES, MangoRoutes.TV_SHOWS,
+    MangoRoutes.HOME, MangoRoutes.MOVIES, MangoRoutes.TV_SHOWS, MangoRoutes.LIVE_TV,
     MangoRoutes.GENRES, MangoRoutes.SEARCH, MangoRoutes.MY_LIST, MangoRoutes.SETTINGS
 )
 
@@ -75,6 +77,17 @@ fun MangoNavHost() {
         composable(MangoRoutes.TV_SHOWS) {
             TvShowsScreen(
                 onNavigate = ::navigateTo
+            )
+        }
+        composable(MangoRoutes.LIVE_TV) {
+            LiveTvScreen(
+                onNavigate = ::navigateTo,
+                onPlayChannel = { channel -> navController.navigate(MangoRoutes.liveTvPlayer(channel.id)) }
+            )
+        }
+        composable(MangoRoutes.LIVE_TV_PLAYER_PATTERN) {
+            LiveTvPlayerScreen(
+                onBack = { navController.popBackStack() }
             )
         }
         composable(MangoRoutes.GENRES) {
