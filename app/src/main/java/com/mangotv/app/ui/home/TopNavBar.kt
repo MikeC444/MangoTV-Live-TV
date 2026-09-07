@@ -3,11 +3,14 @@ package com.mangotv.app.ui.home
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -100,16 +103,27 @@ fun TopNavBar(
     ) {
         MangoLogo()
         Spacer(Modifier.width(56.dp))
-        MangoNavItems.forEachIndexed { index, label ->
-            NavItem(
-                label = label,
-                selected = index == selectedIndex,
-                onClick = { onItemClick(label) },
-                focusRequester = if (index == selectedIndex) selectedItemFocusRequester else null,
-                focusDown = contentFocusRequester
-            )
-            if (index != MangoNavItems.lastIndex) {
-                Spacer(Modifier.width(8.dp))
+        // LazyRow rather than a plain Row: with enough nav items (this list
+        // has grown since this bar was first built), the fully laid-out
+        // width can exceed a real TV screen's — a plain Row still draws
+        // every child at its natural size regardless, which just clips the
+        // last item(s) off the edge instead of scrolling to reach them.
+        // Wrapping only the item list (not the logo) means it's still drawn
+        // exactly as before, at its natural (unscrolled) size, whenever it
+        // already fits — this only engages once it doesn't.
+        LazyRow(
+            modifier = Modifier.weight(1f, fill = false),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            itemsIndexed(MangoNavItems) { index, label ->
+                NavItem(
+                    label = label,
+                    selected = index == selectedIndex,
+                    onClick = { onItemClick(label) },
+                    focusRequester = if (index == selectedIndex) selectedItemFocusRequester else null,
+                    focusDown = contentFocusRequester
+                )
             }
         }
     }
