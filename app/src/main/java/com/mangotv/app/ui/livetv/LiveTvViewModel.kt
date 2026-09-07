@@ -43,9 +43,10 @@ sealed interface LiveTvUiState {
  */
 class LiveTvViewModel(application: Application) : AndroidViewModel(application) {
 
-    private val entitlementRepository = (application as MangoTvApplication).container.entitlementRepository
-    private val liveTvRepository = application.container.liveTvRepository
-    private val epgRepository = application.container.epgRepository
+    private val container = (application as MangoTvApplication).container
+    private val entitlementRepository = container.entitlementRepository
+    private val liveTvRepository = container.liveTvRepository
+    private val epgRepository = container.epgRepository
 
     private val _uiState = MutableStateFlow<LiveTvUiState>(LiveTvUiState.CheckingAccess)
     val uiState: StateFlow<LiveTvUiState> = _uiState.asStateFlow()

@@ -28,8 +28,9 @@ class LiveTvPlayerViewModel(
     savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
 
-    private val liveTvRepository = (application as MangoTvApplication).container.liveTvRepository
-    private val epgRepository = application.container.epgRepository
+    private val container = (application as MangoTvApplication).container
+    private val liveTvRepository = container.liveTvRepository
+    private val epgRepository = container.epgRepository
 
     private val channelId: String = URLDecoder.decode(savedStateHandle.get<String>("channelId").orEmpty(), "UTF-8")
 
