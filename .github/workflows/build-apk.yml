@@ -1,0 +1,49 @@
+name: Build debug APK
+
+on:
+  push:
+    branches:
+      - "claude/**"
+      - "main"
+  workflow_dispatch: {}
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Build debug APK
+        run: ./gradlew assembleDebug --stacktrace
+
+      - name: Upload APK artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: mango-tv-debug-apk
+          path: app/build/outputs/apk/debug/app-debug.apk
+          if-no-files-found: error
+
+  # A previous "smoke-test" job here (boot an emulator, install the APK,
+  # launch it, fail on a logcat crash) never actually produced a usable
+  # signal: GitHub-hosted ubuntu-latest runners don't reliably expose
+  # hardware-accelerated KVM for nested virtualization, so the emulator
+  # boot step hung for the full 6-hour job ceiling every single run before
+  # being force-cancelled -- worse than no signal, since it silently ate 6
+  # hours per push with no pass/fail result. Removed rather than tuned,
+  # since properly diagnosing GitHub Actions' KVM support is a separate
+  # investigation from the feature work this CI blocks. Runtime crashes
+  # still need to be verified on real hardware (or a local emulator with
+  # working acceleration) until a reliable CI-hosted alternative exists.

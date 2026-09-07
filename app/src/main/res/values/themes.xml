@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <style name="Theme.MangoTV" parent="android:Theme.DeviceDefault.NoActionBar">
+        <item name="android:windowBackground">@color/mango_background</item>
+        <item name="android:windowNoTitle">true</item>
+        <item name="android:windowFullscreen">true</item>
+        <item name="android:windowContentOverlay">@null</item>
+        <item name="android:navigationBarColor">@color/mango_background</item>
+        <item name="android:statusBarColor">@color/mango_background</item>
+    </style>
+</resources>
