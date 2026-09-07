@@ -72,6 +72,10 @@ class EntitlementRepository(
     /** Idempotent: safe to call every time the Live TV screen is entered. */
     fun start() {
         if (pollJob != null) return
+        if (LiveTvConfig.skipPaywallForTesting) {
+            _state.value = EntitlementState.Active(expiresAtEpochMs = null)
+            return
+        }
         if (!LiveTvConfig.isBackendConfigured) {
             _state.value = EntitlementState.NotConfigured
             return
@@ -92,6 +96,10 @@ class EntitlementRepository(
 
     /** Forces an immediate out-of-band check, e.g. from a user-pressed Retry button after [BackendUnavailable]. */
     fun retry() {
+        if (LiveTvConfig.skipPaywallForTesting) {
+            _state.value = EntitlementState.Active(expiresAtEpochMs = null)
+            return
+        }
         if (!LiveTvConfig.isBackendConfigured) {
             _state.value = EntitlementState.NotConfigured
             return

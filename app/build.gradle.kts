@@ -28,6 +28,13 @@ fun liveTvConfigValue(key: String, default: String): String {
     return raw.replace("\\", "\\\\").replace("\"", "\\\"")
 }
 
+fun liveTvConfigBoolean(key: String, default: Boolean): Boolean {
+    val raw = localProperties.getProperty(key)
+        ?: (project.findProperty(key) as String?)
+        ?: System.getenv(key)
+    return raw?.toBooleanStrictOrNull() ?: default
+}
+
 android {
     namespace = "com.mangotv.app"
     compileSdk = 34
@@ -46,6 +53,13 @@ android {
         buildConfigField("String", "EPG_URL", "\"${liveTvConfigValue("EPG_URL", "")}\"")
         buildConfigField("String", "API_BASE_URL", "\"${liveTvConfigValue("API_BASE_URL", "")}\"")
         buildConfigField("String", "PREMIUM_CHECKOUT_URL", "\"${liveTvConfigValue("PREMIUM_CHECKOUT_URL", "")}\"")
+
+        // TESTING ONLY -- defaults to true so Live TV's channel browsing/
+        // playback can be built and tested before a real payment backend
+        // exists. Set LIVE_TV_SKIP_PAYWALL=false in local.properties once
+        // ready to test/ship the real entitlement gate -- see LiveTvConfig
+        // and docs/LIVE_TV_BACKEND.md.
+        buildConfigField("boolean", "LIVE_TV_SKIP_PAYWALL", liveTvConfigBoolean("LIVE_TV_SKIP_PAYWALL", true).toString())
     }
 
     buildTypes {

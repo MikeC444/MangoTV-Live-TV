@@ -26,8 +26,17 @@ app/src/main/java/com/mangotv/app/
 The **Live TV** tab sits in the top nav between TV Shows and Genres. It's a
 premium feature gated by a real backend-verified entitlement — the app
 never trusts a local "paid" flag (see `docs/LIVE_TV_BACKEND.md` for the
-full contract). Until you stand up that backend, opening Live TV shows a
-"not configured yet" screen rather than pretending payments work.
+full contract).
+
+**Right now the paywall is bypassed for testing** — `LIVE_TV_SKIP_PAYWALL`
+defaults to `true`, so Live TV unlocks straight to the channel browser for
+everyone, with a visible "TESTING — PAYWALL BYPASSED" badge on the browse
+screen as a reminder. Once you're done testing channel browsing/playback
+and are ready to test or ship the real entitlement flow, set
+`LIVE_TV_SKIP_PAYWALL=false` in `local.properties` — with a backend
+configured (`API_BASE_URL`), the real paywall takes over; without one,
+Live TV instead shows a "not configured yet" screen rather than pretending
+payments work.
 
 ### Configuring Live TV
 
@@ -44,6 +53,7 @@ LIVE_TV_ALLOWED_GROUPS=
 EPG_URL=
 API_BASE_URL=https://your-backend.example.com
 PREMIUM_CHECKOUT_URL=https://your-checkout.example.com/live-tv
+LIVE_TV_SKIP_PAYWALL=true
 ```
 
 - **`IPTV_PLAYLIST_URL`** — the M3U playlist to load channels from.
@@ -56,9 +66,14 @@ PREMIUM_CHECKOUT_URL=https://your-checkout.example.com/live-tv
   programme info. Leave blank to skip EPG entirely — channels just show
   "Live" instead.
 - **`API_BASE_URL`** — your entitlement backend. Leave blank and Live TV
-  shows a developer-facing "not configured" screen instead of a paywall.
+  shows a developer-facing "not configured" screen instead of a paywall
+  (unless `LIVE_TV_SKIP_PAYWALL` is bypassing the check entirely).
 - **`PREMIUM_CHECKOUT_URL`** — your payment checkout page, encoded into the
   QR code shown on the paywall along with a device id and pairing code.
+- **`LIVE_TV_SKIP_PAYWALL`** — **defaults to `true`.** Skips entitlement
+  verification so Live TV unlocks for everyone, for testing channel
+  browsing/playback before a real backend exists. Set to `false` once
+  ready to test/ship the real paywall.
 
 **Legal note on the default playlist:** iptv-org's aggregate index mixes
 streams of unverified rights status. `IPTV_PLAYLIST_URL` and

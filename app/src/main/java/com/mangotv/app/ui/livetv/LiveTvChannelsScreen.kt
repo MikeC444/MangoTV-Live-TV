@@ -5,13 +5,16 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.gestures.animateScrollBy
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +35,9 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import com.mangotv.app.config.LiveTvConfig
 import com.mangotv.app.data.livetv.Channel
 import com.mangotv.app.data.livetv.ChannelSection
 import com.mangotv.app.data.livetv.LiveTvCatalogState
@@ -43,6 +48,7 @@ import com.mangotv.app.ui.components.FullScreenErrorState
 import com.mangotv.app.ui.components.RowsLoadingSkeleton
 import com.mangotv.app.ui.home.MangoNavItems
 import com.mangotv.app.ui.home.TopNavBar
+import com.mangotv.app.ui.theme.MangoAmber
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.MangoMotion
@@ -173,15 +179,37 @@ private fun LiveTvChannelsLoadedContent(
                     .padding(top = MangoDimens.NavBarHeight + 24.dp)
             ) {
                 item(key = "title") {
-                    Text(
-                        text = "Live TV",
-                        color = TextPrimary,
-                        style = MaterialTheme.typography.displayMedium,
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
                         modifier = Modifier.padding(
                             horizontal = MangoDimens.ScreenPaddingHorizontal,
                             vertical = 4.dp
                         )
-                    )
+                    ) {
+                        Text(
+                            text = "Live TV",
+                            color = TextPrimary,
+                            style = MaterialTheme.typography.displayMedium
+                        )
+                        // Visible on purpose: LiveTvConfig.skipPaywallForTesting
+                        // defaults to true so channel browsing/playback can be
+                        // tested before a real payment backend exists — this
+                        // is here so that's never silently forgotten before
+                        // the paywall is meant to go live. Remove once
+                        // LIVE_TV_SKIP_PAYWALL is set to false for real.
+                        if (LiveTvConfig.skipPaywallForTesting) {
+                            Spacer(Modifier.width(16.dp))
+                            Text(
+                                text = "TESTING — PAYWALL BYPASSED",
+                                color = MangoBackground,
+                                fontWeight = FontWeight.Bold,
+                                style = MaterialTheme.typography.labelSmall,
+                                modifier = Modifier
+                                    .background(MangoAmber, RoundedCornerShape(6.dp))
+                                    .padding(horizontal = 10.dp, vertical = 4.dp)
+                            )
+                        }
+                    }
                 }
                 itemsIndexed(sections, key = { _, section -> section.id }) { index, section ->
                     ChannelRow(

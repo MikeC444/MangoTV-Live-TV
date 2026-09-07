@@ -29,6 +29,17 @@ object LiveTvConfig {
     val isCheckoutConfigured: Boolean get() = checkoutBaseUrl.isNotBlank()
 
     /**
+     * Testing-only escape hatch: when true, Live TV skips entitlement
+     * verification entirely and unlocks for everyone, so the channel
+     * browsing/playback experience can be built and tested before a real
+     * payment backend exists. Defaults to true for exactly that reason --
+     * flip it to false (set LIVE_TV_SKIP_PAYWALL=false in local.properties)
+     * once ready to test or ship the real paywall. See EntitlementRepository
+     * and docs/LIVE_TV_BACKEND.md.
+     */
+    val skipPaywallForTesting: Boolean get() = BuildConfig.LIVE_TV_SKIP_PAYWALL
+
+    /**
      * Optional legal allow-list: a comma-separated list of M3U group-title
      * values (case-insensitive). Empty (the default) means every group in
      * the configured playlist is shown -- whoever deploys this app is
