@@ -37,6 +37,7 @@ fun LiveTvScreen(
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val epgVersion by viewModel.epgVersion.collectAsStateWithLifecycle()
+    val regionSelection by viewModel.regionSelection.collectAsStateWithLifecycle()
     // Fixed for this screen's lifetime rather than recomputed on every
     // recomposition -- a stable window is what lets TvGuideScreen's own
     // remember()s (block layout, initial scroll-to-now) stay cheap instead
@@ -51,10 +52,13 @@ fun LiveTvScreen(
     when (val state = uiState) {
         is LiveTvUiState.Unlocked -> LiveTvChannelsScreen(
             catalogState = state.catalog,
+            regionSelection = regionSelection,
             windowStart = windowStart,
             windowEnd = windowEnd,
             epgVersion = epgVersion,
             getBlocks = { channel -> viewModel.timelineBlocksFor(channel, windowStart, windowEnd) },
+            onSelectRegion = viewModel::selectRegion,
+            onChangeRegion = viewModel::changeRegion,
             onChannelClick = onPlayChannel,
             onRetry = viewModel::retryCatalog,
             onNavigate = onNavigate

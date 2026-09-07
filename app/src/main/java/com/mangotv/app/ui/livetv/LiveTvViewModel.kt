@@ -17,6 +17,19 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 
 /**
+ * Whether -- and to what -- the user has narrowed the TV guide down by
+ * region this session. [NotChosen] and [Chosen] with a null [Chosen.regionCode]
+ * ("All Channels") are deliberately distinct states, not both folded into a
+ * single nullable region code, since "haven't picked yet" (show the picker)
+ * and "explicitly picked everything" (show the guide, unfiltered) need to
+ * be told apart.
+ */
+sealed interface RegionSelection {
+    data object NotChosen : RegionSelection
+    data class Chosen(val regionCode: String?) : RegionSelection
+}
+
+/**
  * Every state the Live TV entry screen can be in. [Locked] covers "never
  * paid", "just expired", "backend unreachable" and "not configured yet" all
  * at once (see its own fields) rather than as separate top-level states,
@@ -52,6 +65,23 @@ class LiveTvViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _uiState = MutableStateFlow<LiveTvUiState>(LiveTvUiState.CheckingAccess)
     val uiState: StateFlow<LiveTvUiState> = _uiState.asStateFlow()
+
+    // Lives only in memory -- persists across tab switches for as long as
+    // this ViewModel does (same lifetime as the rest of Live TV's state,
+    // see the class doc), but resets on a fresh app process. That's a
+    // deliberate simplification, not an oversight: a DataStore-backed
+    // "remember across restarts" version would be a one-line follow-up if
+    // wanted (see selectRegion/changeRegion).
+    private val _regionSelection = MutableStateFlow<RegionSelection>(RegionSelection.NotChosen)
+    val regionSelection: StateFlow<RegionSelection> = _regionSelection.asStateFlow()
+
+    fun selectRegion(regionCode: String?) {
+        _regionSelection.value = RegionSelection.Chosen(regionCode)
+    }
+
+    fun changeRegion() {
+        _regionSelection.value = RegionSelection.NotChosen
+    }
 
     private var deviceId: String = ""
     private var pairingCode: String = ""

@@ -22,6 +22,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -103,11 +104,13 @@ private data class FocusedGuideEntry(val channel: Channel, val block: TimelineBl
 @Composable
 fun TvGuideScreen(
     channels: List<Channel>,
+    regionLabel: String,
     windowStart: Long,
     windowEnd: Long,
     epgVersion: Int,
     getBlocks: (Channel) -> List<TimelineBlock>,
     onTuneToChannel: (Channel) -> Unit,
+    onChangeRegion: () -> Unit,
     onNavigate: (String) -> Unit
 ) {
     val density = LocalDensity.current
@@ -117,6 +120,7 @@ fun TvGuideScreen(
     val coroutineScope = rememberCoroutineScope()
 
     val navFocusRequester = remember { FocusRequester() }
+    val changeRegionFocusRequester = remember { FocusRequester() }
     val nowFocusRequester = remember { FocusRequester() }
     var navRegionFocused by remember { mutableStateOf(true) }
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
@@ -166,7 +170,13 @@ fun TvGuideScreen(
 
     Box(Modifier.fillMaxSize().background(MangoBackground)) {
         Column(Modifier.fillMaxSize().padding(top = MangoDimens.NavBarHeight)) {
-            GuideTitleBar()
+            GuideTitleBar(
+                regionLabel = regionLabel,
+                onChangeRegion = onChangeRegion,
+                changeRegionFocusRequester = changeRegionFocusRequester,
+                changeRegionFocusUp = navFocusRequester,
+                changeRegionFocusDown = nowFocusRequester
+            )
             GuideHeader(focusedEntry ?: defaultEntry)
             TimelineHeaderRow(windowStart = windowStart, windowEnd = windowEnd, pixelsPerMinutePx = pixelsPerMinutePx, sharedHScroll = sharedHScroll)
             LazyColumn(
@@ -193,7 +203,7 @@ fun TvGuideScreen(
                                 navRegionFocused = true
                                 coroutineScope.launch {
                                     listState.scrollToItem(0, 0)
-                                    runCatching { navFocusRequester.requestFocus() }
+                                    runCatching { changeRegionFocusRequester.requestFocus() }
                                 }
                             }
                         } else {
@@ -209,13 +219,13 @@ fun TvGuideScreen(
             modifier = Modifier.align(Alignment.TopCenter),
             selectedIndex = MangoNavItems.indexOf("Live TV"),
             selectedItemFocusRequester = navFocusRequester,
-            contentFocusRequester = nowFocusRequester,
+            contentFocusRequester = changeRegionFocusRequester,
             onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) },
             onNavigateDown = {
                 navRegionFocused = false
                 coroutineScope.launch {
                     listState.scrollToItem(0, 0)
-                    runCatching { nowFocusRequester.requestFocus() }
+                    runCatching { changeRegionFocusRequester.requestFocus() }
                 }
             }
         )
@@ -223,7 +233,13 @@ fun TvGuideScreen(
 }
 
 @Composable
-private fun GuideTitleBar() {
+private fun GuideTitleBar(
+    regionLabel: String,
+    onChangeRegion: () -> Unit,
+    changeRegionFocusRequester: FocusRequester,
+    changeRegionFocusUp: FocusRequester,
+    changeRegionFocusDown: FocusRequester
+) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
@@ -235,6 +251,12 @@ private fun GuideTitleBar() {
             color = TextSecondary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "• $regionLabel",
+            color = TextTertiary,
+            style = MaterialTheme.typography.labelMedium
         )
         // See PremiumAccessScreen/LiveTvChannelsScreen -- visible on purpose
         // so LiveTvConfig.skipPaywallForTesting is never silently forgotten.
@@ -249,6 +271,25 @@ private fun GuideTitleBar() {
                     .background(MangoAmber, RoundedCornerShape(6.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             )
+        }
+        Spacer(Modifier.weight(1f))
+        TvFocusSurface(
+            onClick = onChangeRegion,
+            shape = RoundedCornerShape(6.dp),
+            backgroundColor = MangoSurface,
+            focusRequester = changeRegionFocusRequester,
+            focusUp = changeRegionFocusUp,
+            focusDown = changeRegionFocusDown,
+            bringIntoViewOnFocus = false
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(imageVector = Icons.Filled.Public, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(text = "Change Region", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
 }

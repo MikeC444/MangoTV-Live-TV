@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Public
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
@@ -23,33 +24,89 @@ import com.mangotv.app.ui.home.TopNavBar
 import com.mangotv.app.ui.theme.MangoBackground
 
 /**
- * Dispatches on catalog load state -- once Loaded, the actual browsing
- * experience is the grid TV guide (see TvGuideScreen); Loading/Error/Empty
- * share a simple, static nav-bar-plus-centered-message layout since none of
- * them scroll.
+ * Dispatches on catalog load state, then (once Loaded) on region selection:
+ * no region chosen yet -> RegionSelectScreen; a region chosen -> the grid TV
+ * guide (see TvGuideScreen), filtered to it. Loading/Error/Empty share a
+ * simple, static nav-bar-plus-centered-message layout since none of them
+ * scroll and there's nothing to pick a region from yet.
  */
 @Composable
 fun LiveTvChannelsScreen(
     catalogState: LiveTvCatalogState,
+    regionSelection: RegionSelection,
     windowStart: Long,
     windowEnd: Long,
     epgVersion: Int,
     getBlocks: (Channel) -> List<TimelineBlock>,
+    onSelectRegion: (String?) -> Unit,
+    onChangeRegion: () -> Unit,
     onChannelClick: (Channel) -> Unit,
     onRetry: () -> Unit,
     onNavigate: (String) -> Unit
 ) {
-    when (catalogState) {
-        is LiveTvCatalogState.Loaded -> TvGuideScreen(
+    if (catalogState !is LiveTvCatalogState.Loaded) {
+        LiveTvChannelsPendingContent(catalogState = catalogState, onRetry = onRetry, onNavigate = onNavigate)
+        return
+    }
+
+    when (regionSelection) {
+        is RegionSelection.NotChosen -> RegionSelectScreen(
             channels = catalogState.allChannels,
-            windowStart = windowStart,
-            windowEnd = windowEnd,
-            epgVersion = epgVersion,
-            getBlocks = getBlocks,
-            onTuneToChannel = onChannelClick,
+            onSelectRegion = onSelectRegion,
             onNavigate = onNavigate
         )
-        else -> LiveTvChannelsPendingContent(catalogState = catalogState, onRetry = onRetry, onNavigate = onNavigate)
+        is RegionSelection.Chosen -> {
+            val filteredChannels = remember(catalogState.allChannels, regionSelection.regionCode) {
+                if (regionSelection.regionCode == null) {
+                    catalogState.allChannels
+                } else {
+                    catalogState.allChannels.filter { it.country?.trim()?.uppercase() == regionSelection.regionCode }
+                }
+            }
+            if (filteredChannels.isEmpty()) {
+                LiveTvRegionEmptyContent(onChangeRegion = onChangeRegion, onNavigate = onNavigate)
+            } else {
+                TvGuideScreen(
+                    channels = filteredChannels,
+                    regionLabel = regionSelection.regionCode ?: "All Channels",
+                    windowStart = windowStart,
+                    windowEnd = windowEnd,
+                    epgVersion = epgVersion,
+                    getBlocks = getBlocks,
+                    onTuneToChannel = onChannelClick,
+                    onChangeRegion = onChangeRegion,
+                    onNavigate = onNavigate
+                )
+            }
+        }
+    }
+}
+
+/** Reached only if a chosen region's channel list comes up empty (e.g. the catalog refreshed and that region disappeared) -- lets the user pick again rather than staring at a guide with zero rows. */
+@Composable
+private fun LiveTvRegionEmptyContent(onChangeRegion: () -> Unit, onNavigate: (String) -> Unit) {
+    val navFocusRequester = remember { FocusRequester() }
+    val actionFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) { runCatching { navFocusRequester.requestFocus() } }
+
+    Box(Modifier.fillMaxSize().background(MangoBackground)) {
+        EmptyState(
+            icon = Icons.Filled.Public,
+            title = "No channels in this region",
+            message = "Choose a different region to keep browsing Live TV.",
+            actionLabel = "Change Region",
+            onAction = onChangeRegion,
+            actionFocusRequester = actionFocusRequester,
+            actionFocusUp = navFocusRequester
+        )
+        TopNavBar(
+            transparentBackground = false,
+            modifier = Modifier.align(Alignment.TopCenter),
+            selectedIndex = MangoNavItems.indexOf("Live TV"),
+            selectedItemFocusRequester = navFocusRequester,
+            contentFocusRequester = actionFocusRequester,
+            onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) }
+        )
     }
 }
 
