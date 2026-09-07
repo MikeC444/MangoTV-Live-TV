@@ -7,8 +7,10 @@ import com.mangotv.app.MangoTvApplication
 import com.mangotv.app.config.LiveTvConfig
 import com.mangotv.app.data.entitlement.EntitlementState
 import com.mangotv.app.data.livetv.Channel
+import com.mangotv.app.data.livetv.EpgRepository
 import com.mangotv.app.data.livetv.LiveTvCatalogState
-import com.mangotv.app.data.livetv.NowNext
+import com.mangotv.app.data.livetv.TimelineBlock
+import com.mangotv.app.data.livetv.buildTimelineBlocks
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -77,7 +79,18 @@ class LiveTvViewModel(application: Application) : AndroidViewModel(application) 
         liveTvRepository.load(forceRefresh = true)
     }
 
-    fun nowAndNext(channel: Channel): NowNext = epgRepository.nowAndNext(channel.tvgId)
+    val epgVersion: StateFlow<Int> = epgRepository.epgVersion
+
+    /** [-EpgRepository.LOOKBACK_MS, +EpgRepository.LOOKAHEAD_MS] around now -- the guide's own display window is kept identical to what EpgRepository actually keeps parsed in memory, so it never shows a time range wider than the data backing it. */
+    fun guideWindow(): Pair<Long, Long> {
+        val now = System.currentTimeMillis()
+        return (now - EpgRepository.LOOKBACK_MS) to (now + EpgRepository.LOOKAHEAD_MS)
+    }
+
+    fun timelineBlocksFor(channel: Channel, windowStart: Long, windowEnd: Long): List<TimelineBlock> {
+        val programmes = epgRepository.programmesInRange(channel.tvgId, windowStart, windowEnd)
+        return buildTimelineBlocks(programmes, windowStart, windowEnd)
+    }
 
     override fun onCleared() {
         super.onCleared()

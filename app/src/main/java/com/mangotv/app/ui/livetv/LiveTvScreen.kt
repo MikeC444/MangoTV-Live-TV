@@ -36,6 +36,12 @@ fun LiveTvScreen(
     viewModel: LiveTvViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val epgVersion by viewModel.epgVersion.collectAsStateWithLifecycle()
+    // Fixed for this screen's lifetime rather than recomputed on every
+    // recomposition -- a stable window is what lets TvGuideScreen's own
+    // remember()s (block layout, initial scroll-to-now) stay cheap instead
+    // of recalculating on every frame.
+    val (windowStart, windowEnd) = remember { viewModel.guideWindow() }
 
     DisposableEffect(Unit) {
         viewModel.onScreenEntered()
@@ -45,7 +51,10 @@ fun LiveTvScreen(
     when (val state = uiState) {
         is LiveTvUiState.Unlocked -> LiveTvChannelsScreen(
             catalogState = state.catalog,
-            getNowNext = viewModel::nowAndNext,
+            windowStart = windowStart,
+            windowEnd = windowEnd,
+            epgVersion = epgVersion,
+            getBlocks = { channel -> viewModel.timelineBlocksFor(channel, windowStart, windowEnd) },
             onChannelClick = onPlayChannel,
             onRetry = viewModel::retryCatalog,
             onNavigate = onNavigate

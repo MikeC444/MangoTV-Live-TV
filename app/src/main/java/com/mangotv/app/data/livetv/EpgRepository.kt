@@ -5,6 +5,9 @@ import com.mangotv.app.config.LiveTvConfig
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -43,12 +46,26 @@ class EpgRepository(context: Context) {
     @Volatile private var programmesByChannel: Map<String, List<Programme>> = emptyMap()
     @Volatile private var isReady = false
 
+    // Bumped every time a load finishes (successfully or not) so UI that
+    // already rendered fallback "Live" blocks before EPG data arrived can
+    // recompute once it does, without needing a full screen reload -- see
+    // LiveTvViewModel.epgVersion.
+    private val _epgVersion = MutableStateFlow(0)
+    val epgVersion: StateFlow<Int> = _epgVersion.asStateFlow()
+
     fun nowAndNext(tvgId: String?, atEpochMs: Long = System.currentTimeMillis()): NowNext {
         if (tvgId == null) return NowNext(null, null)
         val programmes = programmesByChannel[tvgId] ?: return NowNext(null, null)
         val now = programmes.find { atEpochMs in it.startEpochMs until it.stopEpochMs }
         val next = programmes.filter { it.startEpochMs > (now?.stopEpochMs ?: atEpochMs) }.minByOrNull { it.startEpochMs }
         return NowNext(now, next)
+    }
+
+    /** Every known programme for [tvgId] overlapping [fromEpochMs, toEpochMs) — the raw data behind a TV guide row; see buildTimelineBlocks for turning this into gap-free display blocks. */
+    fun programmesInRange(tvgId: String?, fromEpochMs: Long, toEpochMs: Long): List<Programme> {
+        if (tvgId == null) return emptyList()
+        val programmes = programmesByChannel[tvgId] ?: return emptyList()
+        return programmes.filter { it.stopEpochMs > fromEpochMs && it.startEpochMs < toEpochMs }
     }
 
     fun load(knownTvgIds: Set<String>) {
@@ -66,13 +83,14 @@ class EpgRepository(context: Context) {
                     programmesByChannel = XmlTvEpgParser.parse(
                         reader = reader,
                         knownTvgIds = knownTvgIds,
-                        minEpochMs = now - TimeUnit.HOURS.toMillis(2),
-                        maxEpochMs = now + TimeUnit.HOURS.toMillis(12)
+                        minEpochMs = now - LOOKBACK_MS,
+                        maxEpochMs = now + LOOKAHEAD_MS
                     )
                 }
                 isReady = true
             }
         }
+        _epgVersion.value++
     }
 
     private fun openReader(bytes: ByteArray): Reader {
@@ -121,5 +139,11 @@ class EpgRepository(context: Context) {
     companion object {
         private val CACHE_TTL_MS = TimeUnit.HOURS.toMillis(3)
         private const val MAX_RESPONSE_BYTES = 20L * 1024 * 1024
+
+        // Also the TV guide's own display window (see LiveTvViewModel.guideWindow)
+        // -- kept as the single source of truth so the guide never shows a
+        // time range wider than what's actually been parsed into memory.
+        val LOOKBACK_MS = TimeUnit.HOURS.toMillis(2)
+        val LOOKAHEAD_MS = TimeUnit.HOURS.toMillis(12)
     }
 }

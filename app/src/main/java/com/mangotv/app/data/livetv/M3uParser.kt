@@ -46,7 +46,8 @@ object M3uParser {
                             groupTitle = info.groupTitle?.takeIf { it.isNotBlank() },
                             country = info.country?.takeIf { it.isNotBlank() },
                             tvgId = info.tvgId?.takeIf { it.isNotBlank() },
-                            streamUrl = trimmed
+                            streamUrl = trimmed,
+                            channelNumber = info.channelNumber
                         )
                     }
                 }
@@ -60,6 +61,7 @@ object M3uParser {
         val logo: String?,
         val country: String?,
         val groupTitle: String?,
+        val channelNumber: Int?,
         val name: String
     )
 
@@ -74,6 +76,7 @@ object M3uParser {
             logo = attributes["tvg-logo"],
             country = attributes["tvg-country"],
             groupTitle = attributes["group-title"],
+            channelNumber = attributes["tvg-chno"]?.toIntOrNull(),
             name = name
         )
     }
