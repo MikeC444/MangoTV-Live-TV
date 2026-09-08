@@ -52,6 +52,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.config.LiveTvConfig
 import com.mangotv.app.data.livetv.Channel
+import com.mangotv.app.data.livetv.EpgDiagnostics
 import com.mangotv.app.data.livetv.TimelineBlock
 import com.mangotv.app.navigation.routeForNavLabel
 import com.mangotv.app.ui.components.TvFocusSurface
@@ -106,6 +107,7 @@ fun TvGuideScreen(
     windowStart: Long,
     windowEnd: Long,
     epgVersion: Int,
+    epgDiagnostics: EpgDiagnostics,
     getBlocks: (Channel) -> List<TimelineBlock>,
     onTuneToChannel: (Channel) -> Unit,
     onChangeRegion: () -> Unit,
@@ -170,6 +172,7 @@ fun TvGuideScreen(
         Column(Modifier.fillMaxSize().padding(top = MangoDimens.NavBarHeight)) {
             GuideTitleBar(
                 regionLabel = regionLabel,
+                epgDiagnostics = epgDiagnostics,
                 onChangeRegion = onChangeRegion,
                 changeRegionFocusRequester = changeRegionFocusRequester,
                 changeRegionFocusUp = navFocusRequester,
@@ -233,6 +236,7 @@ fun TvGuideScreen(
 @Composable
 private fun GuideTitleBar(
     regionLabel: String,
+    epgDiagnostics: EpgDiagnostics,
     onChangeRegion: () -> Unit,
     changeRegionFocusRequester: FocusRequester,
     changeRegionFocusUp: FocusRequester,
@@ -269,6 +273,12 @@ private fun GuideTitleBar(
                     .background(MangoAmber, RoundedCornerShape(6.dp))
                     .padding(horizontal = 10.dp, vertical = 4.dp)
             )
+            Spacer(Modifier.width(16.dp))
+            Text(
+                text = epgDiagnosticsLabel(epgDiagnostics),
+                color = TextTertiary,
+                style = MaterialTheme.typography.labelSmall
+            )
         }
         Spacer(Modifier.weight(1f))
         TvFocusSurface(
@@ -290,6 +300,14 @@ private fun GuideTitleBar(
             }
         }
     }
+}
+
+/** Plain-text summary of EpgDiagnostics for the testing-only status line above -- see EpgRepository's own doc for why this exists. */
+private fun epgDiagnosticsLabel(diagnostics: EpgDiagnostics): String = when (diagnostics) {
+    is EpgDiagnostics.NotConfigured -> "EPG: not configured"
+    is EpgDiagnostics.Loading -> "EPG: loading…"
+    is EpgDiagnostics.Failed -> "EPG: failed — ${diagnostics.message}"
+    is EpgDiagnostics.Ready -> "EPG: ${diagnostics.matchedChannelCount}/${diagnostics.knownChannelCount} channels matched, ${diagnostics.programmeCount} programmes"
 }
 
 @Composable

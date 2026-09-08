@@ -13,6 +13,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import com.mangotv.app.data.livetv.Channel
+import com.mangotv.app.data.livetv.EpgDiagnostics
 import com.mangotv.app.data.livetv.LiveTvCatalogState
 import com.mangotv.app.data.livetv.TimelineBlock
 import com.mangotv.app.navigation.routeForNavLabel
@@ -37,6 +38,7 @@ fun LiveTvChannelsScreen(
     windowStart: Long,
     windowEnd: Long,
     epgVersion: Int,
+    epgDiagnostics: EpgDiagnostics,
     getBlocks: (Channel) -> List<TimelineBlock>,
     onSelectRegion: (String?) -> Unit,
     onChangeRegion: () -> Unit,
@@ -72,6 +74,7 @@ fun LiveTvChannelsScreen(
                     windowStart = windowStart,
                     windowEnd = windowEnd,
                     epgVersion = epgVersion,
+                    epgDiagnostics = epgDiagnostics,
                     getBlocks = getBlocks,
                     onTuneToChannel = onChannelClick,
                     onChangeRegion = onChangeRegion,
