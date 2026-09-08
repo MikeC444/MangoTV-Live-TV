@@ -16,6 +16,15 @@ import java.util.TimeZone
  * materializes in memory this way, which matters on a low-RAM Fire TV
  * Stick. Any malformed entry (bad timestamp, missing attribute) is skipped
  * rather than aborting the whole guide.
+ *
+ * `channel` attribute values carry their own "@variant" suffix here (e.g.
+ * confirmed against the live default guide: `channel="AlJazeera.qa@English"`
+ * -- a language tag, not the "@SD"/"@HD" quality tag this app's own
+ * playlist-derived tvg-ids carry for the same base channel). The two
+ * sides' suffixes don't agree with each other at all, so both are
+ * stripped down to the shared base id ("AlJazeera.qa") before matching --
+ * see [knownTvgIds], which Channel.epgChannelId already normalizes the
+ * same way.
  */
 object XmlTvEpgParser {
 
@@ -43,7 +52,7 @@ object XmlTvEpgParser {
                 XmlPullParser.START_TAG -> when (parser.name) {
                     "programme" -> {
                         inProgramme = true
-                        channelAttr = parser.getAttributeValue(null, "channel")
+                        channelAttr = parser.getAttributeValue(null, "channel")?.substringBefore('@')
                         startMs = parseXmlTvTime(parser.getAttributeValue(null, "start"))
                         stopMs = parseXmlTvTime(parser.getAttributeValue(null, "stop"))
                         title = null
