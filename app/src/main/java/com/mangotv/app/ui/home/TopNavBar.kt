@@ -2,7 +2,9 @@ package com.mangotv.app.ui.home
 
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,6 +17,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -35,11 +38,13 @@ import com.mangotv.app.ui.components.MangoLogo
 import com.mangotv.app.ui.components.TvFocusSurface
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoDimens
+import com.mangotv.app.ui.theme.MangoMotion
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
 val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Live TV", "Genres", "Search", "My List", "Settings")
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TopNavBar(
     transparentBackground: Boolean,
@@ -111,19 +116,25 @@ fun TopNavBar(
         // Wrapping only the item list (not the logo) means it's still drawn
         // exactly as before, at its natural (unscrolled) size, whenever it
         // already fits — this only engages once it doesn't.
-        LazyRow(
-            modifier = Modifier.weight(1f, fill = false),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            itemsIndexed(MangoNavItems) { index, label ->
-                NavItem(
-                    label = label,
-                    selected = index == selectedIndex,
-                    onClick = { onItemClick(label) },
-                    focusRequester = if (index == selectedIndex) selectedItemFocusRequester else null,
-                    focusDown = contentFocusRequester
-                )
+        // Fast bring-into-view spec (same one every other horizontally-
+        // scrolling row in the app already uses, see ContentRow.kt) so a
+        // held D-pad moving across nav items doesn't outrun Compose's
+        // slower default spring-based scroll and stutter.
+        CompositionLocalProvider(LocalBringIntoViewSpec provides MangoMotion.FastBringIntoViewSpec) {
+            LazyRow(
+                modifier = Modifier.weight(1f, fill = false),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                itemsIndexed(MangoNavItems) { index, label ->
+                    NavItem(
+                        label = label,
+                        selected = index == selectedIndex,
+                        onClick = { onItemClick(label) },
+                        focusRequester = if (index == selectedIndex) selectedItemFocusRequester else null,
+                        focusDown = contentFocusRequester
+                    )
+                }
             }
         }
     }
@@ -142,6 +153,11 @@ private fun NavItem(
         onClick = onClick,
         shape = RoundedCornerShape(6.dp),
         backgroundColor = Color.Transparent,
+        // White rather than TvFocusSurface's default amber border -- scoped
+        // to just the nav bar via this explicit override, not a global
+        // FocusBorder change, so every other focusable element in the app
+        // (cards, buttons) keeps its usual focus color.
+        borderColor = TextPrimary,
         onFocusChanged = { focused = it },
         bringIntoViewOnFocus = false,
         focusRequester = focusRequester,
