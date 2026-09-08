@@ -9,8 +9,6 @@ import com.mangotv.app.data.model.HomeSection
 import com.mangotv.app.data.provider.CatalogProvider
 import com.mangotv.app.data.provider.HomeRowPreferences
 import com.mangotv.app.data.provider.ProviderRegistry
-import kotlinx.coroutines.async
-import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -39,14 +37,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
-    // Flips true the first time fetch() reaches a genuine settlement on
-    // REAL (network-fetched) data -- success, confirmed-empty, or error --
-    // as opposed to a cache-only paint or one of fetch()'s early-return
-    // "still transient, keep waiting" paths. LoadingScreen (see its own
-    // doc) waits specifically for this rather than uiState reaching
-    // Success, since uiState can reach Success from cache alone, well
-    // before the live catalog fetch that's what LoadingScreen actually
-    // needs to wait for.
+    // Flips true the first time fetch() has REAL (network-fetched) content
+    // to show -- the first batch of rows from any provider, or a genuine
+    // empty/error settlement if there's nothing to show -- as opposed to a
+    // cache-only paint or one of fetch()'s early-return "still transient,
+    // keep waiting" paths. Deliberately fires on the FIRST batch rather
+    // than waiting for the entire fetch (every base+genre row across every
+    // provider) to finish: LoadingScreen (see its own doc) waits for this
+    // so Home can reveal as soon as there's something real to show, with
+    // whatever's still in flight filling in live afterward, rather than
+    // hiding the whole multi-row fetch behind the loading screen.
     private val _liveDataReady = MutableStateFlow(false)
     val liveDataReady: StateFlow<Boolean> = _liveDataReady.asStateFlow()
 
@@ -151,43 +151,67 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         // boot (nothing to show yet) behaves exactly as before.
         if (!showingCacheOnly) _uiState.value = HomeUiState.Loading
 
+        val wasShowingCacheOnly = showingCacheOnly
         val hero = mutableListOf<Content>()
         val sections = mutableListOf<HomeSection>()
         var anyProviderFailed = false
 
-        // Every provider's getHomeSections() is launched together up front,
-        // so all of it runs fully concurrently. Hero items are derived from
-        // each provider's own base/popular row (always first, per
-        // buildSections' ordering) instead of a separate getFeatured() call
-        // -- that used to be a second, independent fetch against the exact
-        // same catalog endpoint on every single Home load.
-        val results = coroutineScope {
-            providers.map { provider -> async { runCatching { provider.getHomeSections() } } }.awaitAll()
-        }
-        results.forEach { result ->
-            result.onSuccess { providerSections ->
-                sections += providerSections
-                hero += providerSections.firstOrNull()?.items.orEmpty().take(3)
-            }.onFailure { anyProviderFailed = true }
+        // Every provider is collected concurrently, and each provider's own
+        // rows arrive in batches (see StremioAddonProvider.buildSectionsFlow)
+        // rather than all at once -- every batch, from any provider, is
+        // published immediately instead of waiting for the entire fetch (up
+        // to ~30 rows per provider) to finish. This is the actual "rows
+        // appear progressively" behavior; the collect{} block below is where
+        // it happens, not a separate pass over a final combined list.
+        coroutineScope {
+            providers.forEach { provider ->
+                launch {
+                    var isFirstBatchForProvider = true
+                    runCatching {
+                        provider.getHomeSections().collect { batch ->
+                            sections += batch
+                            // Hero items come specifically from each
+                            // provider's OWN base/popular row, which is
+                            // always in that provider's first batch (see
+                            // buildSectionsFlow) -- not "whichever section
+                            // happens to be first in whichever batch
+                            // arrives", which later batches would get wrong.
+                            if (isFirstBatchForProvider) {
+                                isFirstBatchForProvider = false
+                                batch.firstOrNull()?.items?.let { items ->
+                                    if (hero.size < 3) hero += items.take(3 - hero.size)
+                                }
+                            }
+                            rawHero = hero.toList()
+                            rawSections = sections.toList()
+                            hasFetchedOnce = true
+                            showingCacheOnly = false
+                            applyPreferences(homeRowPreferences.preferences.value)
+                            _liveDataReady.value = true
+                        }
+                    }.onFailure { anyProviderFailed = true }
+                }
+            }
         }
 
-        if (hero.isEmpty() && sections.isEmpty() && anyProviderFailed && showingCacheOnly) {
-            return
-        }
-
-        rawHero = hero
-        rawSections = sections
         lastFetchFailed = anyProviderFailed
-        hasFetchedOnce = true
-        showingCacheOnly = false
 
-        applyPreferences(homeRowPreferences.preferences.value)
+        if (hero.isEmpty() && sections.isEmpty()) {
+            // Nothing arrived from any provider. If cache was showing and
+            // this is a total failure, leave the stale cache up instead of
+            // replacing it with a hard error -- showingCacheOnly was never
+            // touched above (the collect{} block that flips it never ran),
+            // so it's still true here exactly when that applies.
+            if (anyProviderFailed && wasShowingCacheOnly) return
+            hasFetchedOnce = true
+            showingCacheOnly = false
+            applyPreferences(homeRowPreferences.preferences.value)
+            _liveDataReady.value = true
+        }
 
         if (hero.isNotEmpty() || sections.isNotEmpty()) {
             homeCacheRepository.write(hero, sections)
         }
-
-        _liveDataReady.value = true
     }
 
     private fun applyPreferences(rowPreferences: HomeRowPreferences) {

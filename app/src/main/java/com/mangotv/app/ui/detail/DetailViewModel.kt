@@ -15,6 +15,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 import java.net.URLDecoder
 
@@ -101,6 +102,8 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
         detail: Content
     ): List<Content> {
         val allItems = provider.getHomeSections()
+            .toList()
+            .flatten()
             .flatMap { it.items }
             .distinctBy { it.id }
             .filterNot { it.id == detail.id }

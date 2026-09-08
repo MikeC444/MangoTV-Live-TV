@@ -43,27 +43,33 @@ import kotlinx.coroutines.withTimeoutOrNull
 
 private const val PRELOAD_CARD_COUNT = 6
 
-// Generous rather than tight: this now covers BOTH waiting for the live
-// Cinemeta/addon catalog fetch to actually settle AND preloading the
-// images that fetch produces, so it needs real headroom for a slow
-// connection on top of the image work. Still bounded -- a genuinely
-// offline device or a dead image host can't hold this screen up forever;
-// Home just appears with whatever didn't finish loading in time, same
-// as it would have without this screen at all.
-private const val READY_TIMEOUT_MS = 20_000L
+// liveDataReady now fires on the FIRST batch of rows (see its own doc) --
+// typically just one round of up to HOME_BATCH_SIZE concurrent catalog
+// requests, not the entire ~30-row fetch -- so the common-case wait here is
+// short. Still meaningfully generous, not tight: a slow connection's first
+// batch, plus preloading its images, both need real room. Still bounded --
+// a genuinely offline device or a dead image host can't hold this screen up
+// forever; Home just appears with whatever didn't finish loading in time,
+// same as it would have without this screen at all. Any rows still in
+// flight after this screen hands off keep loading live on Home itself,
+// same as buildSectionsFlow's later batches always did.
+private const val READY_TIMEOUT_MS = 10_000L
 
 /**
  * Branded cold-boot gate: shown once, in place of the real UI, the moment
  * the app opens -- see MangoNavHost, which renders this instead of the
- * NavHost until [homeViewModel]'s live catalog fetch has actually settled
- * AND the resulting hero/poster images are preloaded into Coil's cache, so
- * Home appears already fully populated with no visible pop-in. Deliberately
- * waits for [HomeViewModel.liveDataReady] rather than [HomeViewModel.uiState]
- * reaching Success -- uiState can reach Success from cache alone, well
- * before the live fetch this screen actually needs to wait for (see
- * liveDataReady's own doc). Never shown again for the rest of the
- * process's lifetime (switching tabs, backgrounding/foregrounding, etc.
- * don't re-trigger it), matching "only on cold boot".
+ * NavHost until [homeViewModel] has its FIRST batch of real (network-
+ * fetched) rows AND the resulting hero/poster images are preloaded into
+ * Coil's cache, so Home appears already populated with no visible pop-in
+ * for what's shown at that point. Rows beyond the first batch keep loading
+ * live on Home itself afterward -- this screen isn't meant to hide the
+ * entire multi-row fetch, just get the first, immediately-visible screenful
+ * ready before reveal. Deliberately waits for [HomeViewModel.liveDataReady]
+ * rather than [HomeViewModel.uiState] reaching Success -- uiState can reach
+ * Success from cache alone, well before any live data (see liveDataReady's
+ * own doc). Never shown again for the rest of the process's lifetime
+ * (switching tabs, backgrounding/foregrounding, etc. don't re-trigger it),
+ * matching "only on cold boot".
  */
 @Composable
 fun LoadingScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
