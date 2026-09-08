@@ -1,5 +1,6 @@
 package com.mangotv.app.ui.components
 
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -64,6 +65,14 @@ fun TvFocusSurface(
     // fixed size while the focused card scaled up around it.
     alwaysShowBorder: Boolean = false,
     borderColor: Color = FocusBorder,
+    // Defaults to the same shared timing as scale/elevation. A caller with
+    // several adjacent focusable siblings whose borders fade independently
+    // (e.g. the top nav bar) can override this to something near-instant --
+    // otherwise the outgoing item's fade-out and the incoming item's
+    // fade-in both take the full duration and visibly overlap, reading as
+    // the border "lagging behind" on the previously-focused item instead of
+    // a clean handoff.
+    borderAnimationSpec: AnimationSpec<Float> = MangoMotion.focusTween,
     content: @Composable BoxScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -87,7 +96,7 @@ fun TvFocusSurface(
     )
     val borderAlpha by animateFloatAsState(
         targetValue = if (isFocused || alwaysShowBorder) 1f else 0f,
-        animationSpec = MangoMotion.focusTween,
+        animationSpec = borderAnimationSpec,
         label = "focusBorder"
     )
 

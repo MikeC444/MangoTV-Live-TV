@@ -1,6 +1,7 @@
 package com.mangotv.app.ui.home
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
@@ -158,6 +159,12 @@ private fun NavItem(
         // FocusBorder change, so every other focusable element in the app
         // (cards, buttons) keeps its usual focus color.
         borderColor = TextPrimary,
+        // Adjacent nav items are separate TvFocusSurfaces, each fading its
+        // own border independently -- with the shared 150ms fade, the
+        // outgoing item's fade-out and the incoming item's fade-in overlap
+        // and read as the border lagging behind on the previous item.
+        // Snapping it instant gives a clean, immediate handoff instead.
+        borderAnimationSpec = snap(),
         onFocusChanged = { focused = it },
         bringIntoViewOnFocus = false,
         focusRequester = focusRequester,
