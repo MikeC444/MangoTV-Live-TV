@@ -12,6 +12,7 @@ import com.mangotv.app.data.provider.ProviderRegistry
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -94,13 +95,30 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             // silently defeating caching on exactly the cold-boot case it
             // exists for. Awaiting first removes the race instead of hoping
             // timing favors the cache.
-            homeCacheRepository.read()?.let { (hero, sections) ->
+            val paintedFromCache = homeCacheRepository.read()?.let { (hero, sections) ->
                 rawHero = hero
                 rawSections = sections
                 hasFetchedOnce = true
                 showingCacheOnly = true
                 applyPreferences(homeRowPreferences.preferences.value)
-            }
+                true
+            } ?: false
+
+            // Cached rows appearing instantly means their poster/hero
+            // images now start loading at the very same moment as the live
+            // background refresh below -- before, nothing was visible (and
+            // so no images were being requested) until that refresh had
+            // already finished, so image loading and the refresh's burst of
+            // concurrent catalog requests never competed for network/CPU on
+            // the same constrained hardware. Giving the already-visible
+            // images a short head start before that burst starts fixes the
+            // "posters load in slower now" regression this cache otherwise
+            // introduced. Skipped entirely on a cache miss -- nothing is
+            // showing yet in that case, so there's nothing to protect and
+            // the live fetch should still start immediately, same as before
+            // this cache existed.
+            if (paintedFromCache) delay(IMAGE_HEAD_START_MS)
+
             // Network fetch is keyed ONLY on the provider list (an addon
             // being installed, removed, enabled or disabled) -- NOT on
             // preferences. These two used to be combined into one trigger,
@@ -186,5 +204,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             lastFetchFailed -> HomeUiState.Error("Couldn't reach your installed addons. Check your connection and try again.")
             else -> HomeUiState.Empty
         }
+    }
+
+    private companion object {
+        // How long to let cached content's own poster/hero images start
+        // loading before the live background refresh's burst of concurrent
+        // catalog requests joins in and starts competing with them -- see
+        // the comment where this is used. Not precisely tuned against a
+        // real device; a reasonable starting point to verify and adjust.
+        const val IMAGE_HEAD_START_MS = 1500L
     }
 }
