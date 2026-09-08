@@ -118,7 +118,7 @@ class LiveTvViewModel(application: Application) : AndroidViewModel(application) 
     }
 
     fun timelineBlocksFor(channel: Channel, windowStart: Long, windowEnd: Long): List<TimelineBlock> {
-        val programmes = epgRepository.programmesInRange(channel.tvgId, windowStart, windowEnd)
+        val programmes = epgRepository.programmesInRange(channel.epgChannelId, windowStart, windowEnd)
         return buildTimelineBlocks(programmes, windowStart, windowEnd)
     }
 
@@ -155,7 +155,7 @@ class LiveTvViewModel(application: Application) : AndroidViewModel(application) 
                 _uiState.value = LiveTvUiState.Unlocked(catalogState)
                 if (catalogState is LiveTvCatalogState.Loaded) {
                     epgRepository.load(
-                        knownTvgIds = catalogState.allChannels.mapNotNull { it.tvgId }.toSet(),
+                        knownTvgIds = catalogState.allChannels.mapNotNull { it.epgChannelId }.toSet(),
                         fallbackUrl = catalogState.discoveredEpgUrl
                     )
                 }

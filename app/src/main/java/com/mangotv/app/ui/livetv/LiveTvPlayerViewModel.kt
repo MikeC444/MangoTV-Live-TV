@@ -48,5 +48,5 @@ class LiveTvPlayerViewModel(
         }
     }
 
-    fun nowAndNext(channel: Channel): NowNext = epgRepository.nowAndNext(channel.tvgId)
+    fun nowAndNext(channel: Channel): NowNext = epgRepository.nowAndNext(channel.epgChannelId)
 }

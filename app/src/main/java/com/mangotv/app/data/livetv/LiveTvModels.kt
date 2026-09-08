@@ -22,7 +22,19 @@ data class Channel(
     // in the guide otherwise. Nullable/defaulted so old cached JSON without
     // this field still decodes fine (see LiveTvRepository's disk cache).
     val channelNumber: Int? = null
-)
+) {
+    // XMLTV guides key programmes by the "base" channel id -- this
+    // playlist's own tvg-id carries a "@SD"/"@HD" quality suffix (e.g.
+    // "00sReplay.us@SD") that guides don't include (confirmed against
+    // iptv-org's own logos.json, whose "channel" field for the same entry
+    // is "00sReplay.us", no suffix). EPG lookups (EpgRepository.nowAndNext/
+    // programmesInRange) use this instead of the raw tvgId; nothing else
+    // does -- Channel.id/tvgId keep the suffix so SD/HD stay distinct
+    // catalog entries. Not a stored field: kotlinx.serialization only
+    // serializes primary-constructor properties, so this recomputes for
+    // free from cached data too.
+    val epgChannelId: String? get() = tvgId?.substringBefore('@')
+}
 
 data class ChannelSection(
     val id: String,
