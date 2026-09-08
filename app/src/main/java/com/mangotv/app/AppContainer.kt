@@ -6,6 +6,7 @@ import com.mangotv.app.data.entitlement.EntitlementRepository
 import com.mangotv.app.data.livetv.EpgRepository
 import com.mangotv.app.data.livetv.LiveTvRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
+import com.mangotv.app.data.provider.HomeCacheRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
 
@@ -36,6 +37,10 @@ import com.mangotv.app.data.provider.MyListRepository
  * myListRepository is the same story again — only Home's hero, Detail's
  * hero, and the My List screen ever touch it.
  *
+ * homeCacheRepository is the same story again — only HomeViewModel ever
+ * touches it (to paint instantly from the last successful fetch on cold
+ * boot instead of a blank skeleton every launch; see its own doc).
+ *
  * entitlementRepository/liveTvRepository/epgRepository follow the same lazy
  * pattern once more — only the Live TV screen and its player ever touch
  * them, and entitlementRepository in particular starts a background polling
@@ -47,6 +52,7 @@ class AppContainer(context: Context) {
     val playerPreferencesRepository: PlayerPreferencesRepository by lazy { PlayerPreferencesRepository(context) }
     val homeRowPreferencesRepository: HomeRowPreferencesRepository by lazy { HomeRowPreferencesRepository(context) }
     val myListRepository: MyListRepository by lazy { MyListRepository(context) }
+    val homeCacheRepository: HomeCacheRepository by lazy { HomeCacheRepository(context) }
     val entitlementRepository: EntitlementRepository by lazy { EntitlementRepository(context) }
     val liveTvRepository: LiveTvRepository by lazy { LiveTvRepository(context) }
     val epgRepository: EpgRepository by lazy { EpgRepository(context) }

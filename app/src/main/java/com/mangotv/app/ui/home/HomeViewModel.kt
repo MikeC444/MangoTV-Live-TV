@@ -34,6 +34,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val homeRowPreferences = (application as MangoTvApplication).container.homeRowPreferencesRepository
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
+    private val homeCacheRepository = (application as MangoTvApplication).container.homeCacheRepository
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -52,19 +53,64 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private var lastFetchFailed = false
     private var hasFetchedOnce = false
 
+    // True once cold-boot cache has painted Home but before the first real
+    // (network) fetch has settled. Used two ways below: (1) an empty
+    // provider list during this window means "addon restore hasn't
+    // registered anything yet", not "user genuinely has no addons", so it
+    // shouldn't wipe a perfectly good cached screen back to empty; (2) a
+    // total fetch failure during this window (e.g. no network on this
+    // launch) leaves the stale cache up rather than replacing it with a
+    // hard error -- still-stale content beats no content, and the next
+    // successful fetch (this session or next cold boot) replaces it.
+    //
+    // Known trade-off: there's no reliable signal here to tell "restore
+    // hasn't registered anything yet" apart from "the user really did just
+    // remove their last addon" -- both look identical (one empty-list
+    // emission, ProviderRegistry never re-emits an unchanged value) from
+    // this ViewModel's perspective. Cold-booting right after removing every
+    // addon can briefly show stale cached rows instead of the Empty state
+    // until providers changes again. Accepted as rare/self-correcting
+    // rather than adding cross-repository "restore settled" signaling for
+    // it.
+    private var showingCacheOnly = false
+
     fun toggleMyList(content: Content) {
         viewModelScope.launch { myListRepository.toggle(content) }
     }
 
     init {
-        // Network fetch is keyed ONLY on the provider list (an addon being
-        // installed, removed, enabled or disabled) -- NOT on preferences.
-        // These two used to be combined into one trigger, which meant the
-        // (independently-resolving) preferences DataStore read settling
-        // shortly after providers did on cold boot fired a second full
-        // network re-fetch, doubling perceived load time for no reason.
         viewModelScope.launch {
-            ProviderRegistry.providers.collect { providers -> fetch(providers) }
+            // Paints instantly from whatever the last successful live fetch
+            // produced, before the real network fetch even starts -- see
+            // HomeCacheRepository's own doc. This is deliberately awaited
+            // (not just launched) before starting the providers collector
+            // below: ProviderRegistry starts empty and only fills in once
+            // addon restore finishes elsewhere, and that collector's very
+            // first (possibly still-empty) emission runs fully
+            // synchronously up to its own next suspension point. Launching
+            // both at once let that first emission's synchronous branch
+            // race ahead of this coroutine's disk read and mark
+            // hasFetchedOnce = true before the cache ever got a chance --
+            // silently defeating caching on exactly the cold-boot case it
+            // exists for. Awaiting first removes the race instead of hoping
+            // timing favors the cache.
+            homeCacheRepository.read()?.let { (hero, sections) ->
+                rawHero = hero
+                rawSections = sections
+                hasFetchedOnce = true
+                showingCacheOnly = true
+                applyPreferences(homeRowPreferences.preferences.value)
+            }
+            // Network fetch is keyed ONLY on the provider list (an addon
+            // being installed, removed, enabled or disabled) -- NOT on
+            // preferences. These two used to be combined into one trigger,
+            // which meant the (independently-resolving) preferences
+            // DataStore read settling shortly after providers did on cold
+            // boot fired a second full network re-fetch, doubling
+            // perceived load time for no reason.
+            launch {
+                ProviderRegistry.providers.collect { providers -> fetch(providers) }
+            }
         }
         // Preference changes just re-apply the already-fetched raw data.
         viewModelScope.launch {
@@ -77,9 +123,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     }
 
     private suspend fun fetch(providers: List<CatalogProvider>) {
-        _uiState.value = HomeUiState.Loading
-
         if (providers.isEmpty()) {
+            if (showingCacheOnly) return
             rawHero = emptyList()
             rawSections = emptyList()
             lastFetchFailed = false
@@ -87,6 +132,12 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             _uiState.value = HomeUiState.Empty
             return
         }
+
+        // Keep showing cached content while this fetch is in flight rather
+        // than flashing back to the loading skeleton -- that would defeat
+        // the entire point of painting from cache first. A cache-less cold
+        // boot (nothing to show yet) behaves exactly as before.
+        if (!showingCacheOnly) _uiState.value = HomeUiState.Loading
 
         val hero = mutableListOf<Content>()
         val sections = mutableListOf<HomeSection>()
@@ -108,12 +159,21 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             }.onFailure { anyProviderFailed = true }
         }
 
+        if (hero.isEmpty() && sections.isEmpty() && anyProviderFailed && showingCacheOnly) {
+            return
+        }
+
         rawHero = hero
         rawSections = sections
         lastFetchFailed = anyProviderFailed
         hasFetchedOnce = true
+        showingCacheOnly = false
 
         applyPreferences(homeRowPreferences.preferences.value)
+
+        if (hero.isNotEmpty() || sections.isNotEmpty()) {
+            homeCacheRepository.write(hero, sections)
+        }
     }
 
     private fun applyPreferences(rowPreferences: HomeRowPreferences) {
