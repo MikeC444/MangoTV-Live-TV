@@ -12,42 +12,88 @@ import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.collectAsState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.lifecycle.viewmodel.compose.viewModel
+import coil.imageLoader
+import coil.request.ImageRequest
 import com.mangotv.app.R
+import com.mangotv.app.ui.home.HomeUiState
+import com.mangotv.app.ui.home.HomeViewModel
 import com.mangotv.app.ui.theme.MangoAmber
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoCoral
 import com.mangotv.app.ui.theme.MangoSurfaceHigh
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.first
+import kotlinx.coroutines.withTimeoutOrNull
+
+private const val PRELOAD_CARD_COUNT = 6
+
+// Generous rather than tight: this now covers BOTH waiting for the live
+// Cinemeta/addon catalog fetch to actually settle AND preloading the
+// images that fetch produces, so it needs real headroom for a slow
+// connection on top of the image work. Still bounded -- a genuinely
+// offline device or a dead image host can't hold this screen up forever;
+// Home just appears with whatever didn't finish loading in time, same
+// as it would have without this screen at all.
+private const val READY_TIMEOUT_MS = 20_000L
 
 /**
  * Branded cold-boot gate: shown once, in place of the real UI, the moment
  * the app opens -- see MangoNavHost, which renders this instead of the
- * NavHost until LoadingViewModel decides Home has something ready to show
- * with no visible image pop-in. Never shown again for the rest of the
+ * NavHost until [homeViewModel]'s live catalog fetch has actually settled
+ * AND the resulting hero/poster images are preloaded into Coil's cache, so
+ * Home appears already fully populated with no visible pop-in. Deliberately
+ * waits for [HomeViewModel.liveDataReady] rather than [HomeViewModel.uiState]
+ * reaching Success -- uiState can reach Success from cache alone, well
+ * before the live fetch this screen actually needs to wait for (see
+ * liveDataReady's own doc). Never shown again for the rest of the
  * process's lifetime (switching tabs, backgrounding/foregrounding, etc.
  * don't re-trigger it), matching "only on cold boot".
  */
 @Composable
-fun LoadingScreen(onReady: () -> Unit, viewModel: LoadingViewModel = viewModel()) {
-    val isReady by viewModel.isReady.collectAsState()
+fun LoadingScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
+    val context = LocalContext.current
 
-    LaunchedEffect(isReady) {
-        if (isReady) onReady()
+    LaunchedEffect(Unit) {
+        withTimeoutOrNull(READY_TIMEOUT_MS) {
+            homeViewModel.liveDataReady.first { it }
+
+            val state = homeViewModel.uiState.value
+            if (state is HomeUiState.Success) {
+                val urlsToPreload = buildList {
+                    state.heroItems.firstOrNull()?.let { first ->
+                        first.backdropUrl?.let(::add)
+                        first.logoUrl?.let(::add)
+                    }
+                    state.sections.firstOrNull()?.items?.take(PRELOAD_CARD_COUNT)?.forEach { item ->
+                        item.posterUrl?.let(::add)
+                    }
+                }.distinct()
+
+                val imageLoader = context.imageLoader
+                coroutineScope {
+                    urlsToPreload.map { url ->
+                        async { runCatching { imageLoader.execute(ImageRequest.Builder(context).data(url).build()) } }
+                    }.awaitAll()
+                }
+            }
+        }
+        onReady()
     }
 
     Box(

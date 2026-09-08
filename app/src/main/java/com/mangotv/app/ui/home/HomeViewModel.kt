@@ -39,6 +39,17 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
 
+    // Flips true the first time fetch() reaches a genuine settlement on
+    // REAL (network-fetched) data -- success, confirmed-empty, or error --
+    // as opposed to a cache-only paint or one of fetch()'s early-return
+    // "still transient, keep waiting" paths. LoadingScreen (see its own
+    // doc) waits specifically for this rather than uiState reaching
+    // Success, since uiState can reach Success from cache alone, well
+    // before the live catalog fetch that's what LoadingScreen actually
+    // needs to wait for.
+    private val _liveDataReady = MutableStateFlow(false)
+    val liveDataReady: StateFlow<Boolean> = _liveDataReady.asStateFlow()
+
     val savedIds: StateFlow<Set<String>> = myListRepository.items
         .map { items -> items.map { it.id }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
@@ -130,6 +141,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             lastFetchFailed = false
             hasFetchedOnce = true
             _uiState.value = HomeUiState.Empty
+            _liveDataReady.value = true
             return
         }
 
@@ -174,6 +186,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (hero.isNotEmpty() || sections.isNotEmpty()) {
             homeCacheRepository.write(hero, sections)
         }
+
+        _liveDataReady.value = true
     }
 
     private fun applyPreferences(rowPreferences: HomeRowPreferences) {

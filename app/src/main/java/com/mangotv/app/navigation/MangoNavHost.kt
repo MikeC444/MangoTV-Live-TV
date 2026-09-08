@@ -9,6 +9,7 @@ import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
+import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.ui.browse.MoviesScreen
 import com.mangotv.app.ui.browse.TvShowsScreen
@@ -19,6 +20,7 @@ import com.mangotv.app.ui.search.SearchScreen
 import com.mangotv.app.ui.loading.LoadingScreen
 import com.mangotv.app.ui.mylist.MyListScreen
 import com.mangotv.app.ui.home.HomeScreen
+import com.mangotv.app.ui.home.HomeViewModel
 import com.mangotv.app.ui.livetv.LiveTvPlayerScreen
 import com.mangotv.app.ui.livetv.LiveTvScreen
 import com.mangotv.app.ui.player.PlayerScreen
@@ -42,6 +44,14 @@ private val TAB_ROOT_ROUTES = setOf(
 
 @Composable
 fun MangoNavHost() {
+    // Constructed here, outside any NavHost destination, so it's scoped to
+    // the Activity rather than to Home's own back-stack entry -- LoadingScreen
+    // and the HOME destination below share this exact instance instead of
+    // each getting their own. Sharing it is what lets LoadingScreen observe
+    // (and preload images for) the SAME fetch Home itself ends up showing,
+    // rather than duplicating that fetch a second time once Home mounts.
+    val homeViewModel: HomeViewModel = viewModel()
+
     // Shown once, in place of the real nav graph, on cold boot -- see
     // LoadingScreen's own doc. This flag lives only in this composable's
     // memory, so it's never re-armed for the rest of the process's
@@ -49,7 +59,7 @@ fun MangoNavHost() {
     // recompose MangoNavHost from scratch).
     var isAppReady by remember { mutableStateOf(false) }
     if (!isAppReady) {
-        LoadingScreen(onReady = { isAppReady = true })
+        LoadingScreen(homeViewModel = homeViewModel, onReady = { isAppReady = true })
         return
     }
 
@@ -70,7 +80,8 @@ fun MangoNavHost() {
     NavHost(navController = navController, startDestination = MangoRoutes.HOME) {
         composable(MangoRoutes.HOME) {
             HomeScreen(
-                onNavigate = ::navigateTo
+                onNavigate = ::navigateTo,
+                viewModel = homeViewModel
             )
         }
         composable(MangoRoutes.SETTINGS) {
