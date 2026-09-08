@@ -53,6 +53,7 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
 import coil.compose.AsyncImagePainter
 import com.mangotv.app.data.model.Content
@@ -229,10 +230,20 @@ fun HeroSection(
                     current.runtimeMinutes?.let { add("${it / 60}h ${it % 60}m") }
                     current.rating?.let { add("★ ${"%.1f".format(it)}") }
                 }
+                // Sized down from the shared titleMedium/bodyMedium/bodyLarge
+                // tokens via .copy() (font family/weight/letter-spacing still
+                // come from them) rather than editing those tokens directly
+                // in Type.kt -- this is scoped to the hero's own meta/genre/
+                // description text specifically, not every other screen that
+                // happens to use the same named styles.
                 Text(
                     text = metaParts.joinToString("   •   "),
                     color = Color.White,
-                    style = MaterialTheme.typography.titleMedium.copy(shadow = HeroTextShadow),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
+                        shadow = HeroTextShadow
+                    ),
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -242,7 +253,11 @@ fun HeroSection(
                 Text(
                     text = current.genres.joinToString("  ·  ") { it.name },
                     color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium.copy(shadow = HeroTextShadow)
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        shadow = HeroTextShadow
+                    )
                 )
             }
 
@@ -251,7 +266,11 @@ fun HeroSection(
             Text(
                 text = current.description,
                 color = Color.White,
-                style = MaterialTheme.typography.bodyLarge.copy(shadow = HeroTextShadow),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    shadow = HeroTextShadow
+                ),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
