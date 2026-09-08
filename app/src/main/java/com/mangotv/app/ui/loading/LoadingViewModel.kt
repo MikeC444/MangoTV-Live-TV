@@ -54,11 +54,15 @@ class LoadingViewModel(application: Application) : AndroidViewModel(application)
                 }.distinct()
 
                 // Bounded rather than open-ended: a slow or unreachable
-                // poster host shouldn't be able to hold the loading screen
-                // up forever -- worst case here is no worse than today,
-                // since anything not preloaded in time just loads in
+                // poster host still shouldn't be able to hold the loading
+                // screen up forever -- worst case here is no worse than
+                // today, since anything not preloaded in time just loads in
                 // normally once Home is shown, same as before this screen
-                // existed.
+                // existed. Deliberately generous rather than tight: the
+                // whole point of this screen is to give the initial images
+                // real room to finish before reveal, so a short ceiling
+                // that cuts them off early just reintroduces the pop-in
+                // this screen exists to avoid.
                 withTimeoutOrNull(PRELOAD_TIMEOUT_MS) {
                     coroutineScope {
                         urlsToPreload.map { url ->
@@ -78,6 +82,6 @@ class LoadingViewModel(application: Application) : AndroidViewModel(application)
 
     private companion object {
         const val PRELOAD_CARD_COUNT = 6
-        const val PRELOAD_TIMEOUT_MS = 4000L
+        const val PRELOAD_TIMEOUT_MS = 15000L
     }
 }
