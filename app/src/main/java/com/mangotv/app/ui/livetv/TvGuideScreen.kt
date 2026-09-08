@@ -46,12 +46,10 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import coil.compose.AsyncImage
 import com.mangotv.app.config.LiveTvConfig
 import com.mangotv.app.data.livetv.Channel
 import com.mangotv.app.data.livetv.TimelineBlock
@@ -307,9 +305,13 @@ private fun GuideHeader(entry: FocusedGuideEntry?) {
             modifier = Modifier.size(56.dp).background(MangoSurface, RoundedCornerShape(8.dp)),
             contentAlignment = Alignment.Center
         ) {
-            val logo = entry?.channel?.logoUrl
-            if (!logo.isNullOrBlank()) {
-                AsyncImage(model = logo, contentDescription = null, contentScale = ContentScale.Fit, modifier = Modifier.fillMaxSize(0.75f))
+            val channel = entry?.channel
+            if (channel != null) {
+                ChannelLogo(
+                    channel = channel,
+                    modifier = Modifier.fillMaxSize(0.75f),
+                    monogramStyle = MaterialTheme.typography.titleMedium
+                )
             } else {
                 Icon(imageVector = Icons.Filled.LiveTv, contentDescription = null, tint = TextTertiary)
             }
@@ -430,15 +432,8 @@ private fun ChannelCell(channel: Channel, displayNumber: Int, modifier: Modifier
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.width(28.dp)
         )
-        if (!channel.logoUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = channel.logoUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.size(32.dp)
-            )
-            Spacer(Modifier.width(10.dp))
-        }
+        ChannelLogo(channel = channel, modifier = Modifier.size(32.dp))
+        Spacer(Modifier.width(10.dp))
         Text(
             text = channel.name,
             color = TextPrimary,

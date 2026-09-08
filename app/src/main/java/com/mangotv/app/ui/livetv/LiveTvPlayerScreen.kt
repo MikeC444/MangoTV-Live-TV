@@ -41,7 +41,6 @@ import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
 import androidx.compose.ui.text.font.FontWeight
@@ -52,7 +51,6 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.MediaItem
-import coil.compose.AsyncImage
 import com.mangotv.app.data.livetv.Channel
 import com.mangotv.app.data.livetv.NowNext
 import com.mangotv.app.ui.components.MangoButton
@@ -202,15 +200,8 @@ private fun LiveTvPlayerOverlay(channel: Channel, nowNext: NowNext) {
             .padding(horizontal = 40.dp, vertical = 28.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        if (!channel.logoUrl.isNullOrBlank()) {
-            AsyncImage(
-                model = channel.logoUrl,
-                contentDescription = null,
-                contentScale = ContentScale.Fit,
-                modifier = Modifier.height(40.dp).width(80.dp)
-            )
-            Spacer(Modifier.width(16.dp))
-        }
+        ChannelLogo(channel = channel, modifier = Modifier.height(40.dp).width(80.dp))
+        Spacer(Modifier.width(16.dp))
         Column {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Box(
