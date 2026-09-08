@@ -11,12 +11,21 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Text
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Bookmark
+import androidx.compose.material.icons.filled.Category
+import androidx.compose.material.icons.filled.Home
+import androidx.compose.material.icons.filled.LiveTv
+import androidx.compose.material.icons.filled.Movie
+import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Tv
+import androidx.compose.material3.Icon
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -28,12 +37,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.ui.components.MangoLogo
 import com.mangotv.app.ui.components.TvFocusSurface
@@ -44,6 +53,21 @@ import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
 val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Live TV", "Genres", "Search", "My List", "Settings")
+
+// Icon-only nav items (see NavItem below) -- keeps MangoNavItems' strings as
+// the source of truth for routing/selection, this is purely the label ->
+// glyph lookup for rendering.
+private fun iconFor(label: String): ImageVector = when (label) {
+    "Home" -> Icons.Filled.Home
+    "Movies" -> Icons.Filled.Movie
+    "TV Shows" -> Icons.Filled.Tv
+    "Live TV" -> Icons.Filled.LiveTv
+    "Genres" -> Icons.Filled.Category
+    "Search" -> Icons.Filled.Search
+    "My List" -> Icons.Filled.Bookmark
+    "Settings" -> Icons.Filled.Settings
+    else -> Icons.Filled.Home
+}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -170,12 +194,13 @@ private fun NavItem(
         focusRequester = focusRequester,
         focusDown = focusDown
     ) {
-        Text(
-            text = label,
-            color = if (focused || selected) TextPrimary else TextSecondary,
-            fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+        Icon(
+            imageVector = iconFor(label),
+            contentDescription = label,
+            tint = if (focused || selected) TextPrimary else TextSecondary,
+            modifier = Modifier
+                .padding(14.dp)
+                .size(26.dp)
         )
     }
 }
