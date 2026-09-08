@@ -11,21 +11,12 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.Bookmark
-import androidx.compose.material.icons.filled.Category
-import androidx.compose.material.icons.filled.Home
-import androidx.compose.material.icons.filled.LiveTv
-import androidx.compose.material.icons.filled.Movie
-import androidx.compose.material.icons.filled.Search
-import androidx.compose.material.icons.filled.Settings
-import androidx.compose.material.icons.filled.Tv
-import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
@@ -37,12 +28,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
+import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.ui.components.MangoLogo
 import com.mangotv.app.ui.components.TvFocusSurface
@@ -53,21 +44,6 @@ import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
 val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Live TV", "Genres", "Search", "My List", "Settings")
-
-// Icon-only nav items (see NavItem below) -- keeps MangoNavItems' strings as
-// the source of truth for routing/selection, this is purely the label ->
-// glyph lookup for rendering.
-private fun iconFor(label: String): ImageVector = when (label) {
-    "Home" -> Icons.Filled.Home
-    "Movies" -> Icons.Filled.Movie
-    "TV Shows" -> Icons.Filled.Tv
-    "Live TV" -> Icons.Filled.LiveTv
-    "Genres" -> Icons.Filled.Category
-    "Search" -> Icons.Filled.Search
-    "My List" -> Icons.Filled.Bookmark
-    "Settings" -> Icons.Filled.Settings
-    else -> Icons.Filled.Home
-}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -149,7 +125,13 @@ fun TopNavBar(
             LazyRow(
                 modifier = Modifier.weight(1f, fill = false),
                 verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                // Tightened from 8dp -- at the old spacing plus the old
+                // (larger) label size, 8 items no longer fit one screen
+                // width once Live TV was added, so this row started
+                // scrolling. See NavItem's smaller labelMedium text below;
+                // together these reclaim enough width that it shouldn't
+                // need to anymore.
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
                 itemsIndexed(MangoNavItems) { index, label ->
                     NavItem(
@@ -202,13 +184,16 @@ private fun NavItem(
         focusRequester = focusRequester,
         focusDown = focusDown
     ) {
-        Icon(
-            imageVector = iconFor(label),
-            contentDescription = label,
-            tint = if (focused || selected) TextPrimary else TextSecondary,
-            modifier = Modifier
-                .padding(14.dp)
-                .size(26.dp)
+        Text(
+            text = label,
+            color = if (focused || selected) TextPrimary else TextSecondary,
+            fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
+            // labelMedium (13sp) rather than the original titleMedium
+            // (16sp) -- see the tightened item spacing above, both
+            // together are needed to fit all 8 items (Live TV pushed
+            // this over) without the row falling back to scrolling.
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
         )
     }
 }
