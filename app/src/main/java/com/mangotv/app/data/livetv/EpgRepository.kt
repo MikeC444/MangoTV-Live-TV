@@ -21,22 +21,6 @@ import java.io.Reader
 import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
-/** Real, on-device visibility into what EpgRepository actually did on its last load attempt -- see its own doc. */
-sealed interface EpgDiagnostics {
-    data object NotConfigured : EpgDiagnostics
-    data class Loading(val sourceUrl: String) : EpgDiagnostics
-    data class Failed(val sourceUrl: String, val message: String) : EpgDiagnostics
-    data class Ready(
-        val sourceUrl: String,
-        val matchedChannelCount: Int,
-        val knownChannelCount: Int,
-        val programmeCount: Int,
-        val guideChannelCount: Int,
-        val sampleGuideChannelIds: List<String>,
-        val sampleKnownChannelIds: List<String>
-    ) : EpgDiagnostics
-}
-
 /**
  * Best-effort EPG support: uses EPG_URL if explicitly configured (see
  * LiveTvConfig.isEpgConfigured), otherwise falls back to whatever EPG
@@ -72,16 +56,6 @@ class EpgRepository(context: Context) {
     private val _epgVersion = MutableStateFlow(0)
     val epgVersion: StateFlow<Int> = _epgVersion.asStateFlow()
 
-    // Real, on-device visibility into what actually happened -- this
-    // wasn't originally exposed anywhere, which made "the guide shows no
-    // programme information" impossible to root-cause without adding
-    // logging and reading logcat. Surfaced by LiveTvViewModel/TvGuideScreen
-    // (only while LiveTvConfig.skipPaywallForTesting is on) as a plain
-    // status line, so what's actually happening can be read straight off
-    // the TV instead of guessed at.
-    private val _diagnostics = MutableStateFlow<EpgDiagnostics>(EpgDiagnostics.NotConfigured)
-    val diagnostics: StateFlow<EpgDiagnostics> = _diagnostics.asStateFlow()
-
     fun nowAndNext(tvgId: String?, atEpochMs: Long = System.currentTimeMillis()): NowNext {
         if (tvgId == null) return NowNext(null, null)
         val programmes = programmesByChannel[tvgId] ?: return NowNext(null, null)
@@ -107,47 +81,25 @@ class EpgRepository(context: Context) {
      */
     fun load(knownTvgIds: Set<String>, fallbackUrl: String? = null) {
         val url = if (LiveTvConfig.isEpgConfigured) LiveTvConfig.epgUrl else fallbackUrl?.takeIf { it.isNotBlank() }
-        if (url == null) {
-            _diagnostics.value = EpgDiagnostics.NotConfigured
-            return
-        }
-        if (knownTvgIds.isEmpty() || isReady) return
-        _diagnostics.value = EpgDiagnostics.Loading(url)
+        if (url == null || knownTvgIds.isEmpty() || isReady) return
         scope.launch { loadInternal(knownTvgIds, url) }
     }
 
     private suspend fun loadInternal(knownTvgIds: Set<String>, url: String) = loadMutex.withLock {
         if (isReady) return@withLock
         withContext(Dispatchers.IO) {
-            val bytes = fetchOrReadCache(url)
-            if (bytes == null) {
-                _diagnostics.value = EpgDiagnostics.Failed(url, "Couldn't download the guide and no cached copy was available.")
-                return@withContext
-            }
+            val bytes = fetchOrReadCache(url) ?: return@withContext
             runCatching {
                 val now = System.currentTimeMillis()
                 openReader(bytes).use { reader ->
-                    XmlTvEpgParser.parse(
+                    programmesByChannel = XmlTvEpgParser.parse(
                         reader = reader,
                         knownTvgIds = knownTvgIds,
                         minEpochMs = now - LOOKBACK_MS,
                         maxEpochMs = now + LOOKAHEAD_MS
                     )
                 }
-            }.onSuccess { parsed ->
-                programmesByChannel = parsed.programmesByChannel
                 isReady = true
-                _diagnostics.value = EpgDiagnostics.Ready(
-                    sourceUrl = url,
-                    matchedChannelCount = parsed.programmesByChannel.size,
-                    knownChannelCount = knownTvgIds.size,
-                    programmeCount = parsed.programmesByChannel.values.sumOf { it.size },
-                    guideChannelCount = parsed.distinctChannelIdCount,
-                    sampleGuideChannelIds = parsed.sampleChannelIds,
-                    sampleKnownChannelIds = knownTvgIds.take(12)
-                )
-            }.onFailure { error ->
-                _diagnostics.value = EpgDiagnostics.Failed(url, error.message ?: "Failed to parse the guide.")
             }
         }
         _epgVersion.value++

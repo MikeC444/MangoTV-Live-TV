@@ -52,7 +52,6 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.config.LiveTvConfig
 import com.mangotv.app.data.livetv.Channel
-import com.mangotv.app.data.livetv.EpgDiagnostics
 import com.mangotv.app.data.livetv.TimelineBlock
 import com.mangotv.app.navigation.routeForNavLabel
 import com.mangotv.app.ui.components.TvFocusSurface
@@ -107,7 +106,6 @@ fun TvGuideScreen(
     windowStart: Long,
     windowEnd: Long,
     epgVersion: Int,
-    epgDiagnostics: EpgDiagnostics,
     getBlocks: (Channel) -> List<TimelineBlock>,
     onTuneToChannel: (Channel) -> Unit,
     onChangeRegion: () -> Unit,
@@ -172,7 +170,6 @@ fun TvGuideScreen(
         Column(Modifier.fillMaxSize().padding(top = MangoDimens.NavBarHeight)) {
             GuideTitleBar(
                 regionLabel = regionLabel,
-                epgDiagnostics = epgDiagnostics,
                 onChangeRegion = onChangeRegion,
                 changeRegionFocusRequester = changeRegionFocusRequester,
                 changeRegionFocusUp = navFocusRequester,
@@ -236,101 +233,63 @@ fun TvGuideScreen(
 @Composable
 private fun GuideTitleBar(
     regionLabel: String,
-    epgDiagnostics: EpgDiagnostics,
     onChangeRegion: () -> Unit,
     changeRegionFocusRequester: FocusRequester,
     changeRegionFocusUp: FocusRequester,
     changeRegionFocusDown: FocusRequester
 ) {
-    Column(
+    Row(
         modifier = Modifier
             .fillMaxWidth()
-            .padding(horizontal = MangoDimens.ScreenPaddingHorizontal, vertical = 8.dp)
+            .padding(horizontal = MangoDimens.ScreenPaddingHorizontal, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+        Text(
+            text = "TV GUIDE",
+            color = TextSecondary,
+            style = MaterialTheme.typography.labelLarge,
+            fontWeight = FontWeight.Bold
+        )
+        Spacer(Modifier.width(10.dp))
+        Text(
+            text = "• $regionLabel",
+            color = TextTertiary,
+            style = MaterialTheme.typography.labelMedium
+        )
+        // See PremiumAccessScreen/LiveTvChannelsScreen -- visible on purpose
+        // so LiveTvConfig.skipPaywallForTesting is never silently forgotten.
+        if (LiveTvConfig.skipPaywallForTesting) {
+            Spacer(Modifier.width(16.dp))
             Text(
-                text = "TV GUIDE",
-                color = TextSecondary,
-                style = MaterialTheme.typography.labelLarge,
-                fontWeight = FontWeight.Bold
+                text = "TESTING — PAYWALL BYPASSED",
+                color = MangoBackground,
+                fontWeight = FontWeight.Bold,
+                style = MaterialTheme.typography.labelSmall,
+                modifier = Modifier
+                    .background(MangoAmber, RoundedCornerShape(6.dp))
+                    .padding(horizontal = 10.dp, vertical = 4.dp)
             )
-            Spacer(Modifier.width(10.dp))
-            Text(
-                text = "• $regionLabel",
-                color = TextTertiary,
-                style = MaterialTheme.typography.labelMedium
-            )
-            // See PremiumAccessScreen/LiveTvChannelsScreen -- visible on purpose
-            // so LiveTvConfig.skipPaywallForTesting is never silently forgotten.
-            if (LiveTvConfig.skipPaywallForTesting) {
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    text = "TESTING — PAYWALL BYPASSED",
-                    color = MangoBackground,
-                    fontWeight = FontWeight.Bold,
-                    style = MaterialTheme.typography.labelSmall,
-                    modifier = Modifier
-                        .background(MangoAmber, RoundedCornerShape(6.dp))
-                        .padding(horizontal = 10.dp, vertical = 4.dp)
-                )
-                Spacer(Modifier.width(16.dp))
-                Text(
-                    text = epgDiagnosticsLabel(epgDiagnostics),
-                    color = TextTertiary,
-                    style = MaterialTheme.typography.labelSmall
-                )
-            }
-            Spacer(Modifier.weight(1f))
-            TvFocusSurface(
-                onClick = onChangeRegion,
-                shape = RoundedCornerShape(6.dp),
-                backgroundColor = MangoSurface,
-                focusRequester = changeRegionFocusRequester,
-                focusUp = changeRegionFocusUp,
-                focusDown = changeRegionFocusDown,
-                bringIntoViewOnFocus = false
-            ) {
-                Row(
-                    modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    Icon(imageVector = Icons.Filled.Public, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
-                    Spacer(Modifier.width(8.dp))
-                    Text(text = "Change Region", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
-                }
-            }
         }
-        // Raw id samples from both sides, so a near-total id-scheme
-        // mismatch between the playlist and its EPG source (like
-        // "1/9944 channels matched") can be root-caused by comparing
-        // actual strings on-screen instead of another round of guessing.
-        if (LiveTvConfig.skipPaywallForTesting && epgDiagnostics is EpgDiagnostics.Ready) {
-            Spacer(Modifier.height(4.dp))
-            Text(
-                text = "Guide has ${epgDiagnostics.guideChannelCount} distinct ids, e.g.: " +
-                    epgDiagnostics.sampleGuideChannelIds.joinToString(", "),
-                color = TextTertiary,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
-            Text(
-                text = "Our ids, e.g.: " + epgDiagnostics.sampleKnownChannelIds.joinToString(", "),
-                color = TextTertiary,
-                style = MaterialTheme.typography.labelSmall,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis
-            )
+        Spacer(Modifier.weight(1f))
+        TvFocusSurface(
+            onClick = onChangeRegion,
+            shape = RoundedCornerShape(6.dp),
+            backgroundColor = MangoSurface,
+            focusRequester = changeRegionFocusRequester,
+            focusUp = changeRegionFocusUp,
+            focusDown = changeRegionFocusDown,
+            bringIntoViewOnFocus = false
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Icon(imageVector = Icons.Filled.Public, contentDescription = null, tint = TextSecondary, modifier = Modifier.size(16.dp))
+                Spacer(Modifier.width(8.dp))
+                Text(text = "Change Region", color = TextSecondary, style = MaterialTheme.typography.labelMedium)
+            }
         }
     }
-}
-
-/** Plain-text summary of EpgDiagnostics for the testing-only status line above -- see EpgRepository's own doc for why this exists. */
-private fun epgDiagnosticsLabel(diagnostics: EpgDiagnostics): String = when (diagnostics) {
-    is EpgDiagnostics.NotConfigured -> "EPG: not configured"
-    is EpgDiagnostics.Loading -> "EPG: loading…"
-    is EpgDiagnostics.Failed -> "EPG: failed — ${diagnostics.message}"
-    is EpgDiagnostics.Ready -> "EPG: ${diagnostics.matchedChannelCount}/${diagnostics.knownChannelCount} channels matched, ${diagnostics.programmeCount} programmes"
 }
 
 @Composable
