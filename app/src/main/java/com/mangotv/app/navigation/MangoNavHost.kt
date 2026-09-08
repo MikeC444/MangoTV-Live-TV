@@ -1,6 +1,10 @@
 package com.mangotv.app.navigation
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -12,6 +16,7 @@ import com.mangotv.app.ui.detail.DetailScreen
 import com.mangotv.app.ui.genres.GenreResultsScreen
 import com.mangotv.app.ui.genres.GenresScreen
 import com.mangotv.app.ui.search.SearchScreen
+import com.mangotv.app.ui.loading.LoadingScreen
 import com.mangotv.app.ui.mylist.MyListScreen
 import com.mangotv.app.ui.home.HomeScreen
 import com.mangotv.app.ui.livetv.LiveTvPlayerScreen
@@ -37,6 +42,17 @@ private val TAB_ROOT_ROUTES = setOf(
 
 @Composable
 fun MangoNavHost() {
+    // Shown once, in place of the real nav graph, on cold boot -- see
+    // LoadingScreen's own doc. This flag lives only in this composable's
+    // memory, so it's never re-armed for the rest of the process's
+    // lifetime once flipped (tab switches, backgrounding, etc. don't
+    // recompose MangoNavHost from scratch).
+    var isAppReady by remember { mutableStateOf(false) }
+    if (!isAppReady) {
+        LoadingScreen(onReady = { isAppReady = true })
+        return
+    }
+
     val navController = rememberNavController()
 
     fun navigateTo(route: String) {
