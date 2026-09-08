@@ -201,7 +201,15 @@ private fun NavItem(
         Text(
             text = label,
             color = if (focused || selected) TextPrimary else TextSecondary,
-            fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
+            // Keyed on selected only, not focused -- selected stays fixed
+            // while moving focus around the bar, but focused changes on
+            // every D-pad step, and Bold glyphs measure wider than Medium
+            // ones. NavItem isn't a fixed-width box, so that width change
+            // reflowed every item after the focused one (and the whole
+            // LazyRow, which sizes to fit its content) on every step,
+            // reading as the entire bar twitching. Color alone (plus the
+            // border) is enough to show focus without moving anything.
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             // labelMedium (13sp) rather than the original titleMedium
             // (16sp) -- see the tightened item spacing above, both
             // together are needed to fit all 8 items (Live TV pushed
