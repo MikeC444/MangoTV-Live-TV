@@ -67,12 +67,12 @@ fun TopNavBar(
     onNavigateDown: (() -> Unit)? = null
 ) {
     val scrimAlpha by animateFloatAsState(
-        // Was 0.45f -- against a bright/busy hero image behind it (the
-        // common case: transparentBackground is true right when Home
-        // loads, before any scrolling), that left the nav bar hard to
-        // read. A bit darker keeps the see-through hero effect but gives
-        // the labels enough contrast.
-        targetValue = if (transparentBackground) 0.6f else 0.96f,
+        // Was 0.45f, then 0.6f -- against a bright/busy hero image behind
+        // it (the common case: transparentBackground is true right when
+        // Home loads, before any scrolling), that still left the nav bar
+        // hard to read. A bit darker keeps the see-through hero effect but
+        // gives the labels enough contrast.
+        targetValue = if (transparentBackground) 0.72f else 0.96f,
         animationSpec = tween(300),
         label = "navBarScrimAlpha"
     )
@@ -103,10 +103,22 @@ fun TopNavBar(
                 }
             }
             .background(
+                // Was a straight top-to-bottom fade (scrimAlpha -> fully
+                // transparent) spanning this Row's own bounds -- since the
+                // logo/nav items sit vertically CENTERED in it, the text
+                // was drawn where that gradient had already faded to
+                // roughly half of scrimAlpha, well short of the peak value
+                // increased above. Holding full strength through 70% of
+                // the bar's height puts the text comfortably inside the
+                // solid portion, and only the last 30% (below the text)
+                // tapers off -- reading as a soft shadow trailing into the
+                // content underneath rather than a wash that's already
+                // thin by the time it reaches anything worth reading.
                 Brush.verticalGradient(
-                    colors = listOf(
-                        MangoBackground.copy(alpha = scrimAlpha),
-                        Color.Transparent
+                    colorStops = arrayOf(
+                        0f to MangoBackground.copy(alpha = scrimAlpha),
+                        0.7f to MangoBackground.copy(alpha = scrimAlpha),
+                        1f to Color.Transparent
                     )
                 )
             )

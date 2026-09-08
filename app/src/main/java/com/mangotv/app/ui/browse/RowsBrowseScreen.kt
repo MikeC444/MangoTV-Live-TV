@@ -106,14 +106,49 @@ fun RowsBrowseContent(
 ) {
     Box(Modifier.fillMaxSize().background(MangoBackground)) {
         when (uiState) {
-            is RowsBrowseUiState.Loading -> RowsLoadingSkeleton()
-            is RowsBrowseUiState.Error -> FullScreenErrorState(message = uiState.message, onRetry = onRetry)
+            // Loaded content owns its own TopNavBar (see
+            // RowsBrowseLoadedContent/RowsBrowseGridContent below) because
+            // it needs to wire the nav<->content focus seam and
+            // scroll-lock into it. Loading/Error have no row content to
+            // seam into, so a minimal standalone bar covers them -- these
+            // used to render with no nav bar at all, which made it
+            // disappear entirely for as long as the fetch was in flight
+            // (the common case navigating to a tab on cold boot, before
+            // its own data has loaded).
+            is RowsBrowseUiState.Loading -> RowsBrowseTransientState(navLabel, onNavigate) {
+                RowsLoadingSkeleton()
+            }
+            is RowsBrowseUiState.Error -> RowsBrowseTransientState(navLabel, onNavigate) {
+                FullScreenErrorState(message = uiState.message, onRetry = onRetry)
+            }
             is RowsBrowseUiState.Loaded -> if (layout == RowsBrowseLayout.GRID) {
                 RowsBrowseGridContent(screenTitle, navLabel, uiState.sections.flatMap { it.items }, onNavigate, emptyMessage, onLoadMore)
             } else {
                 RowsBrowseLoadedContent(screenTitle, navLabel, uiState.sections, onNavigate, emptyMessage)
             }
         }
+    }
+}
+
+@Composable
+private fun RowsBrowseTransientState(
+    navLabel: String,
+    onNavigate: (String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val navFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { navFocusRequester.requestFocus() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        content()
+        TopNavBar(
+            transparentBackground = false,
+            modifier = Modifier.align(Alignment.TopCenter),
+            selectedIndex = MangoNavItems.indexOf(navLabel),
+            selectedItemFocusRequester = navFocusRequester,
+            onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) }
+        )
     }
 }
 
