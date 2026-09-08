@@ -7,6 +7,7 @@ import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -66,7 +67,12 @@ fun TopNavBar(
     onNavigateDown: (() -> Unit)? = null
 ) {
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (transparentBackground) 0.45f else 0.96f,
+        // Was 0.45f -- against a bright/busy hero image behind it (the
+        // common case: transparentBackground is true right when Home
+        // loads, before any scrolling), that left the nav bar hard to
+        // read. A bit darker keeps the see-through hero effect but gives
+        // the labels enough contrast.
+        targetValue = if (transparentBackground) 0.6f else 0.96f,
         animationSpec = tween(300),
         label = "navBarScrimAlpha"
     )
@@ -124,6 +130,14 @@ fun TopNavBar(
         CompositionLocalProvider(LocalBringIntoViewSpec provides MangoMotion.FastBringIntoViewSpec) {
             LazyRow(
                 modifier = Modifier.weight(1f, fill = false),
+                // LazyRow clips its content to its own laid-out bounds --
+                // with no content padding, that boundary sat exactly at
+                // the first/last item's un-scaled edge, so the focused
+                // scale-up (TvFocusSurface animates to 1.08x on focus)
+                // pushed Home's/Settings' border past it and got clipped.
+                // A little breathing room on each end gives the scale
+                // somewhere to grow into.
+                contentPadding = PaddingValues(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 // Tightened from 8dp -- at the old spacing plus the old
                 // (larger) label size, 8 items no longer fit one screen
