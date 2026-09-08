@@ -18,6 +18,13 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
+// How many items from the top of the user's first VISIBLE row (after
+// manual reordering and hidden-row filtering) feed the hero -- HeroSection
+// already rotates through whatever list it's given (see its own
+// LaunchedEffect), so this is the pool it rotates within, not a fixed set
+// of items shown at once.
+private const val HERO_POOL_SIZE = 10
+
 sealed interface HomeUiState {
     data object Loading : HomeUiState
     data object Empty : HomeUiState
@@ -59,7 +66,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     // without re-hitting the network -- same "cheap in-memory re-sort of
     // already-fetched rows" principle Home Rows' own drag-reorder already
     // relies on, applied here to preference changes instead of drag events.
-    private var rawHero: List<Content> = emptyList()
+    // No separate raw hero list: hero is always derived from whichever
+    // section ends up first after preferences are applied (see
+    // applyPreferences) rather than fetched independently.
     private var rawSections: List<HomeSection> = emptyList()
     private var lastFetchFailed = false
     private var hasFetchedOnce = false
@@ -105,8 +114,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             // silently defeating caching on exactly the cold-boot case it
             // exists for. Awaiting first removes the race instead of hoping
             // timing favors the cache.
-            homeCacheRepository.read()?.let { (hero, sections) ->
-                rawHero = hero
+            homeCacheRepository.read()?.let { (_, sections) ->
                 rawSections = sections
                 hasFetchedOnce = true
                 showingCacheOnly = true
@@ -136,7 +144,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private suspend fun fetch(providers: List<CatalogProvider>) {
         if (providers.isEmpty()) {
             if (showingCacheOnly) return
-            rawHero = emptyList()
             rawSections = emptyList()
             lastFetchFailed = false
             hasFetchedOnce = true
@@ -152,7 +159,6 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (!showingCacheOnly) _uiState.value = HomeUiState.Loading
 
         val wasShowingCacheOnly = showingCacheOnly
-        val hero = mutableListOf<Content>()
         val sections = mutableListOf<HomeSection>()
         var anyProviderFailed = false
 
@@ -166,26 +172,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         coroutineScope {
             providers.forEach { provider ->
                 launch {
-                    var isFirstBatchForProvider = true
                     runCatching {
                         provider.getHomeSections().collect { batch ->
                             sections += batch
-                            // Hero items come specifically from each
-                            // provider's OWN base/popular row, which is
-                            // always in that provider's first batch (see
-                            // buildSectionsFlow) -- not "whichever section
-                            // happens to be first in whichever batch
-                            // arrives", which later batches would get wrong.
-                            if (isFirstBatchForProvider) {
-                                isFirstBatchForProvider = false
-                                batch.firstOrNull()?.items?.let { items ->
-                                    if (hero.size < 3) hero += items.take(3 - hero.size)
-                                }
-                            }
-                            rawHero = hero.toList()
                             rawSections = sections.toList()
                             hasFetchedOnce = true
                             showingCacheOnly = false
+                            // Hero is derived inside applyPreferences from
+                            // whichever section ends up first there, not
+                            // tracked separately here -- see its own doc.
                             applyPreferences(homeRowPreferences.preferences.value)
                             _liveDataReady.value = true
                         }
@@ -196,7 +191,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
         lastFetchFailed = anyProviderFailed
 
-        if (hero.isEmpty() && sections.isEmpty()) {
+        if (sections.isEmpty()) {
             // Nothing arrived from any provider. If cache was showing and
             // this is a total failure, leave the stale cache up instead of
             // replacing it with a hard error -- showingCacheOnly was never
@@ -209,7 +204,11 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             _liveDataReady.value = true
         }
 
-        if (hero.isNotEmpty() || sections.isNotEmpty()) {
+        if (sections.isNotEmpty()) {
+            // Reuses the hero applyPreferences just derived and published
+            // above rather than recomputing it, so what's cached always
+            // matches what was actually shown.
+            val hero = (_uiState.value as? HomeUiState.Success)?.heroItems ?: emptyList()
             homeCacheRepository.write(hero, sections)
         }
     }
@@ -218,9 +217,18 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasFetchedOnce) return
 
         val visibleSections = rowPreferences.applyOrder(rawSections).filterNot { it.id in rowPreferences.hiddenRowIds }
+        // The hero pulls from whichever row the user actually sees first --
+        // respecting manual reordering and hidden rows the same way the row
+        // list itself does, rather than a fixed "each provider's own
+        // base/popular row" pick that ignored both and could mix items from
+        // multiple installed addons together. HeroSection (see its own
+        // LaunchedEffect) already rotates through whatever list it's given,
+        // so HERO_POOL_SIZE is the pool it rotates within, all drawn from
+        // that single top row.
+        val hero = visibleSections.firstOrNull()?.items?.take(HERO_POOL_SIZE) ?: emptyList()
 
         _uiState.value = when {
-            rawHero.isNotEmpty() || visibleSections.isNotEmpty() -> HomeUiState.Success(rawHero, visibleSections)
+            hero.isNotEmpty() || visibleSections.isNotEmpty() -> HomeUiState.Success(hero, visibleSections)
             lastFetchFailed -> HomeUiState.Error("Couldn't reach your installed addons. Check your connection and try again.")
             else -> HomeUiState.Empty
         }

@@ -122,7 +122,17 @@ fun TopNavBar(
                     )
                 )
             )
-            .padding(horizontal = MangoDimens.ScreenPaddingHorizontal, vertical = 20.dp),
+            // Top padding trimmed from the original 20dp -- the logo and
+            // nav items were sitting noticeably lower than the actual top
+            // edge of the screen. Bottom stays as-is so the bar's overall
+            // height (and everything that reserves MangoDimens.NavBarHeight
+            // of clearance below it, e.g. RowsBrowseContent) is unaffected.
+            .padding(
+                start = MangoDimens.ScreenPaddingHorizontal,
+                end = MangoDimens.ScreenPaddingHorizontal,
+                top = 8.dp,
+                bottom = 20.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         MangoLogo()
