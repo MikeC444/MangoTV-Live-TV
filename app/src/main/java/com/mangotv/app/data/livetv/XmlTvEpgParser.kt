@@ -26,15 +26,32 @@ import java.util.TimeZone
  * see [knownTvgIds], which Channel.epgChannelId already normalizes the
  * same way.
  */
+/**
+ * [programmesByChannel] is the actual usable result; [distinctChannelIdCount]
+ * and [sampleChannelIds] exist purely for on-device diagnostics (see
+ * EpgDiagnostics) -- they record every channel id the guide mentions at all,
+ * regardless of whether it matched [XmlTvEpgParser.parse]'s knownTvgIds, so a
+ * near-total id-scheme mismatch between this app's playlist and a given EPG
+ * source shows up as real strings to compare rather than a bare zero.
+ */
+data class EpgParseResult(
+    val programmesByChannel: Map<String, List<Programme>>,
+    val distinctChannelIdCount: Int,
+    val sampleChannelIds: List<String>
+)
+
 object XmlTvEpgParser {
+
+    private const val CHANNEL_ID_SAMPLE_SIZE = 12
 
     fun parse(
         reader: Reader,
         knownTvgIds: Set<String>,
         minEpochMs: Long,
         maxEpochMs: Long
-    ): Map<String, List<Programme>> {
+    ): EpgParseResult {
         val result = mutableMapOf<String, MutableList<Programme>>()
+        val seenChannelIds = LinkedHashSet<String>()
         val parser = Xml.newPullParser()
         parser.setFeature(XmlPullParser.FEATURE_PROCESS_NAMESPACES, false)
         parser.setInput(reader)
@@ -53,6 +70,7 @@ object XmlTvEpgParser {
                     "programme" -> {
                         inProgramme = true
                         channelAttr = parser.getAttributeValue(null, "channel")?.substringBefore('@')
+                        channelAttr?.let { seenChannelIds.add(it) }
                         startMs = parseXmlTvTime(parser.getAttributeValue(null, "start"))
                         stopMs = parseXmlTvTime(parser.getAttributeValue(null, "stop"))
                         title = null
@@ -83,7 +101,11 @@ object XmlTvEpgParser {
             }
             eventType = runCatching { parser.next() }.getOrDefault(XmlPullParser.END_DOCUMENT)
         }
-        return result.mapValues { (_, list) -> list.sortedBy { it.startEpochMs } }
+        return EpgParseResult(
+            programmesByChannel = result.mapValues { (_, list) -> list.sortedBy { it.startEpochMs } },
+            distinctChannelIdCount = seenChannelIds.size,
+            sampleChannelIds = seenChannelIds.take(CHANNEL_ID_SAMPLE_SIZE)
+        )
     }
 
     // XMLTV timestamps look like "20240115193000 +0000".

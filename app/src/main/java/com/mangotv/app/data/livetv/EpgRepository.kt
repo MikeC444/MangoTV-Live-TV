@@ -30,7 +30,10 @@ sealed interface EpgDiagnostics {
         val sourceUrl: String,
         val matchedChannelCount: Int,
         val knownChannelCount: Int,
-        val programmeCount: Int
+        val programmeCount: Int,
+        val guideChannelCount: Int,
+        val sampleGuideChannelIds: List<String>,
+        val sampleKnownChannelIds: List<String>
     ) : EpgDiagnostics
 }
 
@@ -132,13 +135,16 @@ class EpgRepository(context: Context) {
                     )
                 }
             }.onSuccess { parsed ->
-                programmesByChannel = parsed
+                programmesByChannel = parsed.programmesByChannel
                 isReady = true
                 _diagnostics.value = EpgDiagnostics.Ready(
                     sourceUrl = url,
-                    matchedChannelCount = parsed.size,
+                    matchedChannelCount = parsed.programmesByChannel.size,
                     knownChannelCount = knownTvgIds.size,
-                    programmeCount = parsed.values.sumOf { it.size }
+                    programmeCount = parsed.programmesByChannel.values.sumOf { it.size },
+                    guideChannelCount = parsed.distinctChannelIdCount,
+                    sampleGuideChannelIds = parsed.sampleChannelIds,
+                    sampleKnownChannelIds = knownTvgIds.take(12)
                 )
             }.onFailure { error ->
                 _diagnostics.value = EpgDiagnostics.Failed(url, error.message ?: "Failed to parse the guide.")
