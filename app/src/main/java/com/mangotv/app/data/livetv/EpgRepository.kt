@@ -22,13 +22,16 @@ import java.util.concurrent.TimeUnit
 import java.util.zip.GZIPInputStream
 
 /**
- * Best-effort EPG support (see LiveTvConfig.isEpgConfigured -- disabled
- * entirely unless EPG_URL is set). Bounded on every axis that matters for a
- * low-RAM Fire TV Stick: a hard cap on the downloaded response size, a
- * narrow time window kept in memory, and only channels this app actually
- * has loaded. Any failure here (unreachable URL, oversized response,
- * malformed XML) just means channels fall back to showing "Live" instead of
- * now/next -- never a crash. See LiveTvChannelsScreen / LiveTvPlayerScreen.
+ * Best-effort EPG support: uses EPG_URL if explicitly configured (see
+ * LiveTvConfig.isEpgConfigured), otherwise falls back to whatever EPG
+ * source the playlist itself declared (see [load]'s fallbackUrl param) --
+ * disabled entirely only if neither is available. Bounded on every axis
+ * that matters for a low-RAM Fire TV Stick: a hard cap on the downloaded
+ * response size, a narrow time window kept in memory, and only channels
+ * this app actually has loaded. Any failure here (unreachable URL, oversized
+ * response, malformed XML) just means channels fall back to showing "Live"
+ * instead of now/next -- never a crash. See LiveTvChannelsScreen /
+ * LiveTvPlayerScreen.
  */
 class EpgRepository(context: Context) {
 
@@ -68,15 +71,24 @@ class EpgRepository(context: Context) {
         return programmes.filter { it.stopEpochMs > fromEpochMs && it.startEpochMs < toEpochMs }
     }
 
-    fun load(knownTvgIds: Set<String>) {
-        if (!LiveTvConfig.isEpgConfigured || knownTvgIds.isEmpty() || isReady) return
-        scope.launch { loadInternal(knownTvgIds) }
+    /**
+     * [fallbackUrl] is only used when EPG_URL isn't explicitly configured --
+     * see LiveTvConfig.isEpgConfigured -- so a playlist that declares its
+     * own EPG source (an M3U `#EXTM3U x-tvg-url`/`url-tvg` attribute, parsed
+     * by M3uParser into LiveTvCatalogState.Loaded.discoveredEpgUrl) still
+     * gets used automatically, without ever overriding an operator's own
+     * explicit EPG_URL choice.
+     */
+    fun load(knownTvgIds: Set<String>, fallbackUrl: String? = null) {
+        val url = if (LiveTvConfig.isEpgConfigured) LiveTvConfig.epgUrl else fallbackUrl?.takeIf { it.isNotBlank() }
+        if (url == null || knownTvgIds.isEmpty() || isReady) return
+        scope.launch { loadInternal(knownTvgIds, url) }
     }
 
-    private suspend fun loadInternal(knownTvgIds: Set<String>) = loadMutex.withLock {
+    private suspend fun loadInternal(knownTvgIds: Set<String>, url: String) = loadMutex.withLock {
         if (isReady) return@withLock
         withContext(Dispatchers.IO) {
-            val bytes = fetchOrReadCache() ?: return@withContext
+            val bytes = fetchOrReadCache(url) ?: return@withContext
             runCatching {
                 val now = System.currentTimeMillis()
                 openReader(bytes).use { reader ->
@@ -99,10 +111,10 @@ class EpgRepository(context: Context) {
         return InputStreamReader(stream, Charsets.UTF_8)
     }
 
-    private fun fetchOrReadCache(): ByteArray? {
+    private fun fetchOrReadCache(url: String): ByteArray? {
         readCacheIfFresh()?.let { return it }
         return runCatching {
-            val request = Request.Builder().url(LiveTvConfig.epgUrl).build()
+            val request = Request.Builder().url(url).build()
             httpClient.newCall(request).execute().use { response ->
                 check(response.isSuccessful) { "HTTP ${response.code}" }
                 val body = response.body ?: error("Empty EPG response")

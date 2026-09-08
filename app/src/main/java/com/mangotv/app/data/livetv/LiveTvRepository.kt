@@ -5,6 +5,7 @@ import androidx.datastore.core.DataStore
 import androidx.datastore.preferences.core.Preferences
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.longPreferencesKey
+import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.mangotv.app.config.LiveTvConfig
 import kotlinx.coroutines.CoroutineScope
@@ -29,7 +30,14 @@ private val Context.liveTvCacheMetaDataStore: DataStore<Preferences> by preferen
 
 sealed interface LiveTvCatalogState {
     data object Loading : LiveTvCatalogState
-    data class Loaded(val sections: List<ChannelSection>, val allChannels: List<Channel>) : LiveTvCatalogState
+    data class Loaded(
+        val sections: List<ChannelSection>,
+        val allChannels: List<Channel>,
+        // The playlist's own declared EPG source (#EXTM3U x-tvg-url/url-tvg),
+        // if it had one -- see LiveTvViewModel, which only uses this as a
+        // fallback when EPG_URL isn't explicitly configured.
+        val discoveredEpgUrl: String?
+    ) : LiveTvCatalogState
     data class Error(val message: String) : LiveTvCatalogState
     data object Empty : LiveTvCatalogState
 }
@@ -77,23 +85,23 @@ class LiveTvRepository(context: Context) {
         if (!forceRefresh && _state.value is LiveTvCatalogState.Loaded) return@withLock
 
         _state.value = LiveTvCatalogState.Loading
-        val channels = (if (!forceRefresh) readCacheIfFresh() else null)
+        val parsed = (if (!forceRefresh) readCacheIfFresh() else null)
             ?: fetchAndParse()
             ?: readCacheFile() // network failed -- serve a stale cache rather than nothing, if we have one
 
-        if (channels == null) {
+        if (parsed == null) {
             _state.value = LiveTvCatalogState.Error("Live TV is temporarily unavailable.")
             return@withLock
         }
-        if (channels.isEmpty()) {
+        if (parsed.channels.isEmpty()) {
             _state.value = LiveTvCatalogState.Empty
             return@withLock
         }
 
-        _state.value = LiveTvCatalogState.Loaded(buildSections(channels), channels)
+        _state.value = LiveTvCatalogState.Loaded(buildSections(parsed.channels), parsed.channels, parsed.discoveredEpgUrl)
     }
 
-    private suspend fun fetchAndParse(): List<Channel>? = withContext(Dispatchers.IO) {
+    private suspend fun fetchAndParse(): ParsedPlaylist? = withContext(Dispatchers.IO) {
         runCatching {
             val request = Request.Builder().url(LiveTvConfig.iptvPlaylistUrl).build()
             val body = httpClient.newCall(request).execute().use { response ->
@@ -130,24 +138,36 @@ class LiveTvRepository(context: Context) {
         return sections
     }
 
-    private suspend fun readCacheIfFresh(): List<Channel>? {
+    private suspend fun readCacheIfFresh(): ParsedPlaylist? {
         val timestamp = appContext.liveTvCacheMetaDataStore.data.first()[CACHE_TIMESTAMP_KEY] ?: return null
         if (System.currentTimeMillis() - timestamp > CACHE_TTL_MS) return null
         return readCacheFile()
     }
 
-    private fun readCacheFile(): List<Channel>? = runCatching {
+    private suspend fun readCacheFile(): ParsedPlaylist? {
         if (!cacheFile.exists()) return null
-        json.decodeFromString(ListSerializer(Channel.serializer()), cacheFile.readText())
-    }.getOrNull()
+        val channels = runCatching {
+            json.decodeFromString(ListSerializer(Channel.serializer()), cacheFile.readText())
+        }.getOrNull() ?: return null
+        val epgUrl = appContext.liveTvCacheMetaDataStore.data.first()[CACHE_EPG_URL_KEY]
+        return ParsedPlaylist(channels, epgUrl)
+    }
 
-    private suspend fun writeCache(channels: List<Channel>) {
-        runCatching { cacheFile.writeText(json.encodeToString(ListSerializer(Channel.serializer()), channels)) }
-        appContext.liveTvCacheMetaDataStore.edit { it[CACHE_TIMESTAMP_KEY] = System.currentTimeMillis() }
+    private suspend fun writeCache(parsed: ParsedPlaylist) {
+        runCatching { cacheFile.writeText(json.encodeToString(ListSerializer(Channel.serializer()), parsed.channels)) }
+        appContext.liveTvCacheMetaDataStore.edit { prefs ->
+            prefs[CACHE_TIMESTAMP_KEY] = System.currentTimeMillis()
+            if (parsed.discoveredEpgUrl != null) {
+                prefs[CACHE_EPG_URL_KEY] = parsed.discoveredEpgUrl
+            } else {
+                prefs.remove(CACHE_EPG_URL_KEY)
+            }
+        }
     }
 
     companion object {
         private val CACHE_TIMESTAMP_KEY = longPreferencesKey("live_tv_cache_timestamp")
+        private val CACHE_EPG_URL_KEY = stringPreferencesKey("live_tv_cache_epg_url")
         private val CACHE_TTL_MS = TimeUnit.HOURS.toMillis(12)
         private const val FEATURED_COUNT = 16
         private const val MAX_COUNTRY_RAILS = 6

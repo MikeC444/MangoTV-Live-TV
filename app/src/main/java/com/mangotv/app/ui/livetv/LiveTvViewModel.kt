@@ -154,7 +154,10 @@ class LiveTvViewModel(application: Application) : AndroidViewModel(application) 
             liveTvRepository.state.collect { catalogState ->
                 _uiState.value = LiveTvUiState.Unlocked(catalogState)
                 if (catalogState is LiveTvCatalogState.Loaded) {
-                    epgRepository.load(catalogState.allChannels.mapNotNull { it.tvgId }.toSet())
+                    epgRepository.load(
+                        knownTvgIds = catalogState.allChannels.mapNotNull { it.tvgId }.toSet(),
+                        fallbackUrl = catalogState.discoveredEpgUrl
+                    )
                 }
             }
         }
