@@ -48,6 +48,14 @@ fun TvFocusSurface(
     modifier: Modifier = Modifier,
     shape: Shape = RoundedCornerShape(10.dp),
     focusedScale: Float = MangoMotion.FocusScale,
+    // RenderNode-level ambient/spot shadow (both default to black) cast by
+    // the focus scale-up below. Fine, even desirable, on the cards/buttons
+    // this was designed for -- it reads as a lift off a dark background.
+    // A caller whose own border is near-white (e.g. the nav bar) can zero
+    // this out: at that size/elevation the blurred black shadow sits right
+    // at the border's inner edge and reads as an unwanted dark ring inside
+    // an otherwise clean white outline.
+    focusedElevation: Float = 18f,
     backgroundColor: Color = Color.Transparent,
     backgroundBrush: Brush? = null,
     focusRequester: FocusRequester? = null,
@@ -90,7 +98,7 @@ fun TvFocusSurface(
         label = "focusScale"
     )
     val elevation = animateFloatAsState(
-        targetValue = if (isFocused) 18f else 0f,
+        targetValue = if (isFocused) focusedElevation else 0f,
         animationSpec = MangoMotion.focusTween,
         label = "focusElevation"
     )

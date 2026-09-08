@@ -183,6 +183,14 @@ private fun NavItem(
         // FocusBorder change, so every other focusable element in the app
         // (cards, buttons) keeps its usual focus color.
         borderColor = TextPrimary,
+        // TvFocusSurface's default focus shadow is a blurred black
+        // ambient/spot shadow -- invisible against the amber border/dark
+        // cards it was designed for, but at nav-item size it sits right at
+        // the white border's inner edge and reads as a faint dark ring
+        // inside the border. Nav items don't need the "lift" effect anyway
+        // (there's no card underneath to lift off of), so this just turns
+        // it off here.
+        focusedElevation = 0f,
         // Adjacent nav items are separate TvFocusSurfaces, each fading its
         // own border independently -- with the shared 150ms fade, the
         // outgoing item's fade-out and the incoming item's fade-in overlap
