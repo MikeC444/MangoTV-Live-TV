@@ -37,17 +37,29 @@ import com.mangotv.app.ui.theme.TextTertiary
 /** [code] is null for the "All Channels" option -- every other option is a raw M3U tvg-country value (see Channel.country), uppercased, shown as-is since this app has no reliable country-code-to-name table to draw from. */
 data class RegionOption(val code: String?, val displayName: String, val channelCount: Int)
 
+// Shown first, in this order, right after "All Channels" -- everything
+// else follows alphabetically. A fixed priority list rather than a
+// generic "most channels first" heuristic since the point is surfacing
+// specific regions the user actually watches, not whichever happens to be
+// best-represented in a given playlist.
+private val PRIORITY_REGION_CODES = listOf("UK", "US", "ZA")
+
 /** Not capped, unlike LiveTvRepository's own per-country grouping (that one's for a bounded horizontal rail; this one is "give the user every channel in the region they pick"). */
 fun regionOptionsFrom(channels: List<Channel>): List<RegionOption> {
     val byCountry = channels
         .filter { !it.country.isNullOrBlank() }
         .groupBy { it.country!!.trim().uppercase() }
-        .toList()
-        .sortedBy { it.first }
         .map { (code, items) -> RegionOption(code = code, displayName = code, channelCount = items.size) }
 
+    // mapNotNull rather than filtering byCountry by this order: a
+    // playlist missing one of these (e.g. no ZA channels at all) just
+    // omits it here instead of leaving a hole, since byCountry only ever
+    // contains codes real channels actually reported.
+    val priority = PRIORITY_REGION_CODES.mapNotNull { code -> byCountry.find { it.code == code } }
+    val rest = byCountry.filterNot { it.code in PRIORITY_REGION_CODES }.sortedBy { it.code }
+
     val allOption = RegionOption(code = null, displayName = "All Channels", channelCount = channels.size)
-    return listOf(allOption) + byCountry
+    return listOf(allOption) + priority + rest
 }
 
 /**
