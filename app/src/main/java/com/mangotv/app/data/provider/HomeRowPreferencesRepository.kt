@@ -95,6 +95,15 @@ class HomeRowPreferencesRepository(context: Context) {
     private val _preferences = MutableStateFlow(HomeRowPreferences())
     val preferences: StateFlow<HomeRowPreferences> = _preferences.asStateFlow()
 
+    /**
+     * Fired after a genuine local mutation (setRowHidden/moveRow) finishes
+     * persisting — SettingsSyncRepository (Milestone 6) hooks this to push
+     * the change to the cloud. Deliberately never invoked from
+     * [applyRemote], so a value pulled down from the server can't turn
+     * around and trigger an immediate, redundant push right back up.
+     */
+    var onLocalChange: (() -> Unit)? = null
+
     init {
         scope.launch { _preferences.value = readPersisted() }
     }
@@ -103,6 +112,7 @@ class HomeRowPreferencesRepository(context: Context) {
         val current = _preferences.value
         val updatedHidden = if (hidden) current.hiddenRowIds + rowId else current.hiddenRowIds - rowId
         update(current.copy(hiddenRowIds = updatedHidden))
+        onLocalChange?.invoke()
     }
 
     /**
@@ -121,6 +131,12 @@ class HomeRowPreferencesRepository(context: Context) {
         ids.removeAt(index)
         ids.add(newIndex, rowId)
         update(_preferences.value.copy(order = ids))
+        onLocalChange?.invoke()
+    }
+
+    /** Applies a value pulled from the server — persists locally without notifying [onLocalChange]; see its own kdoc for why. */
+    suspend fun applyRemote(prefs: HomeRowPreferences) = withContext(Dispatchers.IO) {
+        update(prefs)
     }
 
     private suspend fun update(new: HomeRowPreferences) {

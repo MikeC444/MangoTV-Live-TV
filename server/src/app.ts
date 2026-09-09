@@ -9,6 +9,7 @@ import { createAuthRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { meRouter } from "./routes/me.js";
 import { createQrRouter } from "./routes/qr.js";
+import { settingsRouter } from "./routes/settings.js";
 
 // Resolves correctly whether running from src/ (tsx, dev) or dist/ (built,
 // prod) — public/ is a sibling of both, one level up from either.
@@ -55,6 +56,7 @@ export function createApp(): Express {
   app.use("/auth/qr", createQrRouter());
   app.use("/auth", createAuthRouter());
   app.use("/user", meRouter);
+  app.use("/user", settingsRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

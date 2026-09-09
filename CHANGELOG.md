@@ -660,3 +660,118 @@ this sandbox can verify; real end-to-end verification is on the user's own
 hardware.
 
 **Milestone 5 is complete.**
+
+## Milestone 6 — User Settings Cloud Sync
+
+**Status:** Complete.
+
+**Changes:** The first real data-sync domain, covering the two settings
+domains that already existed locally (Home Rows order/hidden state, and
+Player autoplay/skip-intro) — establishes the pull-on-login/push-on-change
+pattern later milestones (watchlist, addons, watch history) will reuse,
+without yet building a generic SyncManager/retry-queue abstraction for a
+second domain that doesn't exist yet.
+
+Backend:
+- `schemas/settings.ts` — Zod schema for the PUT body, mirroring
+  `user_settings`' columns (already created in Milestone 1) exactly.
+  `updatedAt` is validated as an ISO-8601 UTC string via `z.iso.datetime()`.
+- `services/settingsService.ts` — `getUserSettings` (returns the column
+  defaults, not an error, for an account that's never synced) and
+  `upsertUserSettings`, which implements **last-write-wins keyed on the
+  client's own local mutation timestamp**, not receive order — comparing
+  by receive order instead would let a device that was offline for a
+  while overwrite a genuinely newer change from elsewhere just by
+  reconnecting later. The comparison and the write happen in one atomic
+  `INSERT ... ON CONFLICT DO UPDATE ... WHERE EXCLUDED.updated_at >
+  user_settings.updated_at` statement (the same atomic-SQL shape used
+  throughout the auth/QR flows), so two concurrent pushes can't race each
+  other into an inconsistent result. Always returns the row's current
+  authoritative state afterward — the caller's own write if it won, or
+  whatever was already there if it lost — so a client can just persist the
+  response as its new local cache either way.
+- `routes/settings.ts` — `GET`/`PUT /user/settings`, both `requireAuth`,
+  mounted alongside the existing `/user/me` router in `app.ts`.
+
+Android:
+- `data/network/{SettingsDtos,SettingsApiClient}.kt` — mirrors
+  `AuthApiClient`'s existing OkHttp+kotlinx.serialization style. Every call
+  here is authenticated (no unauthenticated path through this client at
+  all), so the access token is a required parameter on every method.
+- `util/Iso8601.kt` — gained `nowString()` (the same `SimpleDateFormat`
+  instance already used for parsing can format too), for stamping a local
+  mutation's `updatedAt` before pushing it.
+- `data/provider/HomeRowPreferencesRepository.kt` and
+  `data/player/PlayerPreferencesRepository.kt` — each gained an
+  `applyRemote(...)` method (persists a server value locally) and an
+  `onLocalChange` hook fired only after a genuine local mutation, never
+  from `applyRemote` — this is what stops a value just pulled down from
+  the server from immediately triggering a redundant push right back up.
+- `data/sync/SettingsSyncRepository.kt` (new) — `pullFromServer()` (called
+  once per launch when the auth gate finds an already-usable session, and
+  once right after a fresh QR sign-in) and a `pushToServer()` wired to
+  both repositories' `onLocalChange` hooks. Both are fire-and-forget:
+  pulling must never delay getting the user into the app, and a failed
+  push isn't queued — the next local change, or the next login's
+  pull-then-reconcile, is what recovers from a transient failure.
+- `AppContainer.kt` — `homeRowPreferencesRepository` and
+  `playerPreferencesRepository` changed from lazy to eager, and
+  `settingsSyncRepository` added as eager alongside them. Cloud sync means
+  a pull has to write into both local caches on every launch regardless of
+  whether the user has visited Home Rows settings or started playback yet
+  that session, so the previous "only construct when that specific screen
+  is first visited" laziness no longer reflects how these are actually
+  used — see the file's own updated doc comment for the full reasoning.
+- `AuthGateViewModel.kt` / `QrSignInViewModel.kt` — call
+  `settingsSyncRepository.pullFromServer()` (fire-and-forget, after the
+  navigation decision) on an already-usable session and right after a
+  fresh sign-in, respectively.
+
+**Tests performed:**
+- `npm run typecheck` / `npm audit` — clean.
+- `npm test` locally against `mangotv_test` — **72/72 passed** (up from
+  60): defaults for a never-synced account, first-push creates the row and
+  echoes it back, a later GET reflects a push, a strictly-newer `updatedAt`
+  overwrites, an older `updatedAt` is rejected (the response is the
+  still-current *newer* settings, not the stale write), an **equal**
+  `updatedAt` is also rejected (proving the comparison is strictly-greater,
+  not greater-or-equal), validation failures (missing fields, wrong types,
+  a non-ISO-8601 `updatedAt`), 401s with no Authorization header, and
+  cross-user isolation (one account's settings invisible to and unaffected
+  by another's).
+- Android: no new pure-logic unit tests this milestone (no new branching
+  logic that isn't already exercised by the backend tests above or by
+  Milestone 5's existing `SessionTest`/`Iso8601Test`); verified instead by
+  a full manual re-read of every new/changed file, cross-checking every
+  wire-format field name against the actual backend schema/routes, and the
+  `build-apk.yml` CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- `AuthRepository.ensureFreshSession()` had a latent concurrent-refresh
+  race that Milestone 5 never exercised hard enough to hit, but Milestone
+  6 makes a real risk: the backend rotates the refresh token on every use,
+  so two overlapping callers (now plausible — a settings pull on launch, a
+  settings push right after, the gate's own fire-and-forget refresh, all
+  independently calling this) sharing the same still-valid refresh token
+  would race. The first to land rotates it; the second then gets a genuine
+  401 for a token that was fine microseconds earlier, which the function
+  would otherwise (correctly, in isolation) read as "this refresh token is
+  dead" and spuriously sign the user out.
+
+**Issues fixed:**
+- Wrapped `ensureFreshSession()`'s body in a `Mutex`, so overlapping
+  callers queue instead of racing — a second caller now always waits for
+  the first and sees its already-refreshed result instead of colliding
+  with it.
+
+**Deliberately not built yet:** a generic `SyncManager`/retry-queue
+abstraction (mentioned in Milestone 0's plan as introduced "incrementally
+across milestones") — with only one sync domain built so far, generalizing
+now would be guessing at its shape rather than factoring out something
+proven; periodic/foreground re-sync beyond login and app-launch, which the
+original plan's "Sync architecture" section also mentions — login and
+cold-start-with-a-valid-session are the two triggers this milestone
+covers, and a background periodic scheduler is real infrastructure this
+milestone doesn't otherwise need yet.
+
+**Milestone 6 is complete.**

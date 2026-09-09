@@ -27,7 +27,9 @@ sealed interface GateDestination {
  * ultimately discovers that, not this screen re-litigating it here.
  */
 class AuthGateViewModel(application: Application) : AndroidViewModel(application) {
-    private val authRepository = (application as MangoTvApplication).container.authRepository
+    private val container = (application as MangoTvApplication).container
+    private val authRepository = container.authRepository
+    private val settingsSyncRepository = container.settingsSyncRepository
 
     private val _destination = MutableStateFlow<GateDestination?>(null)
     val destination: StateFlow<GateDestination?> = _destination.asStateFlow()
@@ -39,11 +41,13 @@ class AuthGateViewModel(application: Application) : AndroidViewModel(application
             _destination.value = if (hasUsableSession) GateDestination.Home else GateDestination.AuthStart
 
             if (hasUsableSession) {
-                // Fires after the navigation decision, not before — this
-                // is purely about keeping the access token fresh for
-                // whenever the next authenticated call happens; it must
-                // never delay getting the user into the app.
+                // Both fire after the navigation decision, not before —
+                // this is purely about keeping the access token fresh and
+                // this account's settings current for whenever they're
+                // next needed; neither must ever delay getting the user
+                // into the app.
                 launch { authRepository.ensureFreshSession() }
+                launch { settingsSyncRepository.pullFromServer() }
             }
         }
     }

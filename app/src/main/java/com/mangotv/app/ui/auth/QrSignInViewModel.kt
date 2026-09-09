@@ -35,7 +35,9 @@ class QrSignInViewModel(
     savedStateHandle: SavedStateHandle
 ) : AndroidViewModel(application) {
 
-    private val authRepository = (application as MangoTvApplication).container.authRepository
+    private val container = (application as MangoTvApplication).container
+    private val authRepository = container.authRepository
+    private val settingsSyncRepository = container.settingsSyncRepository
     val intent: String = savedStateHandle.get<String>("intent") ?: "login"
 
     private val _uiState = MutableStateFlow<QrUiState>(QrUiState.Loading)
@@ -94,6 +96,7 @@ class QrSignInViewModel(
                         when (outcome) {
                             is QrPollOutcome.Completed -> {
                                 _authenticated.value = true
+                                settingsSyncRepository.pullFromServer()
                                 return@launch
                             }
                             QrPollOutcome.Expired -> {
