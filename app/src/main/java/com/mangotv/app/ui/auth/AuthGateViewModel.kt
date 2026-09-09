@@ -31,6 +31,7 @@ class AuthGateViewModel(application: Application) : AndroidViewModel(application
     private val authRepository = container.authRepository
     private val settingsSyncRepository = container.settingsSyncRepository
     private val watchlistSyncRepository = container.watchlistSyncRepository
+    private val continueWatchingSyncRepository = container.continueWatchingSyncRepository
 
     private val _destination = MutableStateFlow<GateDestination?>(null)
     val destination: StateFlow<GateDestination?> = _destination.asStateFlow()
@@ -42,14 +43,15 @@ class AuthGateViewModel(application: Application) : AndroidViewModel(application
             _destination.value = if (hasUsableSession) GateDestination.Home else GateDestination.AuthStart
 
             if (hasUsableSession) {
-                // All three fire after the navigation decision, not before
+                // All four fire after the navigation decision, not before
                 // — this is purely about keeping the access token fresh
-                // and this account's settings/watchlist current for
-                // whenever they're next needed; none of them must ever
-                // delay getting the user into the app.
+                // and this account's settings/watchlist/continue-watching
+                // current for whenever they're next needed; none of them
+                // must ever delay getting the user into the app.
                 launch { authRepository.ensureFreshSession() }
                 launch { settingsSyncRepository.pullFromServer() }
                 launch { watchlistSyncRepository.pullFromServer() }
+                launch { continueWatchingSyncRepository.pullFromServer() }
             }
         }
     }

@@ -4,8 +4,11 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.mangotv.app.MangoTvApplication
+import com.mangotv.app.data.history.ContinueWatchingEntry
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.HomeSection
+import com.mangotv.app.data.model.RowStyle
+import com.mangotv.app.data.model.WatchProgress
 import com.mangotv.app.data.provider.CatalogProvider
 import com.mangotv.app.data.provider.HomeRowPreferences
 import com.mangotv.app.data.provider.ProviderRegistry
@@ -34,6 +37,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
 
     private val homeRowPreferences = (application as MangoTvApplication).container.homeRowPreferencesRepository
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
+    private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
 
     private val _uiState = MutableStateFlow<HomeUiState>(HomeUiState.Loading)
     val uiState: StateFlow<HomeUiState> = _uiState.asStateFlow()
@@ -49,6 +53,10 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     // relies on, applied here to preference changes instead of drag events.
     private var rawHero: List<Content> = emptyList()
     private var rawSections: List<HomeSection> = emptyList()
+    // Not subject to Home Rows' order/hidden-state prefs (those apply to
+    // addon-supplied catalog rows) -- always shown first when non-empty,
+    // omitted entirely when empty rather than rendering an empty row.
+    private var continueWatchingSection: HomeSection? = null
     private var lastFetchFailed = false
     private var hasFetchedOnce = false
 
@@ -69,6 +77,15 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         // Preference changes just re-apply the already-fetched raw data.
         viewModelScope.launch {
             homeRowPreferences.preferences.collect { prefs -> applyPreferences(prefs) }
+        }
+        // Continue Watching (Milestone 8) is its own independent trigger,
+        // same reasoning as preferences above: re-applying is a cheap
+        // local re-combine, never a network re-fetch of the catalog rows.
+        viewModelScope.launch {
+            continueWatchingRepository.items.collect { entries ->
+                continueWatchingSection = entries.toHomeSectionOrNull()
+                applyPreferences(homeRowPreferences.preferences.value)
+            }
         }
     }
 
@@ -120,11 +137,43 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasFetchedOnce) return
 
         val visibleSections = rowPreferences.applyOrder(rawSections).filterNot { it.id in rowPreferences.hiddenRowIds }
+        val sections = listOfNotNull(continueWatchingSection) + visibleSections
 
         _uiState.value = when {
-            rawHero.isNotEmpty() || visibleSections.isNotEmpty() -> HomeUiState.Success(rawHero, visibleSections)
+            rawHero.isNotEmpty() || sections.isNotEmpty() -> HomeUiState.Success(rawHero, sections)
             lastFetchFailed -> HomeUiState.Error("Couldn't reach your installed addons. Check your connection and try again.")
             else -> HomeUiState.Empty
         }
+    }
+
+    private fun List<ContinueWatchingEntry>.toHomeSectionOrNull(): HomeSection? {
+        if (isEmpty()) return null
+        return HomeSection(
+            id = CONTINUE_WATCHING_ROW_ID,
+            title = "Continue Watching",
+            items = map { it.toContent() },
+            style = RowStyle.CONTINUE_WATCHING
+        )
+    }
+
+    private fun ContinueWatchingEntry.toContent(): Content = Content(
+        id = contentId,
+        type = contentType,
+        title = title,
+        description = "",
+        posterUrl = posterUrl,
+        backdropUrl = backdropUrl,
+        providerId = providerId,
+        watchProgress = WatchProgress(
+            positionMs = positionMs,
+            durationMs = durationMs,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle
+        )
+    )
+
+    companion object {
+        private const val CONTINUE_WATCHING_ROW_ID = "continue_watching"
     }
 }

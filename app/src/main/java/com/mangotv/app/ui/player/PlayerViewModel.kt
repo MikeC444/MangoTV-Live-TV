@@ -36,6 +36,8 @@ class PlayerViewModel(
 ) : AndroidViewModel(application) {
 
     private val preferencesRepository = (application as MangoTvApplication).container.playerPreferencesRepository
+    private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
+    private val continueWatchingSyncRepository = (application as MangoTvApplication).container.continueWatchingSyncRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -128,5 +130,57 @@ class PlayerViewModel(
 
     fun setSkipIntroEnabled(enabled: Boolean) {
         viewModelScope.launch { preferencesRepository.setSkipIntroEnabled(enabled) }
+    }
+
+    /**
+     * This exact title/episode's stored resume point, if any -- a
+     * synchronous read of the local Continue Watching cache (Milestone 8),
+     * looked up once when building the Ready state so PlaybackContent can
+     * seek to it on first prepare. Guards on season/episode matching
+     * too: a stored entry for a different episode of the same show is not
+     * a valid resume point for *this* stream.
+     */
+    fun resumePositionMs(): Long? =
+        continueWatchingRepository.findResumePoint(providerId, contentId, contentType)
+            ?.takeIf { it.seasonNumber == season && it.episodeNumber == episodeNumber }
+            ?.positionMs
+
+    /**
+     * Called by PlaybackContent at the player's own "sensible update
+     * strategy" trigger points (periodic while playing, on pause, on
+     * stop/dispose, on completion) -- never on every position tick, per
+     * the milestone's explicit "don't flood the network" requirement.
+     * Deliberately not suspend: the dispose-time call happens from a
+     * plain onDispose{} lambda, not a coroutine — see
+     * ContinueWatchingSyncRepository.reportProgress's own kdoc for why
+     * this whole chain stays non-suspend down to the actual network call.
+     */
+    fun reportProgress(positionMs: Long, durationMs: Long, completed: Boolean) {
+        if (durationMs <= 0) return
+        // Ignore a barely-started report: resuming from a few seconds in
+        // isn't useful, and without this guard a Continue Watching entry
+        // would appear the instant playback merely starts, before the
+        // user has actually watched anything.
+        if (!completed && positionMs < MIN_REPORTABLE_POSITION_MS) return
+
+        val state = uiState.value as? PlayerScreenUiState.Ready ?: return
+        continueWatchingSyncRepository.reportProgress(
+            providerId = providerId,
+            contentId = contentId,
+            contentType = contentType,
+            seasonNumber = season,
+            episodeNumber = episodeNumber,
+            episodeTitle = state.episode?.title,
+            title = state.content.title,
+            posterUrl = state.content.posterUrl,
+            backdropUrl = state.content.backdropUrl,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            completed = completed
+        )
+    }
+
+    companion object {
+        private const val MIN_REPORTABLE_POSITION_MS = 10_000L
     }
 }

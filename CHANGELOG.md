@@ -946,3 +946,215 @@ DataStore-load-ordering race noted above is the other explicitly deferred
 item.
 
 **Milestone 7 is complete.**
+
+## Milestone 8 — Watch History & Continue Watching
+
+**Status:** Complete.
+
+**Changes:** The first genuinely greenfield sync domain — per Milestone
+0's audit, Continue Watching had UI display plumbing (`WatchProgress`,
+`RowStyle.CONTINUE_WATCHING`, `ContentCard`'s progress-bar rendering) but
+*zero* writer anywhere in the app before this milestone; the
+`watch_history`/`continue_watching` tables (Milestone 1) existed but were
+never written to either. This milestone builds the writer, the local
+cache, and cloud sync together, as Milestone 0's plan always intended
+("with sync as a first-class part of its design from the start, not
+bolted on after a local-only version already shipped").
+
+Backend:
+- `schemas/watchProgress.ts` — `watchProgressBodySchema` (one playback
+  report, validated for a matched season/episode pair — both present or
+  both absent, since a half-null pair would silently produce a
+  nonsensical `episode_key`) and `historyQuerySchema` (`limit` + `before`,
+  a keyset cursor on `watched_at` rather than `OFFSET`, since
+  `watch_history` — unlike settings/watchlist — has no bound on how large
+  it grows for an active account).
+- `services/continueWatchingService.ts` — `listActiveContinueWatching`
+  (the GET read backing Home's row).
+- `services/playbackProgressService.ts` — `recordProgress`, the actual
+  write: one DB transaction that upserts `watch_history` (keyed by the
+  existing `episode_key` generated column) and then either upserts
+  `continue_watching` (not completed — same atomic
+  `WHERE EXCLUDED.updated_at > ...` last-write-wins shape as
+  settings/watchlist) or soft-deletes it (completed — a finished title
+  isn't resumable, exactly matching migration 0011's own header comment
+  about how `continue_watching` is maintained from application logic, not
+  a trigger). Both tables are gated by the same client-supplied
+  `watchedAt`, evaluated independently per row since a per-episode fact
+  and a per-title pointer are different things that merely share a cause.
+  Also `listWatchHistory` (paginated).
+- `routes/history.ts` — `POST /user/watch-progress`,
+  `GET /user/continue-watching`, `GET /user/history`, all `requireAuth`,
+  mounted alongside settings/watchlist in `app.ts`. One write endpoint,
+  not two, so a client never risks the two tables landing inconsistently
+  across separate requests for what is really one playback event.
+
+Android:
+- `data/network/{ContinueWatchingDtos,PlaybackProgressApiClient}.kt` —
+  mirrors `WatchlistApiClient`'s style. No client method for
+  `GET /user/history` — the app has no History browse screen for it to
+  feed (see "Deliberately not built" below), so only the two endpoints
+  Home's Continue Watching row actually needs are wired up.
+- `data/history/ContinueWatchingRepository.kt` (new) — DataStore-backed
+  local cache, same JSON persistence pattern as `MyListRepository`.
+  Deliberately has **no** `onLocalChange` hook: unlike My List/Settings
+  (mutated from several independent UI call sites that each need to
+  notify a sync layer), this domain has exactly one writer —
+  `ContinueWatchingSyncRepository.reportProgress()`, called only by the
+  player — so there's no separate "something changed locally, now tell
+  sync" step to hook; that class *is* the step.
+- `data/sync/ContinueWatchingSyncRepository.kt` (new) —
+  `pullFromServer()` (same two call sites as the other two sync
+  repositories) and `reportProgress(...)`, deliberately **not** `suspend`:
+  the final "stopped playback" report fires from `PlayerScreen`'s
+  `DisposableEffect.onDispose{}`, which is not a coroutine context, so
+  this owns its own long-lived `CoroutineScope` and fires the local write
+  + network push from there (the same shape `WatchlistSyncRepository`
+  already uses for its push, just applied to a plain function called
+  directly from Compose disposal rather than from a repository's
+  `onLocalChange`). A `reconcile()` step applies the server's
+  authoritative post-write item back into the local cache — usually a
+  no-op, but what correctly restores or drops a locally-optimistic entry
+  if a report lost a last-write-wins race to a near-simultaneous one from
+  another device.
+- `ui/player/PlayerViewModel.kt` — `resumePositionMs()` (a synchronous
+  local-cache lookup, guarded on season/episode matching, used once when
+  building the Ready state) and `reportProgress(positionMs, durationMs,
+  completed)` (forwards to `ContinueWatchingSyncRepository`, after a
+  `MIN_REPORTABLE_POSITION_MS` = 10s guard — resuming from a few seconds
+  in isn't useful, and without it a Continue Watching entry would appear
+  the instant playback merely starts).
+- `ui/player/PlayerScreen.kt` — the actual "sensible update strategy"
+  Milestone 8 calls for, instead of a report per position tick: a
+  `LaunchedEffect(phase)` reports periodically (every 30s) while
+  `Playing`, once on `Paused`, once on `Ended` (`completed = true`); the
+  existing `DisposableEffect`'s `onDispose{}` gained one final report
+  (read before `exoPlayer.release()`, since position/duration stop being
+  meaningful after). `startPlayback()` now calls
+  `exoPlayer.setMediaItem(mediaItem, resumePositionMs)` (ExoPlayer's
+  standard "start at this position" overload) when a stored resume point
+  exists for the exact title/episode being opened.
+- `ui/home/HomeViewModel.kt` — a third independent `init{}` trigger
+  (alongside the provider-fetch and Home-Rows-preferences ones) collects
+  `continueWatchingRepository.items` and folds a `Continue Watching`
+  `HomeSection` (`RowStyle.CONTINUE_WATCHING`) into the section list,
+  always first, omitted entirely when empty. No changes needed to
+  `ContentRow`/`ContentCard`/navigation at all — this `RowStyle` and its
+  progress-bar/S·E-label rendering, and clicking through to Detail, were
+  already fully built (display-only, per Milestone 0's audit); this
+  milestone only had to start actually populating the row with real data.
+  Deliberately **not** subject to Home Rows' order/hidden-state
+  preferences (those exist for addon-supplied catalog rows).
+- `AppContainer.kt` — `continueWatchingRepository`/
+  `continueWatchingSyncRepository` added as eager singletons, same
+  self-defeating-if-lazy reasoning as Milestone 7's `myListRepository`
+  fix (documented directly in `AppContainer`'s own comment this time,
+  rather than re-discovering it mid-review).
+- `AuthGateViewModel.kt` / `QrSignInViewModel.kt` — call
+  `continueWatchingSyncRepository.pullFromServer()` alongside the
+  existing settings/watchlist pulls, same two call sites, same
+  fire-and-forget posture.
+
+**Tests performed:**
+- `npm run typecheck` / `npm audit` — clean.
+- `npm test` locally against `mangotv_test` — **112/112 passed** (up from
+  92; 20 new): a movie report populates both tables; a later GET reflects
+  it; `completed: true` clears `continue_watching` but keeps the
+  `watch_history` row with `completed: true`; completing a title with no
+  prior `continue_watching` row returns `continueWatching: null` rather
+  than erroring; re-watching after completion (newer `watchedAt`)
+  recreates an active row; switching episodes on the same show updates
+  the *one* `continue_watching` row while creating a *second*
+  `watch_history` row (proving the two tables' different keys behave as
+  designed); a strictly-newer `watchedAt` overwrites and an older one
+  loses to current state; `GET /user/history` pagination (`limit` +
+  `before`, newest-first, exact-page-boundary assertions); validation
+  failures (missing fields, invalid `contentType`, a half-null
+  season/episode pair, negative `positionMs`, an out-of-range `limit`);
+  401s with no Authorization header on all three endpoints; cross-user
+  isolation, including a dedicated test confirming bob cannot mark
+  alice's title completed by guessing her exact content id with a
+  far-future `watchedAt` (his report lands as his own, separate, empty
+  row set — alice's is untouched, since every query is scoped to
+  `req.user!.id`, never a client-supplied id).
+- Manual smoke test against a real running server, over actual HTTP:
+  POST progress (in-progress) → GET continue-watching (shows it) → POST
+  progress (`completed: true`) → GET continue-watching (empty) → GET
+  history (shows the completed entry) → unauthenticated GET (401).
+  Seeded data deleted immediately after.
+- Android: no new pure-logic unit tests this milestone (same rationale as
+  Milestones 6-7 — the branching logic that matters is exercised by the
+  backend tests above); verified instead by a full manual re-read of
+  every new/changed file, cross-checking wire-format field names against
+  the actual backend schema/routes, confirming
+  `exoPlayer.setMediaItem(mediaItem, resumePositionMs)` is the standard
+  (not `@UnstableApi`) ExoPlayer overload for starting playback at a
+  position, confirming `LaunchedEffect(phase)`'s periodic-while-`Playing`
+  loop is correctly cancelled (not left running concurrently) on every
+  phase transition since `phase` is a plain re-passed parameter value,
+  and the `build-apk.yml` CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- First draft of `ContinueWatchingSyncRepository.reportProgress()` did
+  the local `ContinueWatchingRepository.upsert()`/`remove()` call
+  *outside* the `try`/`catch` that wraps the network push — a genuine gap,
+  not just a style nit: Jetpack DataStore surfaces a write failure as a
+  plain `IOException`, and an uncaught exception escaping a bare
+  `scope.launch { }` block crashes the app. A rare disk hiccup during a
+  routine progress report should degrade quietly (the same way a network
+  hiccup already does), not crash the player.
+- Backend: `positionMs`/`durationMs` had a lower bound (`min(0)`) but no
+  upper one, so a malformed client value large enough to overflow
+  Postgres' `bigint` range would have reached the database and surfaced
+  as an opaque 500 instead of a clean, expected 400.
+- Confirmed `HomeViewModel`'s pre-existing `providers.isEmpty()` early
+  return (unrelated code, predates this milestone) still bypasses
+  `applyPreferences()` entirely, so a Continue Watching row would not
+  render on the rare device that has active continue-watching entries
+  (e.g. freshly pulled from the cloud) but zero addons currently
+  installed. Not fixed — see "Deliberately not built" below.
+
+**Issues fixed:**
+- Restructured `reportProgress()` so the local write and the network push
+  share one `try`/`catch`; the existing `IOException` handling ("transient,
+  the next report or pull recovers") already correctly covers a local
+  storage failure as well as a network one, so no new catch clause was
+  needed, just the right scope.
+- Added `.max(1_000_000_000_000)` (a generous, effectively-unlimited but
+  `bigint`-safe bound) to both `positionMs` and `durationMs` in
+  `watchProgressBodySchema`.
+
+**Deliberately not built yet:**
+- **A History browse screen.** The backend and its tests fully support
+  `GET /user/history`; nothing on the Fire TV side calls it, because no
+  such screen exists in the app today and the milestone's own completion
+  criteria only require Continue Watching to match across devices, not a
+  new browsing UI. Matches Milestone 7's identical "don't invent new
+  screens the milestone didn't ask for" precedent for My List.
+- **Auto-selecting the in-progress episode in Detail's season picker.**
+  Continue Watching's Home row correctly shows the right title, episode
+  label, and progress bar, and resuming *does* work correctly once the
+  player opens for that exact title/episode (`PlayerViewModel
+  .resumePositionMs()` matches by natural key regardless of navigation
+  path) — what's not built is Detail automatically pre-selecting that
+  episode when reached via the Continue Watching card, so a multi-episode
+  show still requires manually picking the right episode in Seasons
+  first. This is a UI convenience beyond what the completion criteria
+  require, not a sync-correctness gap.
+- **The `providers.isEmpty()` / continue-watching-with-zero-addons edge
+  case** noted above — `HomeEmptyScreen` doesn't currently know how to
+  render any `ContentRow`s at all (just a "Browse Addons" CTA), so
+  correctly handling this would mean changing that screen's layout, not
+  just this milestone's data plumbing. Narrow and low-probability (it
+  needs an active continue-watching entry pulled from the cloud onto a
+  device with literally zero addons installed) but not proven impossible,
+  so recorded rather than silently accepted.
+- **A generic `SyncManager`/retry queue and clearing local caches on
+  logout** — both remain out of scope for the same reasons given in
+  Milestones 6/7 (not enough proven domains yet to generalize from;
+  cross-account data isolation is explicitly Milestone 12's job). This
+  milestone's un-pushed-change and pull-always-wins behavior on failure
+  matches the identical, already-accepted pattern the other two sync
+  repositories use — not a new gap unique to Continue Watching.
+
+**Milestone 8 is complete.**

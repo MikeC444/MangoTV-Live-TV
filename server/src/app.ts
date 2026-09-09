@@ -9,6 +9,7 @@ import { createAuthRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { meRouter } from "./routes/me.js";
 import { createQrRouter } from "./routes/qr.js";
+import { historyRouter } from "./routes/history.js";
 import { settingsRouter } from "./routes/settings.js";
 import { watchlistRouter } from "./routes/watchlist.js";
 
@@ -59,6 +60,7 @@ export function createApp(): Express {
   app.use("/user", meRouter);
   app.use("/user", settingsRouter);
   app.use("/user", watchlistRouter);
+  app.use("/user", historyRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

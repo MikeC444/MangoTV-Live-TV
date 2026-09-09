@@ -56,6 +56,9 @@ import com.mangotv.app.ui.player.overlay.SubtitlesMenu
 import kotlin.math.abs
 import kotlinx.coroutines.delay
 
+/** How often a progress report fires while actively playing (Milestone 8) -- frequent enough that another device's Continue Watching stays reasonably current, infrequent enough not to flood the network on every position tick. */
+private const val PROGRESS_REPORT_INTERVAL_MS = 30_000L
+
 @Composable
 fun PlayerScreen(
     onBack: () -> Unit,
@@ -90,6 +93,7 @@ fun PlayerScreen(
                     content = state.content,
                     episode = state.episode,
                     stream = state.stream,
+                    resumePositionMs = viewModel.resumePositionMs(),
                     phase = playbackPhase,
                     audioTracks = audioTracks,
                     subtitleTracks = subtitleTracks,
@@ -99,6 +103,7 @@ fun PlayerScreen(
                     onTracksChanged = viewModel::onTracksChanged,
                     onAutoplayChange = viewModel::setAutoplayNextEpisode,
                     onSkipIntroChange = viewModel::setSkipIntroEnabled,
+                    onReportProgress = viewModel::reportProgress,
                     onBack = onBack,
                     onChangeSource = onChangeSource
                 )
@@ -112,6 +117,7 @@ private fun PlaybackContent(
     content: Content,
     episode: Episode?,
     stream: Stream,
+    resumePositionMs: Long?,
     phase: PlaybackPhase,
     audioTracks: List<AudioTrackOption>,
     subtitleTracks: List<SubtitleTrackOption>,
@@ -121,6 +127,7 @@ private fun PlaybackContent(
     onTracksChanged: (Tracks) -> Unit,
     onAutoplayChange: (Boolean) -> Unit,
     onSkipIntroChange: (Boolean) -> Unit,
+    onReportProgress: (positionMs: Long, durationMs: Long, completed: Boolean) -> Unit,
     onBack: () -> Unit,
     onChangeSource: () -> Unit
 ) {
@@ -133,7 +140,35 @@ private fun PlaybackContent(
         exoPlayer.addListener(listener)
         onDispose {
             exoPlayer.removeListener(listener)
+            // Final "stopped playback" progress report -- read before
+            // release(), since currentPosition/duration are no longer
+            // meaningful afterward. Not a coroutine context, which is
+            // exactly why onReportProgress (-> PlayerViewModel.reportProgress
+            // -> ContinueWatchingSyncRepository.reportProgress) is a plain,
+            // non-suspend call all the way down.
+            if (exoPlayer.duration > 0) {
+                onReportProgress(exoPlayer.currentPosition, exoPlayer.duration, false)
+            }
             exoPlayer.release()
+        }
+    }
+
+    // Periodic-while-playing, plus one-shot reports on pause and on
+    // natural completion -- the "sensible update strategy" Milestone 8
+    // calls for, instead of a report per position tick. Restarts (and so
+    // stops the periodic loop) every time phase changes, since phase is a
+    // plain parameter value re-passed down on each recomposition.
+    LaunchedEffect(phase) {
+        when (phase) {
+            is PlaybackPhase.Playing -> {
+                while (true) {
+                    delay(PROGRESS_REPORT_INTERVAL_MS)
+                    onReportProgress(exoPlayer.currentPosition, exoPlayer.duration, false)
+                }
+            }
+            is PlaybackPhase.Paused -> onReportProgress(exoPlayer.currentPosition, exoPlayer.duration, false)
+            is PlaybackPhase.Ended -> onReportProgress(exoPlayer.duration, exoPlayer.duration, true)
+            else -> Unit
         }
     }
 
@@ -158,7 +193,16 @@ private fun PlaybackContent(
                 )
             )
         } else {
-            exoPlayer.setMediaItem(mediaItem)
+            // Resume at the stored position when this exact title/episode
+            // has one (Milestone 8) -- setMediaItem's startPositionMs
+            // overload is the standard ExoPlayer way to do this, applied
+            // once the player becomes ready rather than needing a
+            // separate seekTo() call.
+            if (resumePositionMs != null && resumePositionMs > 0) {
+                exoPlayer.setMediaItem(mediaItem, resumePositionMs)
+            } else {
+                exoPlayer.setMediaItem(mediaItem)
+            }
             exoPlayer.prepare()
             exoPlayer.playWhenReady = true
         }

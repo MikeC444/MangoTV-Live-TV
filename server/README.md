@@ -8,8 +8,9 @@ architecture writeup.
 Milestone 1: database schema + migrations. Milestone 2: the Express API
 foundation. Milestone 3: real accounts. Milestone 4: QR sign-in for the
 Fire TV. Milestone 5: the Fire TV app itself wired to all of the above.
-Milestone 6: Home Rows + Player settings cloud sync. Milestone 7
-(current): My List/watchlist cloud sync.
+Milestone 6: Home Rows + Player settings cloud sync. Milestone 7: My
+List/watchlist cloud sync. Milestone 8 (current): watch history +
+Continue Watching cloud sync.
 
 Endpoints so far:
 
@@ -50,6 +51,19 @@ Endpoints so far:
   the item was never synced from any device; otherwise `200` with the
   item's current state (which may mean the removal lost a race to a
   newer write elsewhere, reflected via a `null` `deletedAt`).
+- `POST /user/watch-progress` (authenticated) — records one playback
+  position report against both `watch_history` (durable per-episode log)
+  and `continue_watching` (per-title resumable pointer) in a single
+  transaction. `completed: true` clears the title's `continue_watching`
+  row instead of updating it. Returns `{ historyEntry, continueWatching }`
+  (`continueWatching` is `null` when there was nothing to clear).
+- `GET /user/continue-watching` (authenticated) — this account's active
+  (resumable) titles, most recently watched first.
+- `GET /user/history?limit=&before=` (authenticated) — this account's
+  watch history, newest first, keyset-paginated on `watched_at` (`before`
+  is an ISO-8601 timestamp cursor from a previous page's oldest item). No
+  Fire TV screen consumes this yet — the app has no History browse screen
+  — but the data is captured and available for one.
 
 ## Setup
 

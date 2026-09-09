@@ -3,9 +3,11 @@ package com.mangotv.app
 import android.content.Context
 import com.mangotv.app.data.addon.AddonRepository
 import com.mangotv.app.data.auth.AuthRepository
+import com.mangotv.app.data.history.ContinueWatchingRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
+import com.mangotv.app.data.sync.ContinueWatchingSyncRepository
 import com.mangotv.app.data.sync.SettingsSyncRepository
 import com.mangotv.app.data.sync.WatchlistSyncRepository
 
@@ -57,6 +59,18 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * settingsSyncRepository and watchlistSyncRepository are both eager so
  * their constructors can wire each domain's onLocalChange push hook before
  * anything has a chance to mutate it.
+ *
+ * continueWatchingRepository is eager for the same reason myListRepository
+ * is (see above) — its own sync repository is constructed eagerly right
+ * after it and reads it as a constructor argument, which forces the same
+ * lazy-would-be-self-defeating outcome if declared otherwise. It also
+ * needs to be ready synchronously the moment PlayerViewModel looks up a
+ * resume position for whatever title/episode is about to play — unlike
+ * watchlistSyncRepository, continueWatchingSyncRepository has no
+ * onLocalChange hook to wire (nothing here is mutated from a local
+ * repository call the way My List/Settings are — see its own kdoc), so
+ * eagerness here is purely about that resume-position lookup and
+ * pull-on-launch being ready immediately, not about hook wiring order.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
@@ -68,4 +82,8 @@ class AppContainer(context: Context) {
     )
     val myListRepository: MyListRepository = MyListRepository(context)
     val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(myListRepository, authRepository)
+    val continueWatchingRepository: ContinueWatchingRepository = ContinueWatchingRepository(context)
+    val continueWatchingSyncRepository: ContinueWatchingSyncRepository = ContinueWatchingSyncRepository(
+        continueWatchingRepository, authRepository
+    )
 }
