@@ -130,7 +130,34 @@ workaround.
 Local `.env` holding the live credential was deleted after confirming it
 couldn't be used from here — nothing sandbox-side retains it.
 
-**Outstanding:** the user needs to add `DATABASE_URL` as a GitHub Actions
-repository secret (Settings > Secrets and variables > Actions); once
-that's done this workflow gives the real "migrations work against a fresh
-Neon database" proof this milestone's completion criteria call for.
+**Confirmed against the real Neon database.** The user added the
+`DATABASE_URL` repository secret. Run #1 (the automatic push trigger, before
+the secret existed) correctly skipped both DB steps with conclusion
+`skipped`, not a failure — proving the graceful-skip path works. Run #2
+(manually dispatched after the secret was added,
+[run 34388148221](https://github.com/MikeC444/MangoTV-Live-TV/actions/runs/34388148221))
+ran for real:
+
+- `npm run migrate` applied all 11 migrations to the live Neon database in
+  ~9 seconds.
+- `npm run verify-schema` reported **56 passed, 0 failed** — every table,
+  every index, every FK/unique constraint, and every cascade delete,
+  exercised against the actual Neon Postgres instance, not just the local
+  rehearsal.
+
+This satisfies Milestone 1's "verify against a fresh Neon database"
+criterion for real.
+
+**One more issue caught from the CI log itself:** node-postgres emitted a
+deprecation warning — `sslmode=require`/`prefer`/`verify-ca` are currently
+treated as aliases for `verify-full` (full certificate verification, the
+secure behavior already in effect), but a future major version of
+`pg`/`pg-connection-string` will drop `require` to weaker libpq-standard
+semantics. Updated `.env.example`'s example connection string and
+`pool.ts`'s comment to recommend `sslmode=verify-full` explicitly, so this
+connection's security guarantee doesn't silently change on a future
+dependency bump. Not urgent (current behavior is already secure) — the
+user's existing secret value doesn't need to change today, just next time
+it's convenient to touch it.
+
+**Milestone 1 is complete.**
