@@ -13,6 +13,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +49,18 @@ fun SettingsScaffold(
     content: @Composable ColumnScope.() -> Unit
 ) {
     val selectedIndex = remember(selectedNavLabel) { MangoNavItems.indexOf(selectedNavLabel) }
+
+    // Every other TopNavBar-hosting screen (Movies, TV Shows, Search, ...)
+    // explicitly requests focus onto its selected nav item on first
+    // composition -- without it, Compose's default initial-focus behavior
+    // lands on the first focusable element in the tree (the nav bar's
+    // first item, "Home") regardless of which item is actually selected.
+    // This was missing here, so every SettingsScaffold-hosted screen
+    // (Settings, Addons, Home Rows, Genres) opened with the D-pad cursor
+    // on Home instead of its own tab.
+    LaunchedEffect(Unit) {
+        runCatching { navFocusRequester.requestFocus() }
+    }
 
     Column(
         modifier = Modifier

@@ -43,6 +43,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.mangotv.app.data.model.Stream
 import com.mangotv.app.navigation.MangoRoutes
+import com.mangotv.app.ui.components.ClickSound
 import com.mangotv.app.ui.components.FullScreenErrorState
 import com.mangotv.app.ui.components.HeroIconButton
 import com.mangotv.app.ui.components.MangoButton
@@ -113,7 +114,12 @@ private fun SourcesLoadingSkeleton(onBack: () -> Unit, modifier: Modifier = Modi
                 .fillMaxHeight()
                 .padding(22.dp)
         ) {
-            HeroIconButton(icon = Icons.Filled.ArrowBack, contentDescription = "Back", onClick = onBack)
+            HeroIconButton(
+                icon = Icons.Filled.ArrowBack,
+                contentDescription = "Back",
+                onClick = onBack,
+                clickSound = ClickSound.BACK
+            )
             Spacer(Modifier.height(16.dp))
             ShimmerBox(modifier = Modifier.size(width = 84.dp, height = 126.dp))
             Spacer(Modifier.height(14.dp))

@@ -10,7 +10,7 @@ A premium, Netflix-inspired streaming app for Amazon Fire TV / Firestick, built 
 
 ```
 app/src/main/java/com/mangotv/app/
-  data/model/       Content, Genre, Episode, Season, WatchProgress — the shared metadata model
+  data/model/        Content, Genre, Episode, Season, WatchProgress — the shared metadata model
   data/provider/     CatalogProvider interface + ProviderRegistry (Stremio-style addon architecture) + sample catalog
   ui/theme/          Colors, typography, motion tokens, dimens — the design system
   ui/components/     Reusable focusable primitives: TvFocusSurface, ContentCard, ContentRow, MangoButton, MangoLogo, loading/error states

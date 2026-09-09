@@ -21,6 +21,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import com.mangotv.app.ui.components.ClickSound
 import com.mangotv.app.ui.components.MangoButton
 import com.mangotv.app.ui.components.MangoButtonStyle
 import com.mangotv.app.ui.theme.TextPrimary
@@ -83,7 +84,8 @@ fun PlaybackErrorOverlay(
                     icon = Icons.Filled.ArrowBack,
                     onClick = onBack,
                     style = MangoButtonStyle.GLASS,
-                    borderColor = Color.White
+                    borderColor = Color.White,
+                    clickSound = ClickSound.BACK
                 )
             }
         }

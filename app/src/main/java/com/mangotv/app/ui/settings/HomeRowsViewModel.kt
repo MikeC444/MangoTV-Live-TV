@@ -11,6 +11,7 @@ import com.mangotv.app.data.provider.ProviderRegistry
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
 
 sealed interface HomeRowsUiState {
@@ -51,7 +52,10 @@ class HomeRowsViewModel(application: Application) : AndroidViewModel(application
         _uiState.value = HomeRowsUiState.Loading
         val rows = mutableListOf<HomeSection>()
         for (provider in providers) {
-            runCatching { provider.getHomeSections() }.onSuccess { rows += it }
+            // This screen just wants the final, complete row list (there's
+            // no progressive reveal here) -- collecting getHomeSections()'s
+            // batches to completion and flattening restores that.
+            runCatching { provider.getHomeSections().toList().flatten() }.onSuccess { rows += it }
         }
         _uiState.value = HomeRowsUiState.Loaded(rows)
     }

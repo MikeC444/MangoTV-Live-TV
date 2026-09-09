@@ -7,6 +7,7 @@ import androidx.datastore.preferences.core.booleanPreferencesKey
 import androidx.datastore.preferences.core.edit
 import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
+import com.mangotv.app.data.model.AddonManifest
 import com.mangotv.app.data.model.InstalledAddon
 import com.mangotv.app.data.provider.ProviderRegistry
 import com.mangotv.app.data.provider.StremioAddonProvider
@@ -60,27 +61,57 @@ class AddonRepository(context: Context) {
         // marked bootstrapped on actual success, so a launch with no
         // network simply retries next time instead of leaving the user
         // permanently addon-less.
+        //
+        // Registers from a bundled copy of Cinemeta's manifest
+        // (assets/cinemeta_manifest.json) rather than fetching it live --
+        // on a genuinely fresh install this used to be a full network
+        // round-trip that had to finish before ProviderRegistry had
+        // anything in it at all, which meant Home's own catalog fetch
+        // couldn't even start yet, stacked on top of Home having no cache
+        // yet either. The bundled copy only stands in for that one manifest
+        // fetch; every real catalog/stream/meta request still goes to the
+        // live Cinemeta server exactly as before, since those are resolved
+        // from manifestUrl, not from the manifest content. Falls back to
+        // the original live fetch if the bundled asset is ever missing or
+        // fails to decode, so a packaging mistake degrades gracefully
+        // instead of breaking first-launch bootstrap outright.
         if (stored.isEmpty() && !isDefaultAddonBootstrapped()) {
-            installAddon(CINEMETA_MANIFEST_URL).onSuccess {
+            val bundled = readBundledCinemetaManifest()
+            if (bundled != null) {
+                registerAndPersist(CINEMETA_MANIFEST_URL, bundled)
                 setDefaultAddonBootstrapped()
+            } else {
+                installAddon(CINEMETA_MANIFEST_URL).onSuccess {
+                    setDefaultAddonBootstrapped()
+                }
             }
         }
     }
+
+    private fun readBundledCinemetaManifest(): AddonManifest? = runCatching {
+        appContext.assets.open(CINEMETA_MANIFEST_ASSET).bufferedReader().use { it.readText() }
+    }.mapCatching { raw ->
+        json.decodeFromString(AddonManifest.serializer(), raw)
+    }.getOrNull()
 
     suspend fun installAddon(rawUrl: String): Result<InstalledAddon> = withContext(Dispatchers.IO) {
         runCatching {
             require(rawUrl.isNotBlank()) { "Enter an addon URL first." }
             val manifestUrl = AddonUrl.normalizeManifestUrl(rawUrl)
             val manifest = client.fetchManifest(manifestUrl)
-            val record = InstalledAddon(manifestUrl = manifestUrl, manifest = manifest, enabled = true)
-
-            val updated = _installedAddons.value.filterNot { it.manifestUrl == manifestUrl } + record
-            _installedAddons.value = updated
-            persist(updated)
-
-            ProviderRegistry.register(StremioAddonProvider(manifestUrl, manifest, client))
-            record
+            registerAndPersist(manifestUrl, manifest)
         }
+    }
+
+    private suspend fun registerAndPersist(manifestUrl: String, manifest: AddonManifest): InstalledAddon {
+        val record = InstalledAddon(manifestUrl = manifestUrl, manifest = manifest, enabled = true)
+
+        val updated = _installedAddons.value.filterNot { it.manifestUrl == manifestUrl } + record
+        _installedAddons.value = updated
+        persist(updated)
+
+        ProviderRegistry.register(StremioAddonProvider(manifestUrl, manifest, client))
+        return record
     }
 
     suspend fun removeAddon(manifestUrl: String) = withContext(Dispatchers.IO) {
@@ -134,5 +165,13 @@ class AddonRepository(context: Context) {
         // showing the empty-library state until a user manually finds and
         // adds an addon of their own.
         private const val CINEMETA_MANIFEST_URL = "https://v3-cinemeta.strem.io/manifest.json"
+
+        // A verbatim copy of CINEMETA_MANIFEST_URL's response (see
+        // readBundledCinemetaManifest) -- lets first-launch bootstrap skip
+        // waiting on that one network round-trip. Addon manifests are only
+        // ever fetched once at install time and trusted from persisted
+        // storage from then on (same as every other addon in this app), so
+        // bundling this doesn't introduce any new staleness behavior.
+        private const val CINEMETA_MANIFEST_ASSET = "cinemeta_manifest.json"
     }
 }

@@ -24,6 +24,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
@@ -49,6 +50,7 @@ import com.mangotv.app.navigation.routeForNavLabel
 import com.mangotv.app.ui.components.ContentCard
 import com.mangotv.app.ui.components.ContentRow
 import com.mangotv.app.ui.components.FullScreenErrorState
+import com.mangotv.app.ui.components.GridLoadingSkeleton
 import com.mangotv.app.ui.components.RowsLoadingSkeleton
 import com.mangotv.app.ui.detail.PendingDetailCache
 import com.mangotv.app.ui.home.MangoNavItems
@@ -106,14 +108,53 @@ fun RowsBrowseContent(
 ) {
     Box(Modifier.fillMaxSize().background(MangoBackground)) {
         when (uiState) {
-            is RowsBrowseUiState.Loading -> RowsLoadingSkeleton()
-            is RowsBrowseUiState.Error -> FullScreenErrorState(message = uiState.message, onRetry = onRetry)
+            // Loaded content owns its own TopNavBar (see
+            // RowsBrowseLoadedContent/RowsBrowseGridContent below) because
+            // it needs to wire the nav<->content focus seam and
+            // scroll-lock into it. Loading/Error have no row content to
+            // seam into, so a minimal standalone bar covers them -- these
+            // used to render with no nav bar at all, which made it
+            // disappear entirely for as long as the fetch was in flight
+            // (the common case navigating to a tab on cold boot, before
+            // its own data has loaded).
+            is RowsBrowseUiState.Loading -> RowsBrowseTransientState(navLabel, onNavigate) {
+                if (layout == RowsBrowseLayout.GRID) {
+                    GridLoadingSkeleton(screenTitle = screenTitle)
+                } else {
+                    RowsLoadingSkeleton()
+                }
+            }
+            is RowsBrowseUiState.Error -> RowsBrowseTransientState(navLabel, onNavigate) {
+                FullScreenErrorState(message = uiState.message, onRetry = onRetry)
+            }
             is RowsBrowseUiState.Loaded -> if (layout == RowsBrowseLayout.GRID) {
                 RowsBrowseGridContent(screenTitle, navLabel, uiState.sections.flatMap { it.items }, onNavigate, emptyMessage, onLoadMore)
             } else {
                 RowsBrowseLoadedContent(screenTitle, navLabel, uiState.sections, onNavigate, emptyMessage)
             }
         }
+    }
+}
+
+@Composable
+private fun RowsBrowseTransientState(
+    navLabel: String,
+    onNavigate: (String) -> Unit,
+    content: @Composable () -> Unit
+) {
+    val navFocusRequester = remember { FocusRequester() }
+    LaunchedEffect(Unit) {
+        runCatching { navFocusRequester.requestFocus() }
+    }
+    Box(Modifier.fillMaxSize()) {
+        content()
+        TopNavBar(
+            transparentBackground = false,
+            modifier = Modifier.align(Alignment.TopCenter),
+            selectedIndex = MangoNavItems.indexOf(navLabel),
+            selectedItemFocusRequester = navFocusRequester,
+            onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) }
+        )
     }
 }
 
@@ -130,6 +171,31 @@ private fun RowsBrowseLoadedContent(
     val coroutineScope = rememberCoroutineScope()
     val navFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
+    // The first row's own horizontal LazyRow state -- passed into ContentRow
+    // below (index == 0) so the nav bar's DOWN handler can bring whichever
+    // item lastFocusedItemIndex points at into view before jumping focus to
+    // firstCardFocusRequester. Without this, a scrolled-away target card
+    // isn't composed (scrolled out of the LazyRow's window), requestFocus()
+    // throws, gets swallowed by runCatching, and focus is stuck on the nav
+    // bar with no way back into the list.
+    val firstRowListState = rememberLazyListState()
+    // Which card the nav bar's DOWN key returns focus to -- starts at the
+    // first title (0), same as before this existed, but updates to whichever
+    // card the user actually last hovered (see ContentRow's
+    // onItemFocusChanged below) so leaving for the nav bar and coming back
+    // re-lands on that exact title instead of always snapping back to the
+    // first one.
+    var lastFocusedItemIndex by remember { mutableStateOf(0) }
+    // Clamped against the first row's CURRENT item count -- if the
+    // remembered title was removed from the list while the user was away
+    // (e.g. un-saved from Detail), the raw index could point past the end,
+    // and neither ContentRow (no item would match it, so
+    // firstItemFocusRequester never attaches to anything) nor
+    // firstRowListState.scrollToItem below handle an out-of-range index
+    // gracefully -- both would leave focus stuck on the nav bar again,
+    // exactly the bug this whole mechanism exists to avoid.
+    val firstRowLastValidIndex = (sections.firstOrNull()?.items?.size ?: 0) - 1
+    val clampedFocusedItemIndex = lastFocusedItemIndex.coerceIn(0, firstRowLastValidIndex.coerceAtLeast(0))
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
 
     // Mirrors HomeContent's heroRegionFocused, minus the intermediate hero
@@ -222,6 +288,13 @@ private fun RowsBrowseLoadedContent(
                             posterScale = 0.75f,
                             onFocusChanged = { hasFocus -> if (hasFocus) focusedRowIndex = index },
                             firstItemFocusRequester = if (index == 0) firstCardFocusRequester else null,
+                            targetItemIndex = if (index == 0) clampedFocusedItemIndex else 0,
+                            onItemFocusChanged = if (index == 0) {
+                                { itemIndex -> lastFocusedItemIndex = itemIndex }
+                            } else {
+                                {}
+                            },
+                            listState = if (index == 0) firstRowListState else rememberLazyListState(),
                             onNavigateUpPastRow = if (index == 0) {
                                 {
                                     navRegionFocused = true
@@ -254,6 +327,19 @@ private fun RowsBrowseLoadedContent(
                     navRegionFocused = false
                     coroutineScope.launch {
                         listState.scrollToItem(0, 0)
+                        // Only move the row's own horizontal scroll if the
+                        // remembered card isn't already on screen -- its
+                        // position was never touched while the user was
+                        // away, so it usually already is. Calling
+                        // scrollToItem unconditionally snaps the target to
+                        // the very start of the viewport even when it
+                        // didn't need to move at all, which read as the
+                        // row jarringly jumping on every single return.
+                        val alreadyVisible = firstRowListState.layoutInfo.visibleItemsInfo
+                            .any { it.index == clampedFocusedItemIndex }
+                        if (!alreadyVisible) {
+                            firstRowListState.animateScrollToItem(clampedFocusedItemIndex)
+                        }
                         runCatching { firstCardFocusRequester.requestFocus() }
                     }
                 }
@@ -268,8 +354,9 @@ private fun RowsBrowseLoadedContent(
 // on-screen poster size (posterScale) is computed at runtime from measured
 // layout constraints (see RowsBrowseGridContent) so this many columns
 // reliably fit regardless of the device's actual dp width, rather than
-// assuming a fixed screen size.
-private const val GRID_COLUMNS = 7
+// assuming a fixed screen size. Not private -- GridLoadingSkeleton reuses
+// it so the loading skeleton's column count matches the real grid exactly.
+const val GRID_COLUMNS = 7
 
 /**
  * Vertical, multi-column poster grid -- Movies, TV Shows, and Genre Results
@@ -301,15 +388,55 @@ private fun RowsBrowseGridContent(
     val firstCardFocusRequester = remember { FocusRequester() }
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
 
-    var navRegionFocused by remember { mutableStateOf(true) }
-    var focusedGridRowIndex by remember { mutableStateOf<Int?>(null) }
+    // Which title the grid returns D-pad focus to -- both for the nav bar's
+    // DOWN key and, more importantly, for returning from Detail. By default
+    // Navigation-Compose tears down this composable's plain `remember` state
+    // (hasRequestedInitialFocus, navRegionFocused, the FocusRequesters, ...)
+    // every time this screen is navigated away from (e.g. clicking a poster
+    // opens Detail) and re-entered, since only the current back-stack
+    // entry's composable actually stays part of the composition -- so
+    // without this, focus (and the "list is pinned to top" nav-region lock)
+    // reset to their initial defaults on every single return, which is
+    // exactly the "back always lands at the top of the list" bug this
+    // fixes. rememberSaveable survives that round trip (Navigation-Compose
+    // keeps a SaveableStateHolder per back-stack entry, the same mechanism
+    // that lets a scrolled LazyListState restore its own position), so
+    // persisting the focused title's id -- not its index, which shifts as
+    // loadMore appends pages -- is what lets the grid re-focus the exact
+    // same poster instead of resetting to the nav bar/top of the list.
+    var lastFocusedContentId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val rows = remember(items) { items.chunked(GRID_COLUMNS) }
+    // Recomputed from the id above rather than storing row/col directly --
+    // items can reorder or grow (loadMore), so the id is the only part of
+    // this that's actually stable across a round trip.
+    val targetFlatIndex = remember(items, lastFocusedContentId) {
+        lastFocusedContentId?.let { id -> items.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
+    }
+    val targetRowIndex = targetFlatIndex?.let { it / GRID_COLUMNS } ?: 0
+    val targetColIndex = targetFlatIndex?.let { it % GRID_COLUMNS } ?: 0
+
+    // Nav-region starts UNLOCKED (skips the top-pinning watchdog below) when
+    // there's a remembered target to restore straight into -- otherwise it
+    // would immediately fight the restore in the LaunchedEffect below and
+    // snap the list back to the top before the user ever sees it land on
+    // the right card.
+    var navRegionFocused by remember { mutableStateOf(lastFocusedContentId == null) }
+    var focusedGridRowIndex by remember { mutableStateOf<Int?>(null) }
 
     LaunchedEffect(items) {
         if (!hasRequestedInitialFocus) {
             hasRequestedInitialFocus = true
-            runCatching { navFocusRequester.requestFocus() }
+            if (targetFlatIndex != null) {
+                val lazyIndex = targetRowIndex + 1 // offset for the title item at index 0
+                val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
+                if (!alreadyVisible) {
+                    listState.scrollToItem(lazyIndex)
+                }
+                runCatching { firstCardFocusRequester.requestFocus() }
+            } else {
+                runCatching { navFocusRequester.requestFocus() }
+            }
         }
     }
 
@@ -445,8 +572,13 @@ private fun RowsBrowseGridContent(
                                 ContentCard(
                                     content = content,
                                     onClick = { navigateToContent(content) },
-                                    focusRequester = if (rowIndex == 0 && colIndex == 0) firstCardFocusRequester else null,
-                                    posterScale = posterScale
+                                    focusRequester = if (rowIndex == targetRowIndex && colIndex == targetColIndex) {
+                                        firstCardFocusRequester
+                                    } else {
+                                        null
+                                    },
+                                    posterScale = posterScale,
+                                    onFocusChanged = { isFocused -> if (isFocused) lastFocusedContentId = content.id }
                                 )
                             }
                         }
@@ -469,7 +601,20 @@ private fun RowsBrowseGridContent(
                 {
                     navRegionFocused = false
                     coroutineScope.launch {
-                        listState.scrollToItem(0, 0)
+                        // Targets whichever card lastFocusedContentId points
+                        // at (defaults to the very first one when nothing's
+                        // been focused yet) rather than always the top-left
+                        // corner -- same reasoning as the LaunchedEffect
+                        // above. Animated (unlike that one-time entry
+                        // scroll) since this is an actively-observed
+                        // interaction, and only scrolled at all if the
+                        // target isn't already on screen, so a nearby
+                        // return doesn't visibly jump for no reason.
+                        val lazyIndex = targetRowIndex + 1
+                        val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
+                        if (!alreadyVisible) {
+                            listState.animateScrollToItem(lazyIndex)
+                        }
                         runCatching { firstCardFocusRequester.requestFocus() }
                     }
                 }

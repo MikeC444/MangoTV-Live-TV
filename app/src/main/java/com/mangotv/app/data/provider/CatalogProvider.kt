@@ -4,6 +4,7 @@ import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.model.HomeSection
 import com.mangotv.app.data.model.Stream
+import kotlinx.coroutines.flow.Flow
 
 /**
  * A CatalogProvider is Mango TV's equivalent of a Stremio-style addon: a
@@ -18,7 +19,15 @@ interface CatalogProvider {
     val id: String
     val name: String
 
-    suspend fun getHomeSections(): List<HomeSection>
+    /**
+     * Emits growing BATCHES of rows as they resolve rather than one final
+     * list -- each emission's rows should be appended to whatever this
+     * provider has already delivered this call, in order, never replacing
+     * or reordering earlier emissions. Lets Home reveal rows progressively
+     * as they arrive instead of waiting for every base+genre row (up to
+     * ~30 requests) to finish before showing anything.
+     */
+    fun getHomeSections(): Flow<List<HomeSection>>
 
     /**
      * Full detail lookup for a single title (cast, director, extended
