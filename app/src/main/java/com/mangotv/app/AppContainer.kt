@@ -55,5 +55,5 @@ class AppContainer(context: Context) {
     val myListRepository: MyListRepository by lazy { MyListRepository(context) }
     val homeCacheRepository: HomeCacheRepository by lazy { HomeCacheRepository(context) }
     val soundPreferencesRepository: SoundPreferencesRepository by lazy { SoundPreferencesRepository(context) }
-    val uiSoundPlayer: UiSoundPlayer by lazy { UiSoundPlayer(context) }
+    val uiSoundPlayer: UiSoundPlayer by lazy { UiSoundPlayer(context, soundPreferencesRepository) }
 }

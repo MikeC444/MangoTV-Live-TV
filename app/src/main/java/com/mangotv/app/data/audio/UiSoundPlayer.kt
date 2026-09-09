@@ -5,6 +5,12 @@ import android.media.AudioAttributes
 import android.media.SoundPool
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.mangotv.app.R
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.flow.distinctUntilChanged
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.launch
 
 /**
  * Short, low-latency UI feedback: a "nav" tick on focus move, a "click"
@@ -16,10 +22,17 @@ import com.mangotv.app.R
  * construction; SoundPool.play() on a sound that hasn't finished loading
  * yet is a silent no-op rather than a crash, so there's no need to gate
  * playback on the load callback for something this small.
+ *
+ * Volume tracks [SoundPreferencesRepository.preferences].navigationVolume
+ * internally (a background collect, not something callers manage) so every
+ * play*() call anywhere in the app always uses whatever the user last set
+ * in Settings > Sounds, with no caller needing to know volume exists at
+ * all. The boot chime has no such control -- see BootSoundPlayer.
  */
-class UiSoundPlayer(context: Context) {
+class UiSoundPlayer(context: Context, soundPreferencesRepository: SoundPreferencesRepository) {
 
     private val appContext = context.applicationContext
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
 
     private val soundPool = SoundPool.Builder()
         .setMaxStreams(4)
@@ -35,16 +48,28 @@ class UiSoundPlayer(context: Context) {
     private val clickSoundId = soundPool.load(appContext, R.raw.ui_click_sound, 1)
     private val backSoundId = soundPool.load(appContext, R.raw.ui_back_sound, 1)
 
+    @Volatile
+    private var volume: Float = 1f
+
+    init {
+        scope.launch {
+            soundPreferencesRepository.preferences
+                .map { it.navigationVolume }
+                .distinctUntilChanged()
+                .collect { volume = it }
+        }
+    }
+
     fun playNav() {
-        soundPool.play(navSoundId, 1f, 1f, 0, 0, 1f)
+        soundPool.play(navSoundId, volume, volume, 0, 0, 1f)
     }
 
     fun playClick() {
-        soundPool.play(clickSoundId, 1f, 1f, 0, 0, 1f)
+        soundPool.play(clickSoundId, volume, volume, 0, 0, 1f)
     }
 
     fun playBack() {
-        soundPool.play(backSoundId, 1f, 1f, 0, 0, 1f)
+        soundPool.play(backSoundId, volume, volume, 0, 0, 1f)
     }
 }
 

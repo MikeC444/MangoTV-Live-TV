@@ -125,13 +125,20 @@ fun TvFocusSurface(
         label = "focusBorder"
     )
 
+    // Deliberately NOT where the nav sound plays, despite this being where
+    // every element's focus-gained transition is already visible: this
+    // fires for EVERY cause of a focus change, including the app's own
+    // programmatic requestFocus() calls (landing on a screen's first item
+    // when it opens, restoring focus after returning from Detail, etc.) --
+    // none of which are the user "physically" moving around. Playing here
+    // meant every screen navigation played an extra, unearned tick the
+    // instant its content appeared. The nav sound instead lives on a single
+    // global D-pad-direction key listener in MangoNavHost, which only ever
+    // sees REAL key presses, never a bare requestFocus() call.
     LaunchedEffect(isFocused) {
         onFocusChanged(isFocused)
-        if (isFocused) {
-            uiSoundPlayer?.playNav()
-            if (bringIntoViewOnFocus) {
-                bringIntoViewRequester.bringIntoView()
-            }
+        if (isFocused && bringIntoViewOnFocus) {
+            bringIntoViewRequester.bringIntoView()
         }
     }
 

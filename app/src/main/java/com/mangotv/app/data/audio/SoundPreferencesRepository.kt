@@ -23,7 +23,10 @@ private val Context.soundPreferencesDataStore: DataStore<Preferences> by prefere
 
 @Serializable
 data class SoundPreferences(
-    val selectedBootSound: BootSound = BootSound.BOOT_SOUND_1
+    val selectedBootSound: BootSound = BootSound.BOOT_SOUND_1,
+    // Applies to the nav/click/back sounds only (see UiSoundPlayer) -- the
+    // boot chime has no volume control of its own, only on/off (BootSound.NONE).
+    val navigationVolume: Float = 1f
 )
 
 /** Same DataStore+JSON pattern as PlayerPreferencesRepository, applied to the boot-sound choice. */
@@ -44,6 +47,19 @@ class SoundPreferencesRepository(context: Context) {
         val updated = _preferences.value.copy(selectedBootSound = sound)
         _preferences.value = updated
         persist(updated)
+    }
+
+    // Updates the in-memory value BEFORE the disk write, unlike
+    // setSelectedBootSound above -- the volume slider previews itself by
+    // playing a nav tick right after calling this (see
+    // SoundSettingsViewModel.setNavigationVolume), and UiSoundPlayer reads
+    // its volume from [preferences] reactively, so that preview needs the
+    // new value visible immediately rather than only after a background
+    // dispatch + disk write round trip.
+    suspend fun setNavigationVolume(volume: Float) {
+        val updated = _preferences.value.copy(navigationVolume = volume.coerceIn(0f, 1f))
+        _preferences.value = updated
+        withContext(Dispatchers.IO) { persist(updated) }
     }
 
     /**

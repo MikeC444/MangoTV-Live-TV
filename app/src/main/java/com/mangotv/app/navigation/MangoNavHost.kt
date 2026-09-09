@@ -2,6 +2,8 @@ package com.mangotv.app.navigation
 
 import android.app.Activity
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -10,6 +12,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
@@ -150,106 +158,132 @@ fun MangoNavHost() {
             }
         }
 
-        NavHost(navController = navController, startDestination = MangoRoutes.HOME) {
-            composable(MangoRoutes.HOME) {
-                HomeScreen(
-                    onNavigate = ::navigateTo,
-                    viewModel = homeViewModel
-                )
-            }
-            composable(MangoRoutes.SETTINGS) {
-                SettingsScreen(
-                    onNavigate = ::navigateTo,
-                    onOpenAddons = { navController.navigate(MangoRoutes.SETTINGS_ADDONS) },
-                    onOpenHomeRows = { navController.navigate(MangoRoutes.SETTINGS_HOME_ROWS) },
-                    onOpenSounds = { navController.navigate(MangoRoutes.SETTINGS_SOUNDS) }
-                )
-            }
-            composable(MangoRoutes.SETTINGS_HOME_ROWS) {
-                HomeRowsScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.SETTINGS_SOUNDS) {
-                SoundSettingsScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.MOVIES) {
-                MoviesScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.TV_SHOWS) {
-                TvShowsScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.GENRES) {
-                GenresScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.GENRE_RESULTS_PATTERN) {
-                GenreResultsScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.SEARCH) {
-                SearchScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.MY_LIST) {
-                MyListScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.SETTINGS_ADDONS) {
-                AddonsScreen(
-                    onNavigate = ::navigateTo,
-                    onAddAddon = { navController.navigate(MangoRoutes.SETTINGS_ADD_ADDON) }
-                )
-            }
-            composable(MangoRoutes.SETTINGS_ADD_ADDON) {
-                AddAddonScreen(
-                    onNavigate = ::navigateTo,
-                    onInstalled = { navController.popBackStack() }
-                )
-            }
-            composable(MangoRoutes.DETAIL_PATTERN) {
-                DetailScreen(
-                    onNavigate = ::navigateTo
-                )
-            }
-            composable(MangoRoutes.SOURCES_PATTERN) {
-                SourcesScreen(
-                    onNavigate = ::navigateTo,
-                    onBack = { navController.popBackStack() }
-                )
-            }
-            composable(MangoRoutes.PLAYER_PATTERN) { backStackEntry ->
-                PlayerScreen(
-                    onBack = { navController.popBackStack() },
-                    // Pops the player off the back stack before pushing Sources
-                    // rather than stacking Sources on top of a dead player
-                    // instance the user could otherwise navigate back into.
-                    onChangeSource = {
-                        val args = backStackEntry.arguments
-                        val providerId = URLDecoder.decode(args?.getString("providerId").orEmpty(), "UTF-8")
-                        val type = if (args?.getString("type") == ContentType.TV_SHOW.name) {
-                            ContentType.TV_SHOW
-                        } else {
-                            ContentType.MOVIE
-                        }
-                        val id = URLDecoder.decode(args?.getString("id").orEmpty(), "UTF-8")
-                        val season = args?.getString("season")?.toIntOrNull()?.takeIf { it >= 0 }
-                        val episode = args?.getString("episode")?.toIntOrNull()?.takeIf { it >= 0 }
-                        navController.navigate(MangoRoutes.sources(providerId, type, id, season, episode)) {
-                            popUpTo(MangoRoutes.PLAYER_PATTERN) { inclusive = true }
-                        }
+        // Where the nav ("scrolling"/focus-move) sound actually plays --
+        // deliberately NOT tied to any element's focus-gained state (see
+        // TvFocusSurface's own doc for why that played extra, unearned
+        // ticks on every screen open/return). A real D-pad direction
+        // KeyDown is the one signal that's unambiguously "the user
+        // physically moved," so this is the single global place that
+        // triggers it, for the whole app. Sits above NavHost, not inside
+        // any one screen, so it keeps working across every destination
+        // without each one wiring it in separately. Always returns false
+        // (never consumes) -- this only ever adds a side effect, it must
+        // never interfere with any screen's own key handling (seeking,
+        // BACK interception, menu navigation, ...).
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { event ->
+                    if (event.type == KeyEventType.KeyDown &&
+                        (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
+                            event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                    ) {
+                        container.uiSoundPlayer.playNav()
                     }
-                )
+                    false
+                }
+        ) {
+            NavHost(navController = navController, startDestination = MangoRoutes.HOME) {
+                composable(MangoRoutes.HOME) {
+                    HomeScreen(
+                        onNavigate = ::navigateTo,
+                        viewModel = homeViewModel
+                    )
+                }
+                composable(MangoRoutes.SETTINGS) {
+                    SettingsScreen(
+                        onNavigate = ::navigateTo,
+                        onOpenAddons = { navController.navigate(MangoRoutes.SETTINGS_ADDONS) },
+                        onOpenHomeRows = { navController.navigate(MangoRoutes.SETTINGS_HOME_ROWS) },
+                        onOpenSounds = { navController.navigate(MangoRoutes.SETTINGS_SOUNDS) }
+                    )
+                }
+                composable(MangoRoutes.SETTINGS_HOME_ROWS) {
+                    HomeRowsScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.SETTINGS_SOUNDS) {
+                    SoundSettingsScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.MOVIES) {
+                    MoviesScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.TV_SHOWS) {
+                    TvShowsScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.GENRES) {
+                    GenresScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.GENRE_RESULTS_PATTERN) {
+                    GenreResultsScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.SEARCH) {
+                    SearchScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.MY_LIST) {
+                    MyListScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.SETTINGS_ADDONS) {
+                    AddonsScreen(
+                        onNavigate = ::navigateTo,
+                        onAddAddon = { navController.navigate(MangoRoutes.SETTINGS_ADD_ADDON) }
+                    )
+                }
+                composable(MangoRoutes.SETTINGS_ADD_ADDON) {
+                    AddAddonScreen(
+                        onNavigate = ::navigateTo,
+                        onInstalled = { navController.popBackStack() }
+                    )
+                }
+                composable(MangoRoutes.DETAIL_PATTERN) {
+                    DetailScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.SOURCES_PATTERN) {
+                    SourcesScreen(
+                        onNavigate = ::navigateTo,
+                        onBack = { navController.popBackStack() }
+                    )
+                }
+                composable(MangoRoutes.PLAYER_PATTERN) { backStackEntry ->
+                    PlayerScreen(
+                        onBack = { navController.popBackStack() },
+                        // Pops the player off the back stack before pushing Sources
+                        // rather than stacking Sources on top of a dead player
+                        // instance the user could otherwise navigate back into.
+                        onChangeSource = {
+                            val args = backStackEntry.arguments
+                            val providerId = URLDecoder.decode(args?.getString("providerId").orEmpty(), "UTF-8")
+                            val type = if (args?.getString("type") == ContentType.TV_SHOW.name) {
+                                ContentType.TV_SHOW
+                            } else {
+                                ContentType.MOVIE
+                            }
+                            val id = URLDecoder.decode(args?.getString("id").orEmpty(), "UTF-8")
+                            val season = args?.getString("season")?.toIntOrNull()?.takeIf { it >= 0 }
+                            val episode = args?.getString("episode")?.toIntOrNull()?.takeIf { it >= 0 }
+                            navController.navigate(MangoRoutes.sources(providerId, type, id, season, episode)) {
+                                popUpTo(MangoRoutes.PLAYER_PATTERN) { inclusive = true }
+                            }
+                        }
+                    )
+                }
             }
         }
     }

@@ -32,16 +32,31 @@ class BootSoundPlayer(private val context: Context) {
      * appears -- an accepted tradeoff, since forcing a LONGER wait than the
      * real loading time purely to keep chasing the midpoint would make
      * cold boot feel slower for no benefit.
+     *
+     * [BootSound.NONE] has no [BootSound.rawResId] to play -- this returns
+     * immediately, so the "midpoint" wait is simply skipped rather than
+     * needing special-casing at every call site.
      */
     suspend fun startAndAwaitMidpoint(sound: BootSound) {
-        val player = start(sound) ?: return
+        val resId = sound.rawResId ?: return
+        val player = start(resId) ?: return
         val halfwayMs = (player.duration / 2).coerceAtLeast(0)
         if (halfwayMs > 0) delay(halfwayMs.toLong())
     }
 
-    /** Fire-and-forget: Settings > Sounds plays a full preview of whichever chime the user just picked. */
+    /**
+     * Fire-and-forget: Settings > Sounds plays a full preview of whichever
+     * chime the user just picked. Picking [BootSound.NONE] instead stops
+     * whatever preview might already be playing, rather than leaving it
+     * running -- "silence" should take effect immediately too.
+     */
     fun playPreview(sound: BootSound) {
-        start(sound)
+        val resId = sound.rawResId
+        if (resId == null) {
+            release()
+            return
+        }
+        start(resId)
     }
 
     /** Stops and releases whatever's currently playing on this instance, if anything. */
@@ -50,9 +65,9 @@ class BootSoundPlayer(private val context: Context) {
         mediaPlayer = null
     }
 
-    private fun start(sound: BootSound): MediaPlayer? {
+    private fun start(rawResId: Int): MediaPlayer? {
         release()
-        val player = runCatching { MediaPlayer.create(context.applicationContext, sound.rawResId) }.getOrNull()
+        val player = runCatching { MediaPlayer.create(context.applicationContext, rawResId) }.getOrNull()
             ?: return null
         mediaPlayer = player
         player.setOnCompletionListener { it.release() }
