@@ -15,3 +15,9 @@ if (!testUrl) {
   );
 }
 process.env.DATABASE_URL = testUrl;
+
+// Not sensitive and doesn't vary per contributor (unlike the database
+// URL), so a fixed default here beats asking everyone to add it to their
+// own .env.test just to exercise the QR endpoints that build activation
+// URLs from it.
+process.env.API_BASE_URL ??= "http://localhost:3000";

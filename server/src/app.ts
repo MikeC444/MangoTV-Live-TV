@@ -1,3 +1,5 @@
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
 import helmet from "helmet";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
@@ -6,6 +8,11 @@ import { requestLogger } from "./middleware/requestLogger.js";
 import { createAuthRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { meRouter } from "./routes/me.js";
+import { createQrRouter } from "./routes/qr.js";
+
+// Resolves correctly whether running from src/ (tsx, dev) or dist/ (built,
+// prod) — public/ is a sibling of both, one level up from either.
+const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
 
 /**
  * Builds the Express app without binding a port — index.ts (the real
@@ -30,7 +37,22 @@ export function createApp(): Express {
   app.use(requestLogger);
   app.use(createApiRateLimiter());
 
+  // The QR activation page (Milestone 4) — served from this same backend
+  // rather than a separate frontend deployment, which also means its own
+  // fetch() calls to /auth/qr/* are same-origin and need no CORS
+  // configuration at all. No external scripts/styles/fonts, so Helmet's
+  // default CSP (script-src 'self', etc.) works unmodified.
+  app.use(express.static(publicDir));
+  app.get("/activate", (_req, res) => {
+    res.sendFile(path.join(publicDir, "activate.html"));
+  });
+
   app.use("/health", healthRouter);
+  // Mounted before /auth: qr.ts's routes need per-route rate limits
+  // tailored to polling vs. credential traffic, not the blanket limiter
+  // createAuthRouter() applies to everything under /auth (see
+  // routes/qr.ts's header comment).
+  app.use("/auth/qr", createQrRouter());
   app.use("/auth", createAuthRouter());
   app.use("/user", meRouter);
 

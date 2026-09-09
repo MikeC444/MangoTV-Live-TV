@@ -360,3 +360,110 @@ top of Milestone 2's foundation:
 **Issues fixed:** all three, described above alongside where they were found.
 
 **Milestone 3 is complete.**
+
+## Milestone 4 — QR Authentication
+
+**Status:** Complete.
+
+**Changes:** No changes to the Android app yet (that's Milestone 5 —
+this milestone is the backend flow and the phone/web side of it only).
+
+- `migrations/0012_qr_auth_sessions_device_info.sql` — adds
+  `device_name`/`platform` to `qr_auth_sessions`, captured at creation
+  time so the eventual `devices` row gets a real name instead of falling
+  back to generic defaults. Added as a new migration rather than editing
+  0005, since 0005 is already applied to the real Neon project.
+- `src/services/authService.ts` refactored to export three reusable
+  pieces — `insertUser`, `verifyCredentials` (including the timing-safe
+  dummy-hash check), `createSessionForDevice` — so register/login and
+  the new QR flow share the same account/session logic instead of
+  duplicating it.
+- `src/services/qrAuthService.ts` — the actual flow:
+  - `createQrSession` — random 256-bit token, hashed at rest, 10-minute
+    expiry.
+  - `resolveQrSession` — a read-only status peek for the activation page.
+    Deliberately separate from the TV's poll endpoint: if the same
+    endpoint both checked status *and* issued tokens, the web page
+    loading and checking status could itself consume the one-time token
+    issuance meant for the TV.
+  - `completeQrSession` — called once the activation page submits
+    credentials. Resolves the account (create or verify) and marks the
+    QR session completed, all in one transaction — a failure partway
+    through (e.g. a duplicate-email conflict) rolls back cleanly and
+    leaves the QR session still usable for another attempt (tested).
+    Deliberately does **not** create the real device/session/tokens at
+    this point.
+  - `pollQrSession` — the TV's endpoint, and the *only* place that ever
+    creates the real device/session and issues tokens: it does so at the
+    moment of consumption via one atomic `UPDATE ... WHERE status =
+    'completed' ... RETURNING`, which can match a given token at most
+    once. This is also why raw tokens are never persisted anywhere even
+    transiently — they're generated and handed to the caller in the same
+    request that creates their (hashed-at-rest) session row.
+- `src/routes/qr.ts` mounted at `/auth/qr` as its **own** router, not
+  nested under the existing auth router — that router's blanket 10/min
+  limiter is right for register/login but would break legitimate TV
+  polling (a TV checking every 2-3s would exhaust it in seconds).
+  `/create` and `/complete` share the strict limiter (they're exactly as
+  much a credential-guessing/account-spam surface as register/login);
+  `/status` gets its own 40/min limiter sized for polling;
+  `/resolve` relies on the general limiter (called once per page load).
+- `public/activate.html` + `activate.js` — the activation page, served by
+  this same backend (co-hosting means its `fetch()` calls to `/auth/qr/*`
+  are same-origin, so no CORS configuration was needed at all). No
+  external scripts/styles/fonts, so Helmet's default CSP needed no
+  changes. Sign-in/create-account tabs, a pre-check against `/resolve` so
+  an expired/used code shows a clear message instead of a live form,
+  `.textContent` everywhere a message is rendered (no `innerHTML`, so no
+  reflected-content XSS surface).
+- `.env.example` / `config/env.ts` cleanup: removed `JWT_SECRET` and
+  `QR_AUTH_SECRET`, both listed in the original spec as expected
+  placeholders but never actually needed — this design uses opaque,
+  random, hashed-at-rest bearer tokens throughout (sessions *and* QR
+  alike), never JWTs or HMAC-signed values, so neither secret ever found
+  a real job. `API_BASE_URL` is now genuinely required, but scoped as a
+  lazily-evaluated `getApiBaseUrl()` rather than a field on the shared
+  `env` object — that object is imported by `db/pool.ts`, and therefore
+  by `migrate.ts`/`verify-schema.ts`, which have nothing to do with QR
+  auth and shouldn't need it set just to run a migration.
+
+**Tests performed:**
+- `npm run typecheck` / `npm audit` — clean.
+- `npm test` locally against `mangotv_test` — **60/60 passed** (up from
+  43): QR generation, resolve status transitions (pending/expired/
+  not_found, and confirmed non-mutating), the full create→complete→poll
+  flow for both account creation and existing-account sign-in, wrong
+  password leaving the QR session still usable, expiration, replay
+  prevention (a second poll after consumption reports expired, never
+  hands out tokens twice), completing an already-completed or expired
+  session failing cleanly (410), a duplicate-email QR registration
+  failing the same way direct registration does, two fully independent
+  simultaneous QR sessions on different devices never cross-contaminating
+  tokens or accounts, and the activation page itself being served at the
+  exact URL the QR code encodes.
+- Manual smoke test against a real running server, over actual HTTP:
+  create → resolve (pending) → status (pending) → complete (204) →
+  status (delivers real tokens) → second status (expired) → the returned
+  access token working on `/user/me`. This is what caught a real gap
+  before it reached CI: the new migration had only been applied to the
+  test database automatically (via `pretest`), not to the local dev
+  database, so the first smoke-test attempt failed with a clear "column
+  does not exist" error — not a code bug, but a reminder that automated
+  tests and manual smoke tests exercise different databases and both are
+  worth running.
+
+**Issues discovered (self-review before marking complete):** none required
+a code fix beyond one minor robustness gap — `activationUrl()` didn't
+strip a trailing slash from `API_BASE_URL`, which would have produced a
+broken double-slash URL for anyone who configured it with one.
+
+**Issues fixed:** added the trailing-slash strip.
+
+**Deliberately not built yet:** a periodic cleanup job for expired/consumed
+`qr_auth_sessions` rows — they're small, inert, and harmless to accumulate
+at this scale, and a scheduled job is real infrastructure this milestone
+doesn't otherwise need. The actual Fire TV screens that call these
+endpoints (QR display, polling from the app, navigation gating) are
+Milestone 5, not this one.
+
+**Milestone 4 is complete.**

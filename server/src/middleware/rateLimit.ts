@@ -42,3 +42,20 @@ export function createAuthRateLimiter(): RateLimitRequestHandler {
     handler: rateLimitHandler,
   });
 }
+
+/**
+ * GET /auth/qr/status is a legitimate polling endpoint — a waiting TV is
+ * expected to call it every couple of seconds — so it needs a much more
+ * generous ceiling than the credential-guessing surfaces above rather
+ * than sharing their 10/min limit, which a single real TV would exhaust
+ * on its own within a few seconds of normal waiting.
+ */
+export function createQrPollRateLimiter(): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit: 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: rateLimitHandler,
+  });
+}

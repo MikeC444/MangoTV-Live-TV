@@ -11,8 +11,9 @@ const REFRESH_TOKEN_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
 const UNIQUE_VIOLATION = "23505";
 
 // Computed once, lazily, on first use — an argon2 hash of a random value
-// nobody could ever type as a real password. See its use in login() for
-// why this exists: closing a timing side-channel, not a real credential.
+// nobody could ever type as a real password. See its use in
+// verifyCredentials() for why this exists: closing a timing side-channel,
+// not a real credential.
 let dummyHashPromise: Promise<string> | undefined;
 function getDummyHash(): Promise<string> {
   dummyHashPromise ??= hashPassword(generateToken());
@@ -46,20 +47,77 @@ export interface SessionSummary {
 }
 
 /**
- * Inserts or reactivates the (user, deviceId) device row. Reusing this
- * for both register and login means a device that was previously
- * remotely signed out (devices.revoked_at set) becomes usable again on a
- * fresh, legitimate login — revocation is about killing existing
- * sessions, not permanently banning the hardware.
+ * Inserts a new user within an existing transaction — a building block
+ * shared by register() and the QR "create account" flow
+ * (qrAuthService.completeQrSession), both of which need it alongside
+ * other statements in the same transaction rather than owning their own.
  */
-async function upsertDevice(
+export async function insertUser(
+  client: PoolClient,
+  email: string,
+  password: string,
+  displayName: string | undefined | null
+): Promise<AuthUser> {
+  const passwordHash = await hashPassword(password);
+  try {
+    const result = await client.query<{ id: string; email: string; display_name: string | null }>(
+      "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, email, display_name",
+      [email, passwordHash, displayName ?? null]
+    );
+    const row = result.rows[0]!;
+    return { id: row.id, email: row.email, displayName: row.display_name };
+  } catch (error) {
+    if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
+      throw new HttpError(409, "An account with that email already exists");
+    }
+    throw error;
+  }
+}
+
+/**
+ * Verifies an email+password pair, throwing the same generic error for
+ * "no such account" and "wrong password" alike — shared by login() and
+ * the QR "sign in" flow. Always runs exactly one argon2 verify, whether
+ * or not the email matched a real account (against a dummy hash when it
+ * doesn't): skipping straight to an error for an unknown email would make
+ * that response measurably faster than a known-email-wrong-password one
+ * (argon2 is deliberately slow), which is exactly the kind of timing
+ * side-channel that lets a request enumerate which emails have accounts
+ * even though the response body itself is identical either way.
+ */
+export async function verifyCredentials(email: string, password: string): Promise<AuthUser> {
+  const userResult = await pool.query<{ id: string; email: string; password_hash: string; display_name: string | null }>(
+    "SELECT id, email, password_hash, display_name FROM users WHERE email = $1 AND deleted_at IS NULL",
+    [email]
+  );
+  const row = userResult.rows[0];
+
+  const passwordValid = await verifyPassword(row?.password_hash ?? (await getDummyHash()), password);
+  if (!row || !passwordValid) {
+    throw new HttpError(401, "Invalid email or password");
+  }
+
+  return { id: row.id, email: row.email, displayName: row.display_name };
+}
+
+/**
+ * Inserts or reactivates the (user, deviceId) device row, then creates a
+ * fresh session for it — the combined "make this device logged in as
+ * this user" step shared by register(), login(), and QR completion.
+ * Reusing the device upsert for both password and QR sign-in means a
+ * device that was previously remotely signed out (devices.revoked_at
+ * set) becomes usable again on any fresh, legitimate authentication —
+ * revocation is about killing existing sessions, not permanently banning
+ * the hardware.
+ */
+export async function createSessionForDevice(
   client: PoolClient,
   userId: string,
   deviceId: string,
   deviceName: string | undefined,
   platform: string | undefined
-): Promise<string> {
-  const result = await client.query<{ id: string }>(
+): Promise<TokenPair> {
+  const deviceResult = await client.query<{ id: string }>(
     `INSERT INTO devices (user_id, device_identifier, device_name, platform, last_seen_at)
      VALUES ($1, $2, COALESCE($3, 'Fire TV'), COALESCE($4, 'fire_tv'), now())
      ON CONFLICT (user_id, device_identifier)
@@ -72,10 +130,8 @@ async function upsertDevice(
      RETURNING id`,
     [userId, deviceId, deviceName ?? null, platform ?? null]
   );
-  return result.rows[0]!.id;
-}
+  const internalDeviceId = deviceResult.rows[0]!.id;
 
-async function createSession(client: PoolClient, userId: string, deviceId: string): Promise<TokenPair> {
   const accessToken = generateToken();
   const refreshToken = generateToken();
   const accessTokenExpiresAt = new Date(Date.now() + ACCESS_TOKEN_TTL_MS);
@@ -84,37 +140,18 @@ async function createSession(client: PoolClient, userId: string, deviceId: strin
   await client.query(
     `INSERT INTO sessions (user_id, device_id, access_token_hash, access_token_expires_at, refresh_token_hash, refresh_token_expires_at)
      VALUES ($1, $2, $3, $4, $5, $6)`,
-    [userId, deviceId, hashToken(accessToken), accessTokenExpiresAt, hashToken(refreshToken), refreshTokenExpiresAt]
+    [userId, internalDeviceId, hashToken(accessToken), accessTokenExpiresAt, hashToken(refreshToken), refreshTokenExpiresAt]
   );
 
   return { accessToken, accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt };
 }
 
 export async function register(input: RegisterInput): Promise<AuthResult> {
-  const passwordHash = await hashPassword(input.password);
-
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-
-    let user: AuthUser;
-    try {
-      const userResult = await client.query<{ id: string; email: string; display_name: string | null }>(
-        "INSERT INTO users (email, password_hash, display_name) VALUES ($1, $2, $3) RETURNING id, email, display_name",
-        [input.email, passwordHash, input.displayName ?? null]
-      );
-      const row = userResult.rows[0]!;
-      user = { id: row.id, email: row.email, displayName: row.display_name };
-    } catch (error) {
-      if ((error as { code?: string }).code === UNIQUE_VIOLATION) {
-        throw new HttpError(409, "An account with that email already exists");
-      }
-      throw error;
-    }
-
-    const deviceId = await upsertDevice(client, user.id, input.deviceId, input.deviceName, input.platform);
-    const tokens = await createSession(client, user.id, deviceId);
-
+    const user = await insertUser(client, input.email, input.password, input.displayName);
+    const tokens = await createSessionForDevice(client, user.id, input.deviceId, input.deviceName, input.platform);
     await client.query("COMMIT");
     return { ...tokens, user };
   } catch (error) {
@@ -126,37 +163,12 @@ export async function register(input: RegisterInput): Promise<AuthResult> {
 }
 
 export async function login(input: LoginInput): Promise<AuthResult> {
-  const userResult = await pool.query<{ id: string; email: string; password_hash: string; display_name: string | null }>(
-    "SELECT id, email, password_hash, display_name FROM users WHERE email = $1 AND deleted_at IS NULL",
-    [input.email]
-  );
-  const row = userResult.rows[0];
-
-  // Always run exactly one argon2 verify, whether or not the email
-  // matched a real account: verifying against a dummy hash when it
-  // doesn't keeps this request's timing indistinguishable from a wrong
-  // password on a real account. Skipping straight to a 401 for an
-  // unknown email would make that response measurably faster than a
-  // known-email-wrong-password one (argon2 is deliberately slow), which
-  // is exactly the kind of timing side-channel that lets a request
-  // enumerate which emails have accounts even though the response body
-  // itself is identical in both cases.
-  const passwordValid = await verifyPassword(row?.password_hash ?? (await getDummyHash()), input.password);
-
-  // Same generic error either way — a login endpoint (unlike
-  // registration) has no UX reason to distinguish "no such account" from
-  // "wrong password".
-  if (!row || !passwordValid) {
-    throw new HttpError(401, "Invalid email or password");
-  }
-
-  const user: AuthUser = { id: row.id, email: row.email, displayName: row.display_name };
+  const user = await verifyCredentials(input.email, input.password);
 
   const client = await pool.connect();
   try {
     await client.query("BEGIN");
-    const deviceId = await upsertDevice(client, user.id, input.deviceId, input.deviceName, input.platform);
-    const tokens = await createSession(client, user.id, deviceId);
+    const tokens = await createSessionForDevice(client, user.id, input.deviceId, input.deviceName, input.platform);
     await client.query("COMMIT");
     return { ...tokens, user };
   } catch (error) {

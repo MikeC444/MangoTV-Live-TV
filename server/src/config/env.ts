@@ -20,15 +20,18 @@ function parsePort(raw: string | undefined): number {
   return port;
 }
 
-// JWT_SECRET/QR_AUTH_SECRET/API_BASE_URL are documented in .env.example
-// but intentionally not validated here yet. This server's session tokens
-// are opaque, random, and validated against the sessions table (see
-// migrations/0004_sessions.sql's header comment for why) rather than
-// JWTs, so JWT_SECRET may end up serving a narrower purpose than its name
-// suggests — or none — once Milestone 3 actually implements login and
-// either finds it a real job or drops it. Not guessed at here.
 export const env = {
   databaseUrl: required("DATABASE_URL"),
   nodeEnv: process.env.NODE_ENV ?? "development",
   port: parsePort(process.env.PORT),
 };
+
+// A function, not a plain property on `env`: `env` is imported by
+// db/pool.ts and therefore by scripts (migrate.ts, verify-schema.ts)
+// that have nothing to do with QR auth and shouldn't need API_BASE_URL
+// set just to run a migration. Evaluating this lazily, only when
+// something actually builds an activation URL, keeps that requirement
+// scoped to the code that needs it.
+export function getApiBaseUrl(): string {
+  return required("API_BASE_URL");
+}

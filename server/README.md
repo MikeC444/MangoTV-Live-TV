@@ -6,8 +6,8 @@ see `docs/milestone-0-audit-and-plan.md` at the repo root for the full
 architecture writeup.
 
 Milestone 1: database schema + migrations. Milestone 2: the Express API
-foundation (server config, error handling, request validation,
-auth/rate-limit middleware). Milestone 3 (current): real accounts.
+foundation. Milestone 3: real accounts. Milestone 4 (current): QR
+sign-in for the Fire TV.
 
 Endpoints so far:
 
@@ -21,6 +21,19 @@ Endpoints so far:
 - `GET /auth/sessions` (authenticated) — the caller's own active sessions.
 - `DELETE /auth/sessions/:id` (authenticated) — revoke one of them.
 - `GET /user/me` (authenticated) — the caller's own profile.
+- `POST /auth/qr/create` — `{ deviceId, deviceName?, platform? }` → `{
+  token, activationUrl, expiresAt }`. Unauthenticated (the TV has no
+  account yet); what the Fire TV app renders as a QR code.
+- `GET /auth/qr/resolve?token=` — read-only status peek for the
+  activation page (never issues tokens).
+- `GET /auth/qr/status?token=` — the TV's poll endpoint. Returns real
+  session tokens exactly once, the moment the activation page completes
+  sign-in; every call after that reports the token as expired.
+- `POST /auth/qr/complete` — `{ token, mode: "login"|"register", email,
+  password, displayName? }`, called by the activation page.
+- `GET /activate` — the activation page itself (`public/activate.html` +
+  `activate.js`), served by this same backend so its calls to
+  `/auth/qr/*` are same-origin and need no CORS configuration.
 
 ## Setup
 
