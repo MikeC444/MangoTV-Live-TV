@@ -1,0 +1,27 @@
+{
+  "name": "mangotv-server",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Backend API for MangoTV account, authentication, and cloud sync — sits between the Fire TV app and Neon Postgres. The Fire TV app never connects to Postgres directly.",
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "migrate": "tsx src/db/migrate.ts",
+    "verify-schema": "tsx scripts/verify-schema.ts",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "dotenv": "^16.4.7",
+    "pg": "^8.13.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.10.2",
+    "@types/pg": "^8.11.10",
+    "tsx": "^4.19.2",
+    "typescript": "^5.7.2",
+    "vitest": "^5.0.0"
+  }
+}

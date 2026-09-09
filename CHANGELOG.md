@@ -34,3 +34,85 @@ inferring from naming.
   (local Postgres 16 is available and will be used to rehearse migrations).
 
 **Issues fixed:** N/A (audit-only milestone).
+
+## Milestone 1 — Neon Database Foundation
+
+**Status:** Complete pending one external step (see below).
+
+**Stack decisions (confirmed with the user before starting):** Node.js +
+TypeScript + Express + `pg` (plain node-postgres, no ORM) for the backend;
+hand-written SQL migrations with a small custom runner instead of a
+migration-framework dependency.
+
+**Changes:** None to the existing Android app. New `server/` directory
+(backend foundation, not yet wired to any HTTP framework — that's
+Milestone 2):
+
+- `server/migrations/0001`–`0011` — 11 forward-only SQL migrations
+  creating `users`, `devices`, `sessions`, `qr_auth_sessions`,
+  `user_settings`, `user_addons`, `addon_settings`, `watchlist_items`,
+  `watch_history`, `continue_watching`, each with UUID primary keys,
+  foreign keys, indexes on every FK column, `created_at`/`updated_at`,
+  `deleted_at` where soft-delete is meaningful, and unique constraints
+  matching real product semantics (see each file's header comment for the
+  reasoning, especially `watch_history`'s generated `episode_key` column,
+  which works around a NULL-uniqueness edge case for movies).
+- `server/src/db/migrate.ts` — the migration runner (`npm run migrate`):
+  applies pending `.sql` files in order, each in its own transaction,
+  tracked in a `schema_migrations` table. Idempotent — safe to re-run.
+- `server/scripts/verify-schema.ts` — schema verification (`npm run
+  verify-schema`): confirms every expected table/index exists, then
+  proves foreign keys, unique constraints, and `ON DELETE CASCADE` behave
+  correctly by actually attempting inserts/deletes that must succeed or
+  fail. Runs inside one transaction that's always rolled back, so it's
+  safe to run repeatedly against a real database.
+- `server/.env.example` — placeholders only (`DATABASE_URL`, `JWT_SECRET`,
+  `QR_AUTH_SECRET`, `API_BASE_URL`, `NODE_ENV`, `PORT`). No real secrets.
+- `server/package.json`, `tsconfig.json`, `README.md`, `.gitignore`.
+
+**Files changed:** None outside the new `server/` directory and this
+CHANGELOG.
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm audit` — 0 vulnerabilities (bumped `vitest` to v5 after the initial
+  install flagged moderate/high advisories in its transitive `esbuild`/
+  `vite` dev-dependency tree).
+- Dropped and recreated a local PostgreSQL 16 database from scratch, ran
+  `npm run migrate` — all 11 migrations applied cleanly; ran it again —
+  correctly reported "Already up to date" (idempotency confirmed).
+- `npm run verify-schema` against that freshly-migrated database — 56/56
+  checks passed: every table and every index present; foreign keys reject
+  orphaned rows; unique constraints reject duplicates (including the
+  movie/null-season-episode edge case); `ON DELETE CASCADE` correctly
+  removes every dependent row (devices, sessions, user_settings,
+  user_addons, addon_settings, watchlist_items, watch_history,
+  continue_watching) when a user is deleted; the verification's own use of
+  a rolled-back transaction was confirmed to leave zero residual rows.
+- Confirmed via `git status`/`git show` that only `.env.example`
+  (placeholders) is tracked — `.env`, `node_modules/`, and `dist/` are
+  git-ignored and were not staged.
+
+**Issues discovered (self-review before marking complete):**
+- `qr_auth_sessions.session_id` (a nullable FK with `ON DELETE SET NULL`)
+  was missing its explicit index, inconsistent with every other FK column
+  in the schema.
+- Initial `vitest ^2.1.8` pulled in `esbuild`/`vite` versions with known
+  moderate/high advisories (dev-tooling only, never shipped, but still
+  worth clearing).
+
+**Issues fixed:**
+- Added `qr_auth_sessions_session_id_idx`; added a comment explaining why
+  `device_identifier` on that table is intentionally *not* a foreign key
+  (a QR session exists before any user — and therefore any `devices`
+  row — does).
+- Bumped `vitest` to `^5.0.0`; `npm audit` now reports 0 vulnerabilities.
+
+**Outstanding before this milestone is fully done:** this sandbox can
+reach only HTTPS, not raw Postgres TCP, so it cannot connect to a remote
+Neon instance directly (see docs/milestone-0-audit-and-plan.md §5).
+Everything above was proven against a real, freshly-created local
+PostgreSQL 16 database (Neon-wire-compatible), which exercises identical
+SQL/DDL — but the literal "verify against a fresh **Neon** database"
+criterion still needs a real `DATABASE_URL` run once the user finishes
+Neon project setup (walkthrough provided separately).
