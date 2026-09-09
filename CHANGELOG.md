@@ -467,3 +467,161 @@ endpoints (QR display, polling from the app, navigation gating) are
 Milestone 5, not this one.
 
 **Milestone 4 is complete.**
+
+## Milestone 5 — Fire TV App Integration (Auth Screens)
+
+**Status:** Complete.
+
+**Changes:** First milestone touching the Android app. Wires the existing
+backend/QR flow (Milestones 3-4) into real Fire TV screens — every new
+network call the TV makes goes through `AuthApiClient`, which only ever
+calls `/auth/qr/create`, `/auth/qr/status`, `/auth/refresh`, and
+`/auth/logout`. The TV never collects or transmits a password; account
+creation and sign-in happen exclusively on the phone/web activation page
+from Milestone 4.
+
+- `gradle/libs.versions.toml` / `app/build.gradle.kts` — added
+  `tink-android:1.19.0` (session encryption), `junit:4.13.2` +
+  `kotlinx-coroutines-test` (unit tests, `testImplementation` only).
+  `API_BASE_URL` is read from the gitignored `local.properties` into a
+  `BuildConfig` field, with a deliberately-invalid fallback
+  (`https://not-configured.invalid`) so a missing config fails loudly
+  instead of silently pointing nowhere.
+- `data/auth/TokenCipher.kt` — encrypts the session blob at rest via Tink
+  (`AndroidKeysetManager` + Android Keystore-backed `AES256_GCM`), not
+  the now-deprecated (2025) `androidx.security.crypto`
+  `EncryptedSharedPreferences`. This matters concretely because the
+  manifest sets `allowBackup="true"`: without it, an `adb backup`
+  extraction or a rooted-device file read would hand over a live bearer
+  token in plain text.
+- `data/auth/DeviceIdentity.kt` — a locally-generated, non-secret
+  per-install UUID (plain, unencrypted DataStore) sent as `deviceId` on
+  QR-session creation. Not a hardware serial/ANDROID_ID/MAC address, per
+  the project's no-invasive-fingerprinting requirement.
+- `data/auth/Session.kt` — `Session`/`AuthenticatedUser` data classes.
+  Expiry is stored as epoch millis (converted once at the network
+  boundary) rather than re-parsing ISO-8601 strings on every check.
+  `isAccessTokenValid()` builds in a 30-second safety margin so a request
+  starting just before expiry doesn't race the clock and arrive
+  server-side already expired.
+- `data/auth/SessionManager.kt` — persists the current `Session`,
+  encrypted via `TokenCipher`, in its own DataStore file. `TokenCipher` is
+  constructed lazily, not inline, because its `init` does real synchronous
+  Android Keystore work; deferring it to first actual use (always inside
+  `Dispatchers.IO`) keeps that work off the main thread despite
+  `AuthRepository` being constructed eagerly in `AppContainer` during
+  `Application.onCreate()`.
+- `util/Iso8601.kt` — a hand-rolled `ThreadLocal<SimpleDateFormat>` parser
+  for the server's UTC timestamps. minSdk 23 predates `java.time` and no
+  desugaring is configured, so a date library or `java.time` weren't
+  options.
+- `data/network/{ApiException,AuthDtos,AuthApiClient}.kt` — OkHttp +
+  kotlinx.serialization, mirroring `StremioAddonClient`'s existing style.
+  `ApiException` carries a real HTTP status code, distinct from a plain
+  `IOException` for network-level failures — callers rely on this
+  distinction, since only a confirmed 401 should ever clear a locally
+  stored session.
+- `data/auth/AuthRepository.kt` — the single seam the rest of the app
+  talks to: `createQrSession`, `pollQrSession` (maps the server's
+  `pending`/`completed`/anything-else to a `QrPollOutcome` sealed type),
+  `ensureFreshSession` (silently refreshes when the access token is
+  stale; a confirmed 401 clears the session, a bare `IOException` leaves
+  it alone so a dead network connection can't look like a revoked
+  credential), and `logout` (best-effort server call, unconditional local
+  clear).
+- `AppContainer.kt` — `authRepository` added as an eager singleton
+  (same rationale as the existing `addonRepository`): the auth gate is
+  the first screen shown and needs an immediate answer, which is safe now
+  that the expensive Keystore step is deferred inside `SessionManager`.
+- `navigation/{MangoRoutes,MangoNavHost}.kt` — new routes
+  `auth/gate`, `auth/start`, `auth/qr/{intent}`, `settings/account`;
+  `AUTH_GATE` is now the nav graph's `startDestination`. Added a
+  `navigateClearingBackStack()` helper
+  (`popUpTo(navController.graph.id) { inclusive = true }`) used both by
+  the auth gate (so neither branch it resolves to is reachable via Back)
+  and by sign-out (so the app can't be backed into a signed-out user's
+  screens).
+- `ui/auth/{AuthGateViewModel,AuthGateScreen}.kt` — a local-only,
+  fast check (no network round trip gates navigation): a session is
+  treated as good enough to proceed on as long as its refresh token
+  hasn't expired, since the access token can always be silently renewed
+  afterwards. If a session that looked usable locally turns out to be
+  dead server-side, the next call that actually needs the network (from
+  Milestone 6 onward) is what discovers that, not this screen.
+- `ui/auth/AuthStartScreen.kt` — "Sign In" / "Create Account", both
+  leading to the same QR flow; the distinction is display-only, since the
+  activation page always lets the user pick regardless.
+- `ui/auth/{QrSignInViewModel,QrSignInScreen}.kt` — requests a QR
+  session, polls it every 2.5s, and transparently swaps in a fresh session
+  if the current one expires while still waiting (the "QR
+  expiration"/"QR refresh" requirements, satisfied without user action).
+  Deliberately splits `uiState` (Loading/Ready/Error — only for "can't
+  create a session at all") from a separate `pollingDegraded` flag (a
+  small inline "still trying…" indicator after 4 consecutive poll
+  failures) so a transient network hiccup mid-poll can't yank a
+  perfectly valid, already-displayed QR code off screen.
+- `ui/settings/{SettingsScreen,AccountViewModel,AccountScreen}.kt` — a
+  new "Account" row at the top of Settings. `AccountScreen` is
+  deliberately minimal (signed-in identity + Sign Out only) — device
+  management (Milestone 3's `/auth/sessions`), "sync existing data"
+  prompts, and account switching are later milestones. What's here exists
+  so a signed-in build is actually re-testable (create account → sign out
+  → sign in again) without clearing app data.
+- `.github/workflows/build-apk.yml` — added a `Run unit tests`
+  (`./gradlew testDebugUnitTest`) step before `assembleDebug`, so JVM
+  unit tests run in CI going forward, not just for this milestone.
+
+**Tests performed:**
+- New JVM unit tests (no Android SDK/emulator exists in this sandbox, so
+  these are the only automated Android-side checks available):
+  `SessionTest` (access-token safety margin, both tokens' expiry
+  boundaries — 5 cases) and `Iso8601Test` (parses date/time/millisecond
+  components correctly, and cross-checked against an independently
+  computed epoch value for `2024-01-01T00:00:00.000Z`, not just
+  round-tripped through the same parser).
+- Full manual re-read of every new/modified file after writing them all
+  (this sandbox cannot compile Kotlin locally), specifically checking:
+  wire-format field names in `AuthDtos.kt`/`AuthApiClient.kt` against the
+  actual server schemas/routes (`schemas/qr.ts`, `routes/qr.ts`,
+  `routes/auth.ts`) field-by-field — `deviceId`/`deviceName`/`platform`,
+  the `pending`/`completed`/`expired` status strings, and the
+  refresh/token-pair response shape all match exactly; every new
+  composable's callback signature against its actual call site in
+  `MangoNavHost.kt`; and the `SessionManager`/`AppContainer`
+  construction-order/threading argument above.
+- `build-apk.yml` (`testDebugUnitTest` + `assembleDebug`) is the first
+  real compilation of all this Kotlin — pending CI confirmation post-push.
+
+**Issues discovered (self-review before marking complete):**
+- `QrSignInViewModel`/`QrSignInScreen`'s first draft used one combined
+  error state, which would have replaced a valid, already-displayed QR
+  code with a full-screen error on a single transient poll failure.
+- `TokenCipher`/`SessionManager`/`AuthRepository` being constructed
+  eagerly in `AppContainer` (main thread, during `Application.onCreate()`)
+  combined with `TokenCipher`'s synchronous Keystore/Tink `init` work
+  risked janking app startup.
+- `androidx.security.crypto`'s `EncryptedSharedPreferences` — the more
+  obvious choice for encrypted local storage — is deprecated as of 2025.
+
+**Issues fixed:**
+- Split `QrSignInViewModel`'s state into `uiState` (Loading/Ready/Error)
+  and a separate `pollingDegraded` flag, only surfaced after 4 consecutive
+  poll failures, leaving a displayed QR code on screen throughout.
+- Made `SessionManager`'s `cipher` property `by lazy`, deferring
+  `TokenCipher`'s Keystore work to first actual use, which always happens
+  inside `Dispatchers.IO`.
+- Used Tink directly (`AndroidKeysetManager` + Android Keystore) instead
+  of `EncryptedSharedPreferences`.
+
+**Not yet verifiable in this sandbox:** actual on-device behavior (fresh
+install → QR scan → sign-in on phone → TV proceeds; existing authenticated
+user skipping straight to Home; an expired-refresh-token user landing back
+on `AuthStartScreen`) requires a physical Fire TV device or a working
+Android emulator, neither of which exists here — see `build-apk.yml`'s
+removed smoke-test job note for why a GitHub-hosted emulator isn't a
+substitute. Code-level correctness (compilation via CI, wire-format
+matching against the real backend, unit-tested pure logic) is as far as
+this sandbox can verify; real end-to-end verification is on the user's own
+hardware.
+
+**Milestone 5 is complete.**

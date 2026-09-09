@@ -4,11 +4,15 @@ import com.mangotv.app.data.model.ContentType
 import java.net.URLEncoder
 
 object MangoRoutes {
+    const val AUTH_GATE = "auth/gate"
+    const val AUTH_START = "auth/start"
+    const val AUTH_QR_PATTERN = "auth/qr/{intent}"
     const val HOME = "home"
     const val SETTINGS = "settings"
     const val SETTINGS_ADDONS = "settings/addons"
     const val SETTINGS_ADD_ADDON = "settings/addons/add"
     const val SETTINGS_HOME_ROWS = "settings/home_rows"
+    const val SETTINGS_ACCOUNT = "settings/account"
     const val MOVIES = "movies"
     const val TV_SHOWS = "tv_shows"
     const val GENRES = "genres"
@@ -18,6 +22,9 @@ object MangoRoutes {
     const val DETAIL_PATTERN = "detail/{providerId}/{type}/{id}"
     const val SOURCES_PATTERN = "sources/{providerId}/{type}/{id}/{season}/{episode}"
     const val PLAYER_PATTERN = "player/{providerId}/{type}/{id}/{season}/{episode}/{streamId}"
+
+    /** [intent] is display-only ("login" or "register" — which button on AuthStartScreen was pressed); the QR flow itself is identical either way, since the activation page lets the user pick regardless. */
+    fun authQr(intent: String): String = "auth/qr/$intent"
 
     fun genreResults(genre: String): String = "genres/${URLEncoder.encode(genre, "UTF-8")}"
 

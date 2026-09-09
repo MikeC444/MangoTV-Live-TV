@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.ViewList
@@ -32,9 +33,11 @@ import com.mangotv.app.ui.theme.TextSecondary
 fun SettingsScreen(
     onNavigate: (String) -> Unit,
     onOpenAddons: () -> Unit,
-    onOpenHomeRows: () -> Unit
+    onOpenHomeRows: () -> Unit,
+    onOpenAccount: () -> Unit
 ) {
     val navFocusRequester = remember { FocusRequester() }
+    val accountFocusRequester = remember { FocusRequester() }
     val addonsFocusRequester = remember { FocusRequester() }
     val homeRowsFocusRequester = remember { FocusRequester() }
 
@@ -42,15 +45,24 @@ fun SettingsScreen(
         title = "Settings",
         onNavigate = onNavigate,
         navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = addonsFocusRequester
+        firstContentFocusRequester = accountFocusRequester
     ) {
+        SettingsCategoryRow(
+            icon = Icons.Filled.AccountCircle,
+            title = "Account",
+            subtitle = "Manage your MangoTV account",
+            onClick = onOpenAccount,
+            focusRequester = accountFocusRequester,
+            focusUp = navFocusRequester
+        )
+        Spacer(Modifier.height(14.dp))
         SettingsCategoryRow(
             icon = Icons.Filled.Extension,
             title = "Addons",
             subtitle = "Manage installed content providers",
             onClick = onOpenAddons,
             focusRequester = addonsFocusRequester,
-            focusUp = navFocusRequester
+            focusUp = accountFocusRequester
         )
         Spacer(Modifier.height(14.dp))
         SettingsCategoryRow(

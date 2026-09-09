@@ -2,6 +2,7 @@ package com.mangotv.app
 
 import android.content.Context
 import com.mangotv.app.data.addon.AddonRepository
+import com.mangotv.app.data.auth.AuthRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
@@ -32,9 +33,18 @@ import com.mangotv.app.data.provider.MyListRepository
  *
  * myListRepository is the same story again — only Home's hero, Detail's
  * hero, and the My List screen ever touch it.
+ *
+ * authRepository is eager like addonRepository, for the same shape of
+ * reason: the auth gate is the very first screen the app shows and needs
+ * an answer immediately, so its session load gets a head start here
+ * rather than waiting for the gate's ViewModel to be constructed. This is
+ * safe to do eagerly because SessionManager defers its one genuinely
+ * expensive step (TokenCipher's Android Keystore setup) to first actual
+ * use on a background dispatcher, never to construction time.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
+    val authRepository: AuthRepository = AuthRepository(context)
     val playerPreferencesRepository: PlayerPreferencesRepository by lazy { PlayerPreferencesRepository(context) }
     val homeRowPreferencesRepository: HomeRowPreferencesRepository by lazy { HomeRowPreferencesRepository(context) }
     val myListRepository: MyListRepository by lazy { MyListRepository(context) }

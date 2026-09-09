@@ -6,6 +6,10 @@ import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mangotv.app.data.model.ContentType
+import com.mangotv.app.ui.auth.AuthGateScreen
+import com.mangotv.app.ui.auth.AuthStartScreen
+import com.mangotv.app.ui.auth.GateDestination
+import com.mangotv.app.ui.auth.QrSignInScreen
 import com.mangotv.app.ui.browse.MoviesScreen
 import com.mangotv.app.ui.browse.TvShowsScreen
 import com.mangotv.app.ui.detail.DetailScreen
@@ -15,6 +19,7 @@ import com.mangotv.app.ui.search.SearchScreen
 import com.mangotv.app.ui.mylist.MyListScreen
 import com.mangotv.app.ui.home.HomeScreen
 import com.mangotv.app.ui.player.PlayerScreen
+import com.mangotv.app.ui.settings.AccountScreen
 import com.mangotv.app.ui.settings.AddAddonScreen
 import com.mangotv.app.ui.settings.AddonsScreen
 import com.mangotv.app.ui.settings.HomeRowsScreen
@@ -49,7 +54,40 @@ fun MangoNavHost() {
         }
     }
 
-    NavHost(navController = navController, startDestination = MangoRoutes.HOME) {
+    // A signed-out user is never left with anything to navigate back
+    // into: both transitions below (auth gate -> a destination, and
+    // sign-out -> AuthStart) clear the *entire* back stack via
+    // graph.id rather than a specific route, so it doesn't matter what
+    // was actually on the stack at the time.
+    fun navigateClearingBackStack(route: String) {
+        navController.navigate(route) {
+            popUpTo(navController.graph.id) { inclusive = true }
+        }
+    }
+
+    NavHost(navController = navController, startDestination = MangoRoutes.AUTH_GATE) {
+        composable(MangoRoutes.AUTH_GATE) {
+            AuthGateScreen(
+                onNavigate = { destination ->
+                    val target = when (destination) {
+                        GateDestination.Home -> MangoRoutes.HOME
+                        GateDestination.AuthStart -> MangoRoutes.AUTH_START
+                    }
+                    navigateClearingBackStack(target)
+                }
+            )
+        }
+        composable(MangoRoutes.AUTH_START) {
+            AuthStartScreen(
+                onSignIn = { navController.navigate(MangoRoutes.authQr("login")) },
+                onCreateAccount = { navController.navigate(MangoRoutes.authQr("register")) }
+            )
+        }
+        composable(MangoRoutes.AUTH_QR_PATTERN) {
+            QrSignInScreen(
+                onAuthenticated = { navigateClearingBackStack(MangoRoutes.HOME) }
+            )
+        }
         composable(MangoRoutes.HOME) {
             HomeScreen(
                 onNavigate = ::navigateTo
@@ -59,12 +97,19 @@ fun MangoNavHost() {
             SettingsScreen(
                 onNavigate = ::navigateTo,
                 onOpenAddons = { navController.navigate(MangoRoutes.SETTINGS_ADDONS) },
-                onOpenHomeRows = { navController.navigate(MangoRoutes.SETTINGS_HOME_ROWS) }
+                onOpenHomeRows = { navController.navigate(MangoRoutes.SETTINGS_HOME_ROWS) },
+                onOpenAccount = { navController.navigate(MangoRoutes.SETTINGS_ACCOUNT) }
             )
         }
         composable(MangoRoutes.SETTINGS_HOME_ROWS) {
             HomeRowsScreen(
                 onNavigate = ::navigateTo
+            )
+        }
+        composable(MangoRoutes.SETTINGS_ACCOUNT) {
+            AccountScreen(
+                onNavigate = ::navigateTo,
+                onSignedOut = { navigateClearingBackStack(MangoRoutes.AUTH_START) }
             )
         }
         composable(MangoRoutes.MOVIES) {
