@@ -7,13 +7,15 @@ import androidx.compose.runtime.staticCompositionLocalOf
 import com.mangotv.app.R
 
 /**
- * Short, low-latency UI feedback: a "nav" tick on focus move and a "click"
- * tone on select -- SoundPool rather than MediaPlayer since these fire
- * constantly and can overlap (e.g. a held D-pad scrolling fast through a
- * row), which MediaPlayer isn't built for. Both sounds are tiny and loaded
- * eagerly on construction; SoundPool.play() on a sound that hasn't finished
- * loading yet is a silent no-op rather than a crash, so there's no need to
- * gate playback on the load callback for something this small.
+ * Short, low-latency UI feedback: a "nav" tick on focus move, a "click"
+ * tone on select, and a distinct "back" tone for leaving a screen (D-pad
+ * BACK, or an on-screen Back button -- see TvFocusSurface.ClickSound) --
+ * SoundPool rather than MediaPlayer since these fire constantly and can
+ * overlap (e.g. a held D-pad scrolling fast through a row), which
+ * MediaPlayer isn't built for. All three are loaded eagerly on
+ * construction; SoundPool.play() on a sound that hasn't finished loading
+ * yet is a silent no-op rather than a crash, so there's no need to gate
+ * playback on the load callback for something this small.
  */
 class UiSoundPlayer(context: Context) {
 
@@ -31,6 +33,7 @@ class UiSoundPlayer(context: Context) {
 
     private val navSoundId = soundPool.load(appContext, R.raw.ui_nav_sound, 1)
     private val clickSoundId = soundPool.load(appContext, R.raw.ui_click_sound, 1)
+    private val backSoundId = soundPool.load(appContext, R.raw.ui_back_sound, 1)
 
     fun playNav() {
         soundPool.play(navSoundId, 1f, 1f, 0, 0, 1f)
@@ -38,6 +41,10 @@ class UiSoundPlayer(context: Context) {
 
     fun playClick() {
         soundPool.play(clickSoundId, 1f, 1f, 0, 0, 1f)
+    }
+
+    fun playBack() {
+        soundPool.play(backSoundId, 1f, 1f, 0, 0, 1f)
     }
 }
 

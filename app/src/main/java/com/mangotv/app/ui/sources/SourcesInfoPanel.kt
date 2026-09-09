@@ -30,6 +30,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mangotv.app.data.model.Content
+import com.mangotv.app.ui.components.ClickSound
 import com.mangotv.app.ui.components.GlowPlayBadge
 import com.mangotv.app.ui.components.HeroIconButton
 import com.mangotv.app.ui.components.rememberOpaqueImageRequest
@@ -54,7 +55,8 @@ fun SourcesInfoPanel(
         HeroIconButton(
             icon = Icons.Filled.ArrowBack,
             contentDescription = "Back",
-            onClick = onBack
+            onClick = onBack,
+            clickSound = ClickSound.BACK
         )
 
         Spacer(Modifier.height(16.dp))

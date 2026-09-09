@@ -1,5 +1,7 @@
 package com.mangotv.app.navigation
 
+import android.app.Activity
+import androidx.activity.compose.BackHandler
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.DisposableEffect
@@ -116,6 +118,25 @@ fun MangoNavHost() {
         }
 
         val navController = rememberNavController()
+
+        // Global fallback for the hardware/remote BACK button: every screen
+        // without its own more specific BackHandler falls through to this
+        // one -- which today is every screen except the player (it needs to
+        // close menus/scrub-mode/controls before actually leaving, so it
+        // registers its own -- see PlayerScreen's own BackHandler). Composed
+        // once, here, so it's always the LEAST recently registered
+        // BackHandler in the stack; Compose gives priority to whichever was
+        // registered most recently, so PlayerScreen's still correctly wins
+        // over this one whenever it's the active screen. Falls back to
+        // finishing the Activity when there's nothing left to pop (i.e. at
+        // Home), matching what BACK would already do with no handler at all
+        // -- this replaces that default, so it has to reproduce it itself.
+        BackHandler {
+            container.uiSoundPlayer.playBack()
+            if (!navController.popBackStack()) {
+                (context as? Activity)?.finish()
+            }
+        }
 
         fun navigateTo(route: String) {
             if (route in TAB_ROOT_ROUTES) {

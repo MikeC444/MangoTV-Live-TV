@@ -47,7 +47,10 @@ fun MangoButton(
     // other FILLED button (Settings, empty-state retry, ...) app-wide.
     // Null (the default) leaves `style` in full control of both the
     // background and content color, same as before this param existed.
-    backgroundOverride: Color? = null
+    backgroundOverride: Color? = null,
+    // Passed straight through to TvFocusSurface -- e.g. PlaybackErrorOverlay's
+    // "Back" button passes ClickSound.BACK.
+    clickSound: ClickSound = ClickSound.DEFAULT
 ) {
     val contentColor = backgroundOverride?.let { Color.Black } ?: when (style) {
         MangoButtonStyle.FILLED -> MangoBackground
@@ -84,7 +87,8 @@ fun MangoButton(
         focusUp = focusUp,
         focusDown = focusDown,
         borderColor = borderColor,
-        bringIntoViewOnFocus = bringIntoViewOnFocus
+        bringIntoViewOnFocus = bringIntoViewOnFocus,
+        clickSound = clickSound
     ) {
         Row(
             modifier = Modifier

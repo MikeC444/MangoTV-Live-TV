@@ -32,6 +32,9 @@ import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.ui.theme.FocusBorder
 import com.mangotv.app.ui.theme.MangoMotion
 
+/** Which sound (if any) a TvFocusSurface's click plays -- see TvFocusSurface's own doc. */
+enum class ClickSound { DEFAULT, BACK, NONE }
+
 /**
  * The single building block behind every focusable tile in Mango TV (cards,
  * buttons, nav items). It owns the focus -> scale/glow/border animation so
@@ -47,6 +50,13 @@ import com.mangotv.app.ui.theme.MangoMotion
 fun TvFocusSurface(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Which click sound to play -- DEFAULT for virtually every caller (cards,
+    // buttons, nav items); BACK for anything whose whole purpose is leaving
+    // the current screen (an on-screen Back button); NONE for a caller that
+    // handles its own feedback (none currently do, kept for completeness).
+    // Threaded straight through by HeroIconButton/MangoButton so a caller
+    // several layers up (e.g. PlayerTopBar's Back button) can still pick it.
+    clickSound: ClickSound = ClickSound.DEFAULT,
     shape: Shape = RoundedCornerShape(10.dp),
     focusedScale: Float = MangoMotion.FocusScale,
     // RenderNode-level ambient/spot shadow (both default to black) cast by
@@ -168,7 +178,11 @@ fun TvFocusSurface(
             interactionSource = interactionSource,
             indication = null,
             onClick = {
-                uiSoundPlayer?.playClick()
+                when (clickSound) {
+                    ClickSound.DEFAULT -> uiSoundPlayer?.playClick()
+                    ClickSound.BACK -> uiSoundPlayer?.playBack()
+                    ClickSound.NONE -> Unit
+                }
                 onClick()
             }
         )

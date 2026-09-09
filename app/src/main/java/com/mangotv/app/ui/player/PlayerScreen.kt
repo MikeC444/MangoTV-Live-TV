@@ -41,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Tracks
+import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.Episode
 import com.mangotv.app.data.model.PlayerPreferences
@@ -128,6 +129,7 @@ private fun PlaybackContent(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val exoPlayer = remember { buildExoPlayer(context) }
+    val uiSoundPlayer = LocalUiSoundPlayer.current
 
     // Without this, Fire TV's system screensaver/idle timeout kicks in
     // during playback the same as it would over any other idle screen --
@@ -575,6 +577,7 @@ private fun PlaybackContent(
     }
 
     BackHandler {
+        uiSoundPlayer?.playBack()
         when {
             timelineScrubbing -> timelineScrubbing = false
             overlayStack.isNotEmpty() -> {

@@ -32,7 +32,10 @@ fun HeroIconButton(
     // TvFocusSurface focus border/scale on focus) — every other screen
     // keeps the translucent circle behind the icon as before.
     showBackground: Boolean = true,
-    borderColor: Color = FocusBorder
+    borderColor: Color = FocusBorder,
+    // Passed straight through to TvFocusSurface -- callers building a Back
+    // button (PlayerTopBar, SourcesInfoPanel, ...) pass ClickSound.BACK.
+    clickSound: ClickSound = ClickSound.DEFAULT
 ) {
     TvFocusSurface(
         onClick = onClick,
@@ -46,7 +49,8 @@ fun HeroIconButton(
         focusRight = focusRight,
         onFocusChanged = onFocusChanged,
         borderColor = borderColor,
-        bringIntoViewOnFocus = false
+        bringIntoViewOnFocus = false,
+        clickSound = clickSound
     ) {
         Icon(
             imageVector = icon,
