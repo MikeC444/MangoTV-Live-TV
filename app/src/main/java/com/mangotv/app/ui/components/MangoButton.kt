@@ -1,8 +1,10 @@
 package com.mangotv.app.ui.components
 
+import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
@@ -41,7 +43,12 @@ fun MangoButton(
     // without scrolling — every other caller leaves this false, so their
     // buttons are completely unaffected.
     compact: Boolean = false,
-    borderColor: Color = FocusBorder
+    borderColor: Color = FocusBorder,
+    // Only set by full-width, list-item-style buttons (e.g. the auth start
+    // screen's "Log In"/"Sign Up") — leaving this null preserves the
+    // original wrap-content, left-aligned icon+text layout every other
+    // caller already relies on.
+    trailingIcon: ImageVector? = null
 ) {
     val contentColor = when (style) {
         MangoButtonStyle.FILLED -> MangoBackground
@@ -83,22 +90,34 @@ fun MangoButton(
         Row(
             modifier = Modifier
                 .fillMaxHeight()
+                .let { if (trailingIcon != null) it.fillMaxWidth() else it }
                 .padding(horizontal = horizontalPadding),
+            horizontalArrangement = if (trailingIcon != null) Arrangement.SpaceBetween else Arrangement.Start,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = contentColor,
-                modifier = Modifier.height(iconHeight)
-            )
-            Spacer(modifier = Modifier.width(iconTextSpacing))
-            Text(
-                text = text,
-                color = contentColor,
-                fontWeight = FontWeight.SemiBold,
-                style = textStyle
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.height(iconHeight)
+                )
+                Spacer(modifier = Modifier.width(iconTextSpacing))
+                Text(
+                    text = text,
+                    color = contentColor,
+                    fontWeight = FontWeight.SemiBold,
+                    style = textStyle
+                )
+            }
+            if (trailingIcon != null) {
+                Icon(
+                    imageVector = trailingIcon,
+                    contentDescription = null,
+                    tint = contentColor,
+                    modifier = Modifier.height(iconHeight)
+                )
+            }
         }
     }
 }

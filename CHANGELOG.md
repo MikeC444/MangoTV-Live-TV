@@ -612,6 +612,41 @@ from Milestone 4.
   inside `Dispatchers.IO`.
 - Used Tink directly (`AndroidKeysetManager` + Android Keystore) instead
   of `EncryptedSharedPreferences`.
+- **CI caught a real compile error** the manual re-read missed:
+  `AuthGateScreen.kt`, `QrSignInScreen.kt`, and `AccountScreen.kt` all use
+  Kotlin property-delegate syntax (`by`) on the `State<T>` returned from
+  `collectAsStateWithLifecycle()`, which requires
+  `import androidx.compose.runtime.getValue` to resolve — present in
+  every other screen in the app, missed in these three new ones. Fixed by
+  adding the import to all three; confirmed against the rest of the
+  codebase that this is the established convention every existing screen
+  already follows, not a one-off workaround.
+- Reworked `AuthStartScreen.kt`'s visual design (see below) to match a
+  reference mockup the user provided after this milestone's first push.
+
+**Post-push design revision:** the user supplied a reference mockup for
+the sign-in landing screen after the first push (logo, a two-tone
+"Your Entertainment, Your Way" headline, a description line, a full-width
+filled "Log In" button and a full-width outlined "Sign Up" button — both
+with a leading icon and a trailing chevron — and a "Scan a QR code..."
+hint with a QR icon at the bottom). Applied to `AuthStartScreen.kt`:
+- `MangoButton` gained an optional `trailingIcon` parameter (defaults to
+  `null`, so every other existing caller is unaffected) — when set, the
+  button's internal `Row` switches to `fillMaxWidth()` +
+  `Arrangement.SpaceBetween` so the trailing icon pins to the button's far
+  edge; otherwise its layout is byte-for-byte what it was before.
+  Repurposed for full-width, list-item-style buttons only.
+  `AuthStartScreen`'s two buttons are otherwise unchanged functionally —
+  "Log In" and "Sign Up" both still lead to the same QR flow.
+- Content lives in a `Column` inside a `Box` (mirroring `HeroSection`'s
+  existing `widthIn(max = ...)`-capped-column-inside-a-filled-`Box`
+  pattern) rather than chaining `fillMaxSize()` and `widthIn()` directly
+  on one node — the latter would let the column's own reported size
+  shrink to its capped width and stop the background from painting the
+  rest of the screen, since a single-node modifier chain's outer
+  `fillMaxSize()` ultimately reports back whatever size bubbles up from
+  its innermost child. Caught and corrected during this same review
+  before it ever reached CI.
 
 **Not yet verifiable in this sandbox:** actual on-device behavior (fresh
 install → QR scan → sign-in on phone → TV proceeds; existing authenticated
