@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxHeight
@@ -72,7 +73,17 @@ fun SoundSettingsScreen(
         firstContentFocusRequester = volumeRowFocusRequester,
         titleIcon = Icons.Filled.MusicNote
     ) {
-        LazyColumn(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        LazyColumn(
+            // LazyColumn clips to its own bounds, and every row below fills
+            // its full width with no margin of its own -- so a row's focus
+            // scale-up (TvFocusSurface, 1.08x) had nowhere to grow into and
+            // got clipped flush against the list's left/right edges, and the
+            // last row's bottom edge the same way against the list's bottom
+            // edge. Same fix as TopNavBar/SourcesScreen: reserve a little
+            // headroom via contentPadding for the scale to grow into.
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp)
+        ) {
             item(key = "volume_header") {
                 Text(
                     text = "Applies to the navigation and click sounds -- not the boot chime below.",
