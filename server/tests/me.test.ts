@@ -1,12 +1,18 @@
+import type { Express } from "express";
 import request from "supertest";
 import { beforeEach, describe, expect, it } from "vitest";
 import { createApp } from "../src/app.js";
 import { resetDatabase } from "./helpers/db.js";
 import { createTestSession } from "./helpers/auth.js";
 
-const app = createApp();
+// A fresh app per test, not one shared across the whole file — the auth
+// rate limiter carries its own in-memory counters (see
+// middleware/rateLimit.ts), and a single shared app would let one test's
+// requests count against another's budget.
+let app: Express;
 
 beforeEach(async () => {
+  app = createApp();
   await resetDatabase();
 });
 
@@ -33,6 +39,12 @@ describe("auth middleware (requireAuth) via GET /user/me", () => {
 
   it("rejects an expired session's token", async () => {
     const session = await createTestSession({ expiresInMs: -1000 });
+    const response = await request(app).get("/user/me").set("Authorization", `Bearer ${session.token}`);
+    expect(response.status).toBe(401);
+  });
+
+  it("rejects a token whose device has been remotely revoked", async () => {
+    const session = await createTestSession({ deviceRevoked: true });
     const response = await request(app).get("/user/me").set("Authorization", `Bearer ${session.token}`);
     expect(response.status).toBe(401);
   });

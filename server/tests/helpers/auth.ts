@@ -4,6 +4,7 @@ import { generateToken, hashToken } from "../../src/security/tokens.js";
 
 export interface TestSession {
   token: string;
+  refreshToken: string;
   userId: string;
   sessionId: string;
   email: string;
@@ -13,19 +14,22 @@ export interface TestSession {
 interface CreateTestSessionOptions {
   email?: string;
   displayName?: string | null;
-  /** Milliseconds from now the access token expires. Negative creates an already-expired session. */
+  /** Milliseconds from now the access token expires. Negative creates an already-expired access token. */
   expiresInMs?: number;
+  /** Milliseconds from now the refresh token expires. Negative creates an already-expired refresh token. */
+  refreshExpiresInMs?: number;
   revoked?: boolean;
   userDeleted?: boolean;
+  deviceRevoked?: boolean;
 }
 
 /**
  * Inserts a user, device, and session directly via the same pool the app
- * uses — bypassing the account-creation/login/QR endpoints, which don't
- * exist yet (Milestones 3-4). Hashes the generated token exactly the way
- * requireAuth verifies it, so tests exercise the real verification path,
- * not a shortcut around it. Returns the plaintext token to send as
- * `Authorization: Bearer <token>`.
+ * uses — bypassing the account-creation/login/QR endpoints — for fixture
+ * states those endpoints can't easily produce on demand (an
+ * already-expired token, a soft-deleted user, a revoked device). Hashes
+ * the generated tokens exactly the way requireAuth/refresh verify them,
+ * so tests exercise the real verification path, not a shortcut around it.
  */
 export async function createTestSession(options: CreateTestSessionOptions = {}): Promise<TestSession> {
   const email = options.email ?? `test-${randomUUID()}@example.com`;
@@ -38,20 +42,22 @@ export async function createTestSession(options: CreateTestSessionOptions = {}):
   const userId = userResult.rows[0]!.id;
 
   const deviceResult = await pool.query<{ id: string }>(
-    "INSERT INTO devices (user_id, device_identifier) VALUES ($1, $2) RETURNING id",
-    [userId, randomUUID()]
+    "INSERT INTO devices (user_id, device_identifier, revoked_at) VALUES ($1, $2, $3) RETURNING id",
+    [userId, randomUUID(), options.deviceRevoked ? new Date() : null]
   );
   const deviceId = deviceResult.rows[0]!.id;
 
   const token = generateToken();
+  const refreshToken = generateToken();
   const expiresAt = new Date(Date.now() + (options.expiresInMs ?? 60 * 60 * 1000));
+  const refreshExpiresAt = new Date(Date.now() + (options.refreshExpiresInMs ?? 30 * 24 * 60 * 60 * 1000));
 
   const sessionResult = await pool.query<{ id: string }>(
     `INSERT INTO sessions (user_id, device_id, access_token_hash, access_token_expires_at, refresh_token_hash, refresh_token_expires_at, revoked_at)
-     VALUES ($1, $2, $3, $4, $5, now() + interval '30 days', $6)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
-    [userId, deviceId, hashToken(token), expiresAt, hashToken(generateToken()), options.revoked ? new Date() : null]
+    [userId, deviceId, hashToken(token), expiresAt, hashToken(refreshToken), refreshExpiresAt, options.revoked ? new Date() : null]
   );
 
-  return { token, userId, sessionId: sessionResult.rows[0]!.id, email, displayName };
+  return { token, refreshToken, userId, sessionId: sessionResult.rows[0]!.id, email, displayName };
 }

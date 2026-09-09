@@ -17,9 +17,10 @@ interface SessionRow {
  * Verifies the Authorization: Bearer <token> header against the sessions
  * table and attaches req.user/req.session on success. Every failure path
  * — missing header, malformed header, unknown token, expired token,
- * revoked session, or a soft-deleted owning user — returns the same
- * generic 401 rather than a reason-specific message, so a request can't
- * be used to probe which of those states a given token is in.
+ * revoked session, a soft-deleted owning user, or a remotely-revoked
+ * device — returns the same generic 401 rather than a reason-specific
+ * message, so a request can't be used to probe which of those states a
+ * given token is in.
  *
  * This is the only source of "who is making this request" anywhere in
  * the API: route handlers must read req.user, never a client-supplied id
@@ -41,10 +42,12 @@ export async function requireAuth(req: Request, _res: Response, next: NextFuncti
       `SELECT s.id AS session_id, s.device_id, u.id AS user_id, u.email, u.display_name
        FROM sessions s
        JOIN users u ON u.id = s.user_id
+       JOIN devices d ON d.id = s.device_id
        WHERE s.access_token_hash = $1
          AND s.revoked_at IS NULL
          AND s.access_token_expires_at > now()
-         AND u.deleted_at IS NULL`,
+         AND u.deleted_at IS NULL
+         AND d.revoked_at IS NULL`,
       [tokenHash]
     );
 

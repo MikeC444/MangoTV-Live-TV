@@ -262,3 +262,101 @@ and no CORS policy is the secure default until then), and the
 settings/watchlist/history/addon endpoints (Milestones 6-9).
 
 **Milestone 2 is complete.**
+
+## Milestone 3 — User Account System
+
+**Status:** Complete.
+
+**Changes:** No changes to the Android app or Milestone 1's schema. Adds
+real account creation, login, logout, refresh, and session management on
+top of Milestone 2's foundation:
+
+- `src/security/password.ts` — Argon2id hashing (`argon2` package), with
+  OWASP/RFC 9106's recommended interactive-login parameters (19 MiB
+  memory, t=2, p=1) pinned explicitly rather than relying on the
+  library's own default in case it ever changes.
+- `src/schemas/auth.ts` — Zod schemas for register/login/refresh bodies:
+  email normalized (trimmed, lowercased) to match the `users` table's
+  `email = lower(email)` constraint, password length-only requirements
+  (min 8, no forced complexity — modern NIST guidance), `deviceId`
+  required as a UUID. This is validate()'s first real caller since
+  Milestone 2 built it ahead of having one.
+- `src/services/authService.ts` — the actual account logic:
+  - `register` — hashes the password, then inserts the user + device +
+    session as one transaction (all-or-nothing).
+  - `login` — verifies the password and returns the same generic
+    "Invalid email or password" whether the email doesn't exist or the
+    password is wrong. Also closes a timing side-channel found during
+    self-review: an unknown email used to skip the argon2 verify
+    entirely, making that response measurably faster than a
+    known-email-wrong-password one — now it always runs exactly one
+    verify (against a dummy hash when there's no real user), so response
+    timing can't be used to enumerate which emails have accounts.
+  - `refresh` — a single atomic `UPDATE ... FROM ... WHERE ... RETURNING`
+    that validates (unexpired/unrevoked session, non-deleted user,
+    non-revoked device) and rotates both tokens in one statement, so
+    there's no separate check-then-act race window. Rotating the access
+    token turned out to invalidate the *previous* access token
+    immediately too (one `access_token_hash` column per session, simply
+    overwritten) — confirmed via a manual smoke test, then locked in with
+    its own automated test, since it's a stricter and better property
+    than what the original design comment assumed.
+  - `logout` — revokes only `req.session.id` (never a client-supplied
+    session id).
+  - `listSessions` / `revokeSession` — list/revoke a user's own sessions;
+    revoking a session id that exists but belongs to someone else returns
+    404 (not 403), so the response can't confirm another user's session
+    id is real. `listSessions` also excludes sessions on a
+    remotely-revoked device, matching `requireAuth`'s own check
+    (self-review catch — it hadn't originally).
+- `src/middleware/auth.ts` — `requireAuth` now also joins `devices` and
+  rejects a session whose device has been remotely revoked (the
+  `devices.revoked_at` column existed since Milestone 1 but nothing read
+  it until now).
+- `src/middleware/rateLimit.ts` / `src/routes/auth.ts` — a stricter
+  10-req/min-per-IP limiter on the whole `/auth` router (on top of the
+  general 120/min one). Refactored both rate limiters and `authRouter`
+  from module-level singletons into factories constructed fresh inside
+  `createApp()` — the limiters carry in-memory counters, and a shared
+  singleton meant one test's auth calls silently ate into another test's
+  budget (found by running the test suite, not by inspection).
+- New endpoints: `POST /auth/register`, `POST /auth/login`,
+  `POST /auth/refresh`, `POST /auth/logout` (authenticated),
+  `GET /auth/sessions` (authenticated), `DELETE /auth/sessions/:id`
+  (authenticated).
+
+**Tests performed:**
+- `npm run typecheck` — clean throughout, including working around two
+  real TS friction points: `argon2`'s named (not default) exports needing
+  a namespace import, and its `HashOptions` type (not `Options`).
+- `npm audit` — 0 vulnerabilities after adding `argon2`.
+- `npm test` locally against `mangotv_test` — **43/43 passed**: account
+  creation (including password never stored in plaintext, duplicate-email
+  rejection, weak-password/bad-email/bad-deviceId rejection), login
+  (correct credentials, case-insensitive email, wrong password, unknown
+  email producing an identical response, independent sessions per
+  device), refresh (rotation, the new access token working, the *old*
+  access token immediately failing, replay of an already-used refresh
+  token failing, expired refresh token, revoked session, revoked device),
+  logout (revokes the current session, that session's access *and*
+  refresh tokens both stop working immediately after), session listing
+  and revocation (never shows or revokes another user's sessions, 404 —
+  not a leak — on someone else's session id, 400 on a malformed one).
+- Manual smoke test against a real running server: register → /user/me →
+  /auth/sessions → /auth/refresh → /auth/logout → confirmed the
+  now-revoked session's access token stops working, all over actual HTTP.
+  This smoke test is what surfaced the "refresh invalidates the old
+  access token too" behavior in the first place, before it became an
+  automated test. Seeded data deleted immediately after.
+
+**Issues discovered (self-review before marking complete):**
+- The login timing side-channel described above.
+- `listSessions` not excluding a revoked device's session.
+- The rate-limiter/router singleton-sharing bug the test suite itself
+  surfaced (test isolation issue, not a production bug, but the
+  underlying "shared mutable state across app instances" pattern was a
+  real architectural smell worth fixing rather than working around).
+
+**Issues fixed:** all three, described above alongside where they were found.
+
+**Milestone 3 is complete.**

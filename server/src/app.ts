@@ -1,8 +1,9 @@
 import express, { type Express } from "express";
 import helmet from "helmet";
 import { errorHandler, notFoundHandler } from "./middleware/errorHandler.js";
-import { apiRateLimiter } from "./middleware/rateLimit.js";
+import { createApiRateLimiter } from "./middleware/rateLimit.js";
 import { requestLogger } from "./middleware/requestLogger.js";
+import { createAuthRouter } from "./routes/auth.js";
 import { healthRouter } from "./routes/health.js";
 import { meRouter } from "./routes/me.js";
 
@@ -27,9 +28,10 @@ export function createApp(): Express {
   // (including ones the limiter itself rejects), not just ones that reach
   // a route.
   app.use(requestLogger);
-  app.use(apiRateLimiter);
+  app.use(createApiRateLimiter());
 
   app.use("/health", healthRouter);
+  app.use("/auth", createAuthRouter());
   app.use("/user", meRouter);
 
   app.use(notFoundHandler);

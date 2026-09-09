@@ -5,10 +5,22 @@ app never receives database credentials or talks to Postgres directly —
 see `docs/milestone-0-audit-and-plan.md` at the repo root for the full
 architecture writeup.
 
-Milestone 1: database schema + migrations. Milestone 2 (current): the
-Express API foundation — server config, error handling, request
-validation, auth/rate-limit middleware, and the first two endpoints
-(`GET /health`, `GET /user/me`).
+Milestone 1: database schema + migrations. Milestone 2: the Express API
+foundation (server config, error handling, request validation,
+auth/rate-limit middleware). Milestone 3 (current): real accounts.
+
+Endpoints so far:
+
+- `GET /health` — unauthenticated liveness/DB-connectivity check.
+- `POST /auth/register`, `POST /auth/login` — `{ email, password,
+  deviceId, deviceName?, platform? }` → `{ accessToken,
+  accessTokenExpiresAt, refreshToken, refreshTokenExpiresAt, user }`.
+- `POST /auth/refresh` — `{ refreshToken }` → a fresh token pair; rotates
+  and invalidates the one it was given.
+- `POST /auth/logout` (authenticated) — revokes the calling session.
+- `GET /auth/sessions` (authenticated) — the caller's own active sessions.
+- `DELETE /auth/sessions/:id` (authenticated) — revoke one of them.
+- `GET /user/me` (authenticated) — the caller's own profile.
 
 ## Setup
 
