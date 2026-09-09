@@ -36,6 +36,7 @@ import com.mangotv.app.ui.settings.SettingsScreen
 import com.mangotv.app.ui.settings.SoundSettingsScreen
 import com.mangotv.app.ui.sources.SourcesScreen
 import java.net.URLDecoder
+import kotlinx.coroutines.delay
 
 // Static, argument-less top-level destinations reached from the top nav bar.
 // Navigating to one of these reuses/restores its existing back-stack entry
@@ -47,6 +48,10 @@ private val TAB_ROOT_ROUTES = setOf(
     MangoRoutes.HOME, MangoRoutes.MOVIES, MangoRoutes.TV_SHOWS,
     MangoRoutes.GENRES, MangoRoutes.SEARCH, MangoRoutes.MY_LIST, MangoRoutes.SETTINGS
 )
+
+// How long after cold boot begins the boot chime starts playing -- see its
+// own call site for why this isn't just 0.
+private const val BOOT_SOUND_START_DELAY_MS = 1000L
 
 @Composable
 fun MangoNavHost() {
@@ -74,17 +79,21 @@ fun MangoNavHost() {
     var audioMidwayReached by remember { mutableStateOf(false) }
     val isAppReady = dataReady && audioMidwayReached
 
-    // Starts the user's chosen boot chime immediately on cold boot and
-    // holds audioMidwayReached false until the chime reaches its own
-    // halfway point -- see BootSoundPlayer's own doc for why that's what
-    // makes the reveal land on the chime's midpoint rather than its start.
-    // bootSoundPlayer is deliberately a plain local instance, not something
-    // pulled from AppContainer: it's used exactly once per process and
-    // releases itself when the chime finishes, unlike every other
-    // AppContainer entry, which is a persistent app-scoped singleton.
+    // Starts the user's chosen boot chime BOOT_SOUND_START_DELAY_MS after
+    // cold boot begins (not instantly -- a beat of silence over the first
+    // frame reads more intentional than audio firing before anything's
+    // even visible) and holds audioMidwayReached false until the chime
+    // reaches its own halfway point after that -- see BootSoundPlayer's own
+    // doc for why that's what makes the reveal land on the chime's midpoint
+    // rather than its start. bootSoundPlayer is deliberately a plain local
+    // instance, not something pulled from AppContainer: it's used exactly
+    // once per process and releases itself when the chime finishes, unlike
+    // every other AppContainer entry, which is a persistent app-scoped
+    // singleton.
     val bootSoundPlayer = remember { BootSoundPlayer(context) }
     LaunchedEffect(Unit) {
         val selectedSound = container.soundPreferencesRepository.awaitSelectedBootSound()
+        delay(BOOT_SOUND_START_DELAY_MS)
         bootSoundPlayer.startAndAwaitMidpoint(selectedSound)
         audioMidwayReached = true
     }
