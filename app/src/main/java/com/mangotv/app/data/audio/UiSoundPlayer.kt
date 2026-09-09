@@ -49,7 +49,7 @@ class UiSoundPlayer(context: Context, soundPreferencesRepository: SoundPreferenc
     private val backSoundId = soundPool.load(appContext, R.raw.ui_back_sound, 1)
 
     @Volatile
-    private var volume: Float = 1f
+    private var volume: Float = 0.5f
 
     init {
         scope.launch {

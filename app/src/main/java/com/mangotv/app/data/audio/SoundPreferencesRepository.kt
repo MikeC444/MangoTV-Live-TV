@@ -26,7 +26,7 @@ data class SoundPreferences(
     val selectedBootSound: BootSound = BootSound.BOOT_SOUND_1,
     // Applies to the nav/click/back sounds only (see UiSoundPlayer) -- the
     // boot chime has no volume control of its own, only on/off (BootSound.NONE).
-    val navigationVolume: Float = 1f
+    val navigationVolume: Float = 0.5f
 )
 
 /** Same DataStore+JSON pattern as PlayerPreferencesRepository, applied to the boot-sound choice. */
