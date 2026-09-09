@@ -150,7 +150,7 @@ fun LoadingScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
             }
             Spacer(Modifier.height(12.dp))
             Text(
-                text = "MOVIES   •   TV SHOWS   •   LIVE TV",
+                text = "MOVIES   •   TV SHOWS",
                 color = TextSecondary,
                 fontSize = 14.sp,
                 letterSpacing = 2.sp
