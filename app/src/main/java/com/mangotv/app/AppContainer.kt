@@ -7,6 +7,7 @@ import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
 import com.mangotv.app.data.sync.SettingsSyncRepository
+import com.mangotv.app.data.sync.WatchlistSyncRepository
 
 /**
  * A small hand-rolled container instead of a DI framework: this app only has
@@ -22,9 +23,17 @@ import com.mangotv.app.data.sync.SettingsSyncRepository
  * "library is empty" indefinitely even with addons already installed,
  * since nothing ever re-registered them.
  *
- * myListRepository is lazy for the analogous reason — only Home's hero,
- * Detail's hero, and the My List screen ever touch it, and (unlike the two
- * below) Milestone 6 doesn't yet sync this domain.
+ * myListRepository was lazy before Milestone 7 (only Home's hero, Detail's
+ * hero, and the My List screen ever touched it) — now eager, for the same
+ * reason playerPreferencesRepository/homeRowPreferencesRepository became
+ * eager in Milestone 6 (see that paragraph below): watchlistSyncRepository
+ * needs a real instance to wire its onLocalChange push hook onto at
+ * construction time, and gaining cloud sync means a pull has to be able to
+ * replace this cache on every launch regardless of whether My List has
+ * been visited yet this session. A lazy property would also be
+ * self-defeating here in practice — watchlistSyncRepository (itself eager,
+ * for the reason given further below) reads it in its own constructor
+ * call, which would force the lazy initializer to run immediately anyway.
  *
  * authRepository is eager like addonRepository, for the same shape of
  * reason: the auth gate is the very first screen the app shows and needs
@@ -45,9 +54,9 @@ import com.mangotv.app.data.sync.SettingsSyncRepository
  * when that specific screen is first visited" laziness no longer reflects
  * how these are actually used.
  *
- * settingsSyncRepository is eager so its constructor can wire the
- * onLocalChange push hooks onto both repositories above before anything
- * has a chance to mutate either of them.
+ * settingsSyncRepository and watchlistSyncRepository are both eager so
+ * their constructors can wire each domain's onLocalChange push hook before
+ * anything has a chance to mutate it.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
@@ -57,5 +66,6 @@ class AppContainer(context: Context) {
     val settingsSyncRepository: SettingsSyncRepository = SettingsSyncRepository(
         homeRowPreferencesRepository, playerPreferencesRepository, authRepository
     )
-    val myListRepository: MyListRepository by lazy { MyListRepository(context) }
+    val myListRepository: MyListRepository = MyListRepository(context)
+    val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(myListRepository, authRepository)
 }

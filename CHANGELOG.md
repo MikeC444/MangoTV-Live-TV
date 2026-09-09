@@ -775,3 +775,174 @@ covers, and a background periodic scheduler is real infrastructure this
 milestone doesn't otherwise need yet.
 
 **Milestone 6 is complete.**
+
+## Milestone 7 — Watchlist / My List Sync
+
+**Status:** Complete.
+
+**Changes:** The second cloud-sync domain, and the first genuinely
+item-level one — `watchlist_items` (created in Milestone 1, untouched
+since) already had the right shape for this (natural key on `(user_id,
+provider_id, content_id, content_type)`, `deleted_at` for soft-delete), so
+this milestone needed no new migration, only the API and sync layers on
+top of it.
+
+Backend:
+- `schemas/watchlist.ts` — `watchlistItemBodySchema` (POST body) and
+  `watchlistDeleteQuerySchema` (DELETE query params — a DELETE request has
+  no body across every HTTP client the two sides here actually use, so the
+  natural key + `updatedAt` travel as query params instead, validated by
+  the same `validate()` middleware Milestone 3 built, extended here to
+  cover `req.query` for the first time).
+- `services/watchlistService.ts` — `listActiveWatchlist` (the pull path);
+  `upsertWatchlistItem` and `removeWatchlistItem`, both the same atomic
+  `INSERT/UPDATE ... WHERE EXCLUDED.updated_at > watchlist_items.updated_at
+  ... RETURNING` shape Milestone 6 established for settings, applied per
+  item instead of per account. `upsertWatchlistItem` never touches
+  `added_at` in its `DO UPDATE` — removing and re-adding the same title is
+  a metadata update to one durable slot (clearing `deleted_at`), not a
+  fresh row, matching migration 0009's own header comment.
+  `removeWatchlistItem` returns `null` only when the row never existed for
+  this user at all (a pre-Milestone-7 local-only item this device never
+  pushed) — nothing server-side to reconcile in that case; when a row does
+  exist, it always returns the item's current state, whether this call
+  actually removed it or lost a last-write-wins race to a newer write
+  elsewhere (surfaced to the caller as a still-`null` `deletedAt`).
+- `routes/watchlist.ts` — `GET`/`POST`/`DELETE /user/watchlist`, all
+  `requireAuth`, mounted alongside settings/me in `app.ts`. `POST` and a
+  successful/raced `DELETE` both return `200` + the item's current state
+  (including `deletedAt`, so the caller can tell "active" apart from "was
+  removed since I last knew" from the same response shape either endpoint
+  returns); `DELETE` returns a bare `204` only for the never-existed case.
+  Deliberately does **not** expose `watchlist_items.id` (the server-side
+  UUID) anywhere in the API — the client identifies an item by its natural
+  key, which it already has, so there was never a reason to round-trip a
+  server-generated id back down first.
+
+Android:
+- `data/network/{WatchlistDtos,WatchlistApiClient}.kt` — mirrors
+  `SettingsApiClient`'s OkHttp+kotlinx.serialization style.
+  `removeItem()`'s DELETE carries its four params via `HttpUrl.Builder`
+  (correct percent-encoding for a `contentId` that might contain colons or
+  other reserved characters — some Stremio-addon ids do), returning `null`
+  on `204` and the decoded item otherwise.
+- `data/provider/MyListRepository.kt` — `SavedListItem` gained `updatedAt`
+  (defaulted, so a JSON blob persisted by a pre-Milestone-7 build still
+  decodes); a new `WatchlistChange` sealed interface (`Added`/`Removed`)
+  carries exactly what changed to a new `onLocalChange` hook, fired only
+  from `toggle()`, never from the new `applyRemote(items)` (same
+  never-fired-from-applyRemote rule Milestone 6 established, so a
+  server-pulled list can't turn around and trigger a redundant push right
+  back up). `applyRemote` replaces the local list wholesale on pull — safe
+  here specifically because *push* stays item-level; pull legitimately
+  does mean "here is the whole current list."
+- `data/sync/WatchlistSyncRepository.kt` (new) — `pullFromServer()` (same
+  two call sites as `SettingsSyncRepository`: an already-usable session at
+  the auth gate, and right after a fresh QR sign-in) and a
+  `pushToServer(change)` wired to `onLocalChange`, dispatching to
+  `addOrUpdateItem`/`removeItem` by the change's type. A `reconcile(dto)`
+  step applies each push's *authoritative* response back into the local
+  list — the common case is a no-op (the server just echoed this device's
+  own write back), but it's what correctly restores an item locally if
+  this device's remove lost a last-write-wins race to a near-simultaneous
+  change elsewhere, or drops one if an add lost to a near-simultaneous
+  remove elsewhere. Both `pullFromServer` and `reconcile` defensively skip
+  (rather than crash on) any item whose `contentType` this build's
+  `ContentType` enum doesn't recognize — a forward-compat safety net for
+  build/backend version skew, not a case that can happen today.
+- `AppContainer.kt` — `myListRepository` changed from lazy to eager (see
+  below) and `watchlistSyncRepository` added as eager, for the same
+  reasons Milestone 6 gave `settingsSyncRepository`/its two repositories.
+- `AuthGateViewModel.kt` / `QrSignInViewModel.kt` — call
+  `watchlistSyncRepository.pullFromServer()` alongside the existing
+  settings pull, at the same two call sites, same fire-and-forget posture.
+
+**Tests performed:**
+- `npm run typecheck` / `npm audit` — clean.
+- `npm test` locally against `mangotv_test` — **92/92 passed** (up from
+  72; 20 new): empty list for a never-synced account, add-and-echo,
+  a later GET reflecting an add, a strictly-newer `updatedAt` overwriting
+  metadata, an older `updatedAt` losing (current state returned, not the
+  stale write), re-adding a removed item clears `deletedAt` and it
+  reappears in GET, two different `providerId`s with the same `contentId`
+  are distinct items (natural key includes `providerId`), remove-then-GET
+  no longer shows the item, a stale-timestamped remove losing to a newer
+  add (item stays active, response reflects that), an equal `updatedAt`
+  not removing (strictly-greater-than, not greater-or-equal), a `204` for
+  an item that was never synced, validation failures (missing fields, bad
+  `contentType`, non-ISO-8601 `updatedAt`, missing/invalid DELETE query
+  params), 401s with no Authorization header on all three endpoints, and
+  cross-user isolation — including a dedicated test for bob attempting to
+  remove alice's item by guessing her exact `(providerId, contentId,
+  contentType)` with a far-future `updatedAt` engineered to win any
+  last-write-wins race, confirmed scoped away entirely (every query/update
+  in `watchlistService.ts` filters on `user_id` from the authenticated
+  session, never a client-supplied value) rather than merely losing a
+  race.
+- Manual smoke test against a real running server, over actual HTTP (not
+  just supertest): seeded a real session, then GET (empty) → POST (add) →
+  GET (shows it) → DELETE (200, `deletedAt` set) → GET (empty again) →
+  unauthenticated GET (401) — matching the exact request/response shapes
+  above. Seeded data deleted immediately after.
+- Android: no new pure-logic unit tests this milestone (same rationale as
+  Milestone 6 — the branching logic that matters is exercised by the
+  backend tests above); verified instead by a full manual re-read of every
+  new/changed file, cross-checking wire-format field names against the
+  actual backend schema/routes (`providerId`/`contentId`/`contentType`/
+  `updatedAt`/`deletedAt` match exactly, including that `contentType`
+  travels as the same `MOVIE`/`TV_SHOW` strings on both sides), confirming
+  `return@withContext` from inside `WatchlistApiClient.removeItem`'s
+  nested `.use { }` block is valid Kotlin (both `withContext` and `use`
+  are inline, so the labeled non-local return correctly targets the outer
+  `withContext` lambda — the same shape already used one level shallower
+  elsewhere in this codebase, e.g. `DeviceIdentity.kt`), and the
+  `build-apk.yml` CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- First draft made `watchlistSyncRepository` eager while leaving
+  `myListRepository` as `by lazy` (to preserve its pre-existing
+  laziness). That combination is self-defeating: `watchlistSyncRepository`
+  reads `myListRepository` inside its own eager constructor call (to wire
+  `onLocalChange`), which forces the lazy delegate to initialize
+  immediately anyway — so the property would already read `by lazy` in
+  the source while actually behaving fully eager at runtime, silently
+  contradicting its own declaration.
+- A pre-existing race, shared with (not introduced or worsened by) this
+  milestone's design: each repository's own `init` block loads its
+  persisted DataStore value asynchronously, and `applyRemote()` can in
+  principle be called before that load finishes, letting the slower of
+  the two "win" the `_items`/`_preferences` write. This already existed
+  for Settings since Milestone 6; Milestone 7 extends the same pattern to
+  My List rather than fixing it, since a real fix (e.g. awaiting the
+  initial load before any pull is allowed to apply) is a change to the
+  shared repository-initialization shape all synced domains use, not
+  something scoped to watchlist specifically — a local DataStore read is
+  reliably much faster than the network round trip(s) `pullFromServer()`
+  needs first (`ensureFreshSession()`, then the actual GET), so this is
+  believed low-probability in practice, but it is not proven eliminated.
+  Flagged here rather than silently carried forward; worth fixing once,
+  for every synced domain at once, alongside Milestone 10's
+  `SyncManager`.
+
+**Issues fixed:** the `myListRepository`/`watchlistSyncRepository`
+laziness contradiction — `myListRepository` is now genuinely eager (its
+declaration matches its actual runtime behavior), with `AppContainer`'s
+doc comment updated to explain why, mirroring exactly how Milestone 6
+documents the same tradeoff for `homeRowPreferencesRepository`/
+`playerPreferencesRepository`.
+
+**Deliberately not built yet:** bulk-pushing whatever is already sitting
+in `MyListRepository` the first time this ships to an existing install —
+until Milestone 11 ships, a pull always wins, so an existing local list
+gets replaced by the (empty, for a brand new account) cloud state on first
+sync, and only *future* toggles get pushed from that point on. This is the
+same "migrating pre-existing local-only data is Milestone 11's job, not
+this domain's sync layer's" boundary Milestone 0's plan and Milestone 6's
+changelog both already established — repeated here explicitly rather than
+left implicit, since unlike settings (where "empty" and "defaults" look
+similar), a My List that appears to have been wiped is a much more visible
+regression if a user hits it before Milestone 11 ships. The retry-queue/
+DataStore-load-ordering race noted above is the other explicitly deferred
+item.
+
+**Milestone 7 is complete.**

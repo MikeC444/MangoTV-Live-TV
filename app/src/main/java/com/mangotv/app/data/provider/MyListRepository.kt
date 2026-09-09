@@ -8,6 +8,7 @@ import androidx.datastore.preferences.core.stringPreferencesKey
 import androidx.datastore.preferences.preferencesDataStore
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
+import com.mangotv.app.util.Iso8601
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -42,8 +43,25 @@ data class SavedListItem(
     val year: Int?,
     val rating: Double?,
     val providerId: String,
-    val addedAtMillis: Long = System.currentTimeMillis()
+    val addedAtMillis: Long = System.currentTimeMillis(),
+    /**
+     * This item's own last-modified time, ISO-8601 UTC — the cloud sync
+     * (Milestone 7) analog of PlayerPreferences'/HomeRowPreferences'
+     * single account-wide updatedAt, kept per item here since watchlist
+     * sync is item-level, not a whole-list blob. Defaulted (not required)
+     * so a JSON blob persisted by a pre-Milestone-7 build still decodes —
+     * such an item is treated as modified "now" the first time it's read,
+     * which only matters once it's next toggled (this milestone doesn't
+     * bulk-push pre-existing local items; see WatchlistSyncRepository).
+     */
+    val updatedAt: String = Iso8601.nowString()
 )
+
+/** What WatchlistSyncRepository (Milestone 7) reacts to after a genuine local toggle — never fired from [MyListRepository.applyRemote]. */
+sealed interface WatchlistChange {
+    data class Added(val item: SavedListItem) : WatchlistChange
+    data class Removed(val providerId: String, val contentId: String, val contentType: ContentType, val updatedAt: String) : WatchlistChange
+}
 
 /**
  * Backs My List: the two existing "Add to Watchlist"/"Add to My List" stub
@@ -59,6 +77,9 @@ class MyListRepository(context: Context) {
     private val _items = MutableStateFlow<List<SavedListItem>>(emptyList())
     val items: StateFlow<List<SavedListItem>> = _items.asStateFlow()
 
+    /** Fired after a genuine local add/remove finishes persisting — WatchlistSyncRepository (Milestone 7) hooks this to push just the one changed item. Never invoked from [applyRemote]. */
+    var onLocalChange: ((WatchlistChange) -> Unit)? = null
+
     init {
         scope.launch { _items.value = readPersisted() }
     }
@@ -67,10 +88,20 @@ class MyListRepository(context: Context) {
     suspend fun toggle(content: Content) = withContext(Dispatchers.IO) {
         val providerId = content.providerId ?: return@withContext
         val current = _items.value
-        val updated = if (current.any { it.id == content.id }) {
-            current.filterNot { it.id == content.id }
+        if (current.any { it.id == content.id }) {
+            val updated = current.filterNot { it.id == content.id }
+            _items.value = updated
+            persist(updated)
+            onLocalChange?.invoke(
+                WatchlistChange.Removed(
+                    providerId = providerId,
+                    contentId = content.id,
+                    contentType = content.type,
+                    updatedAt = Iso8601.nowString()
+                )
+            )
         } else {
-            current + SavedListItem(
+            val item = SavedListItem(
                 id = content.id,
                 type = content.type,
                 title = content.title,
@@ -78,11 +109,20 @@ class MyListRepository(context: Context) {
                 backdropUrl = content.backdropUrl,
                 year = content.year,
                 rating = content.rating,
-                providerId = providerId
+                providerId = providerId,
+                updatedAt = Iso8601.nowString()
             )
+            val updated = current + item
+            _items.value = updated
+            persist(updated)
+            onLocalChange?.invoke(WatchlistChange.Added(item))
         }
-        _items.value = updated
-        persist(updated)
+    }
+
+    /** Applies the server's current active-item list — persists locally without notifying [onLocalChange]; see its own kdoc for why. Replaces the local list wholesale (pull always trusts the server as source of truth), which is safe here because push is item-level, not the other way around. */
+    suspend fun applyRemote(items: List<SavedListItem>) = withContext(Dispatchers.IO) {
+        _items.value = items
+        persist(items)
     }
 
     private suspend fun readPersisted(): List<SavedListItem> {

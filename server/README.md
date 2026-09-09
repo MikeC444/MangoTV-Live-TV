@@ -6,8 +6,10 @@ see `docs/milestone-0-audit-and-plan.md` at the repo root for the full
 architecture writeup.
 
 Milestone 1: database schema + migrations. Milestone 2: the Express API
-foundation. Milestone 3: real accounts. Milestone 4 (current): QR
-sign-in for the Fire TV.
+foundation. Milestone 3: real accounts. Milestone 4: QR sign-in for the
+Fire TV. Milestone 5: the Fire TV app itself wired to all of the above.
+Milestone 6: Home Rows + Player settings cloud sync. Milestone 7
+(current): My List/watchlist cloud sync.
 
 Endpoints so far:
 
@@ -34,6 +36,20 @@ Endpoints so far:
 - `GET /activate` — the activation page itself (`public/activate.html` +
   `activate.js`), served by this same backend so its calls to
   `/auth/qr/*` are same-origin and need no CORS configuration.
+- `GET /user/settings` / `PUT /user/settings` (authenticated) — this
+  account's Home Rows order/hidden state + Player autoplay/skip-intro
+  preferences, one row per account, last-write-wins on the client's own
+  `updatedAt`.
+- `GET /user/watchlist` (authenticated) — this account's active My List
+  items.
+- `POST /user/watchlist` (authenticated) — add (or un-remove/refresh) one
+  item, keyed on `(providerId, contentId, contentType)`, last-write-wins
+  on `updatedAt`.
+- `DELETE /user/watchlist?providerId=&contentId=&contentType=&updatedAt=`
+  (authenticated) — remove one item, same last-write-wins rule. `204` if
+  the item was never synced from any device; otherwise `200` with the
+  item's current state (which may mean the removal lost a race to a
+  newer write elsewhere, reflected via a `null` `deletedAt`).
 
 ## Setup
 
