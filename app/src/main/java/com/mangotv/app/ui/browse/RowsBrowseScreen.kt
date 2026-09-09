@@ -49,6 +49,7 @@ import com.mangotv.app.navigation.routeForNavLabel
 import com.mangotv.app.ui.components.ContentCard
 import com.mangotv.app.ui.components.ContentRow
 import com.mangotv.app.ui.components.FullScreenErrorState
+import com.mangotv.app.ui.components.GridLoadingSkeleton
 import com.mangotv.app.ui.components.RowsLoadingSkeleton
 import com.mangotv.app.ui.detail.PendingDetailCache
 import com.mangotv.app.ui.home.MangoNavItems
@@ -116,7 +117,11 @@ fun RowsBrowseContent(
             // (the common case navigating to a tab on cold boot, before
             // its own data has loaded).
             is RowsBrowseUiState.Loading -> RowsBrowseTransientState(navLabel, onNavigate) {
-                RowsLoadingSkeleton()
+                if (layout == RowsBrowseLayout.GRID) {
+                    GridLoadingSkeleton(screenTitle = screenTitle)
+                } else {
+                    RowsLoadingSkeleton()
+                }
             }
             is RowsBrowseUiState.Error -> RowsBrowseTransientState(navLabel, onNavigate) {
                 FullScreenErrorState(message = uiState.message, onRetry = onRetry)
@@ -303,8 +308,9 @@ private fun RowsBrowseLoadedContent(
 // on-screen poster size (posterScale) is computed at runtime from measured
 // layout constraints (see RowsBrowseGridContent) so this many columns
 // reliably fit regardless of the device's actual dp width, rather than
-// assuming a fixed screen size.
-private const val GRID_COLUMNS = 7
+// assuming a fixed screen size. Not private -- GridLoadingSkeleton reuses
+// it so the loading skeleton's column count matches the real grid exactly.
+const val GRID_COLUMNS = 7
 
 /**
  * Vertical, multi-column poster grid -- Movies, TV Shows, and Genre Results
