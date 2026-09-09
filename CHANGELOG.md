@@ -108,11 +108,29 @@ CHANGELOG.
   row — does).
 - Bumped `vitest` to `^5.0.0`; `npm audit` now reports 0 vulnerabilities.
 
-**Outstanding before this milestone is fully done:** this sandbox can
-reach only HTTPS, not raw Postgres TCP, so it cannot connect to a remote
-Neon instance directly (see docs/milestone-0-audit-and-plan.md §5).
-Everything above was proven against a real, freshly-created local
-PostgreSQL 16 database (Neon-wire-compatible), which exercises identical
-SQL/DDL — but the literal "verify against a fresh **Neon** database"
-criterion still needs a real `DATABASE_URL` run once the user finishes
-Neon project setup (walkthrough provided separately).
+**Neon connectivity — diagnosed and resolved via CI:** the user created a
+Neon project and shared its pooled connection string. Confirmed
+empirically (DNS resolves fine, TCP to the same IP on port 443 connects
+instantly, TCP to port 5432 times out) that this development sandbox's
+network policy blocks outbound non-443 TCP entirely — not a Neon,
+credentials, or IPv6 issue. Rather than build a second, HTTP-driver-based
+code path just to route around that restriction from inside the sandbox
+(Neon's WebSocket driver is also blocked here — proxied WebSocket upgrades
+aren't supported — and its plain HTTP driver doesn't support the
+interactive multi-statement transactions `migrate`/`verify-schema` rely
+on), added `.github/workflows/server-ci.yml`: it runs the exact same
+`npm run migrate` / `npm run verify-schema` from GitHub's runners (normal,
+unrestricted network access) against `secrets.DATABASE_URL`, gated so it
+skips cleanly instead of failing red if that secret isn't configured yet.
+This is a durable addition, not a one-off — it re-verifies every future
+migration in Milestones 6-11 automatically on every push touching
+`server/**`, using production's real code path rather than a sandbox
+workaround.
+
+Local `.env` holding the live credential was deleted after confirming it
+couldn't be used from here — nothing sandbox-side retains it.
+
+**Outstanding:** the user needs to add `DATABASE_URL` as a GitHub Actions
+repository secret (Settings > Secrets and variables > Actions); once
+that's done this workflow gives the real "migrations work against a fresh
+Neon database" proof this milestone's completion criteria call for.

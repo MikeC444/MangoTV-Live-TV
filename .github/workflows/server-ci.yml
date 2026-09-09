@@ -1,0 +1,71 @@
+name: Server CI
+
+on:
+  push:
+    branches:
+      - "claude/**"
+      - "Account-Test"
+      - "main"
+    paths:
+      - "server/**"
+      - ".github/workflows/server-ci.yml"
+  workflow_dispatch: {}
+
+jobs:
+  db:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      # DATABASE_URL is a repository secret (Settings > Secrets and
+      # variables > Actions), never a value in this file — GitHub masks it
+      # in logs once it's referenced via `env:`, which this check relies on
+      # instead of interpolating `${{ secrets.* }}` directly into a script.
+      - name: Check DATABASE_URL secret is configured
+        id: check_db
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+        run: |
+          if [ -n "$DATABASE_URL" ]; then
+            echo "configured=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "configured=false" >> "$GITHUB_OUTPUT"
+            echo "::warning::DATABASE_URL repository secret is not set — skipping live-database migration/verification steps. Add it under Settings > Secrets and variables > Actions."
+          fi
+
+      # Runs the exact same migration runner/verification script the
+      # production backend ships with — no CI-only substitute — against
+      # the real Neon database, since this repo's own sandbox development
+      # environment cannot reach Postgres's raw TCP port directly (only
+      # HTTPS egress; see docs/milestone-0-audit-and-plan.md, "sandbox
+      # environment constraints"). Safe to run on every push: the
+      # migration runner is idempotent and verify-schema always rolls its
+      # own transaction back, so this never mutates real data.
+      - name: Run migrations against Neon
+        if: steps.check_db.outputs.configured == 'true'
+        run: npm run migrate
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+      - name: Verify schema against Neon
+        if: steps.check_db.outputs.configured == 'true'
+        run: npm run verify-schema
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
