@@ -62,13 +62,12 @@ private data class CachedHome(
  * boot instead of a blank skeleton every single launch -- HomeViewModel
  * still always kicks off a real fetch afterward and overwrites this the
  * moment it completes, so this is purely a "something now" stand-in for
- * "the real thing in a moment", not a substitute for it. Unlike
- * LiveTvRepository's cache (which can be used INSTEAD of a live fetch
- * while still fresh), Home's catalog data changes too often for that to
- * make sense, so this always refreshes live regardless of the cache's
- * age -- [MAX_AGE_MILLIS] only guards against showing something
- * absurdly stale (e.g. the app not opened in weeks) for the brief moment
- * before that live refresh lands.
+ * "the real thing in a moment", not a substitute for it. Home's catalog
+ * data changes too often to serve this cache INSTEAD of a live fetch, so
+ * this always refreshes live regardless of the cache's age --
+ * [MAX_AGE_MILLIS] only guards against showing something absurdly stale
+ * (e.g. the app not opened in weeks) for the brief moment before that
+ * live refresh lands.
  */
 class HomeCacheRepository(context: Context) {
 

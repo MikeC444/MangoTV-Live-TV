@@ -1,38 +1,8 @@
-import java.util.Properties
-
 plugins {
     alias(libs.plugins.android.application)
     alias(libs.plugins.kotlin.android)
     alias(libs.plugins.kotlin.compose)
     alias(libs.plugins.kotlin.serialization)
-}
-
-// Live TV's configurable endpoints (see LiveTvConfig). None of these are
-// secrets -- they're plain URLs -- but they're still kept out of version
-// control via local.properties (already gitignored) so each deployment can
-// point at its own backend/checkout/playlist without editing tracked files.
-// Real payment credentials/API keys belong on the backend only and must
-// never be added here.
-val localProperties = Properties().apply {
-    val localPropertiesFile = rootProject.file("local.properties")
-    if (localPropertiesFile.exists()) {
-        localPropertiesFile.inputStream().use { load(it) }
-    }
-}
-
-fun liveTvConfigValue(key: String, default: String): String {
-    val raw = localProperties.getProperty(key)
-        ?: (project.findProperty(key) as String?)
-        ?: System.getenv(key)
-        ?: default
-    return raw.replace("\\", "\\\\").replace("\"", "\\\"")
-}
-
-fun liveTvConfigBoolean(key: String, default: Boolean): Boolean {
-    val raw = localProperties.getProperty(key)
-        ?: (project.findProperty(key) as String?)
-        ?: System.getenv(key)
-    return raw?.toBooleanStrictOrNull() ?: default
 }
 
 android {
@@ -45,21 +15,6 @@ android {
         targetSdk = 34
         versionCode = 1
         versionName = "0.1.0"
-
-        // See docs/LIVE_TV_BACKEND.md for what these mean and README.md for
-        // how to override them via local.properties.
-        buildConfigField("String", "IPTV_PLAYLIST_URL", "\"${liveTvConfigValue("IPTV_PLAYLIST_URL", "https://iptv-org.github.io/iptv/index.m3u")}\"")
-        buildConfigField("String", "LIVE_TV_ALLOWED_GROUPS", "\"${liveTvConfigValue("LIVE_TV_ALLOWED_GROUPS", "")}\"")
-        buildConfigField("String", "EPG_URL", "\"${liveTvConfigValue("EPG_URL", "")}\"")
-        buildConfigField("String", "API_BASE_URL", "\"${liveTvConfigValue("API_BASE_URL", "")}\"")
-        buildConfigField("String", "PREMIUM_CHECKOUT_URL", "\"${liveTvConfigValue("PREMIUM_CHECKOUT_URL", "")}\"")
-
-        // TESTING ONLY -- defaults to true so Live TV's channel browsing/
-        // playback can be built and tested before a real payment backend
-        // exists. Set LIVE_TV_SKIP_PAYWALL=false in local.properties once
-        // ready to test/ship the real entitlement gate -- see LiveTvConfig
-        // and docs/LIVE_TV_BACKEND.md.
-        buildConfigField("boolean", "LIVE_TV_SKIP_PAYWALL", liveTvConfigBoolean("LIVE_TV_SKIP_PAYWALL", true).toString())
     }
 
     buildTypes {
@@ -80,7 +35,6 @@ android {
 
     buildFeatures {
         compose = true
-        buildConfig = true
     }
 
     packaging {

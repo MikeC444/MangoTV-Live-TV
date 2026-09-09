@@ -2,9 +2,6 @@ package com.mangotv.app
 
 import android.content.Context
 import com.mangotv.app.data.addon.AddonRepository
-import com.mangotv.app.data.entitlement.EntitlementRepository
-import com.mangotv.app.data.livetv.EpgRepository
-import com.mangotv.app.data.livetv.LiveTvRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeCacheRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
@@ -40,12 +37,6 @@ import com.mangotv.app.data.provider.MyListRepository
  * homeCacheRepository is the same story again — only HomeViewModel ever
  * touches it (to paint instantly from the last successful fetch on cold
  * boot instead of a blank skeleton every launch; see its own doc).
- *
- * entitlementRepository/liveTvRepository/epgRepository follow the same lazy
- * pattern once more — only the Live TV screen and its player ever touch
- * them, and entitlementRepository in particular starts a background polling
- * loop once entered, so it shouldn't exist at all until Live TV is opened
- * for the first time.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
@@ -53,7 +44,4 @@ class AppContainer(context: Context) {
     val homeRowPreferencesRepository: HomeRowPreferencesRepository by lazy { HomeRowPreferencesRepository(context) }
     val myListRepository: MyListRepository by lazy { MyListRepository(context) }
     val homeCacheRepository: HomeCacheRepository by lazy { HomeCacheRepository(context) }
-    val entitlementRepository: EntitlementRepository by lazy { EntitlementRepository(context) }
-    val liveTvRepository: LiveTvRepository by lazy { LiveTvRepository(context) }
-    val epgRepository: EpgRepository by lazy { EpgRepository(context) }
 }

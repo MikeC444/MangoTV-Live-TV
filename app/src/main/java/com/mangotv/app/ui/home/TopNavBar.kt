@@ -44,7 +44,7 @@ import com.mangotv.app.ui.theme.MangoMotion
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
-val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Live TV", "Genres", "Search", "My List", "Settings")
+val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Genres", "Search", "My List", "Settings")
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -162,9 +162,9 @@ fun TopNavBar(
                 contentPadding = PaddingValues(horizontal = 8.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 // Tightened from 8dp -- at the old spacing plus the old
-                // (larger) label size, 8 items no longer fit one screen
-                // width once Live TV was added, so this row started
-                // scrolling. See NavItem's smaller labelMedium text below;
+                // (larger) label size, this row started scrolling once
+                // enough nav items were added to no longer fit one screen
+                // width. See NavItem's smaller labelMedium text below;
                 // together these reclaim enough width that it shouldn't
                 // need to anymore.
                 horizontalArrangement = Arrangement.spacedBy(4.dp)
@@ -234,8 +234,8 @@ private fun NavItem(
             fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
             // labelMedium (13sp) rather than the original titleMedium
             // (16sp) -- see the tightened item spacing above, both
-            // together are needed to fit all 8 items (Live TV pushed
-            // this over) without the row falling back to scrolling.
+            // together are needed to fit all the nav items without the
+            // row falling back to scrolling.
             style = MaterialTheme.typography.labelMedium,
             modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
         )
