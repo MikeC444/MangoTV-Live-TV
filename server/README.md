@@ -5,8 +5,10 @@ app never receives database credentials or talks to Postgres directly —
 see `docs/milestone-0-audit-and-plan.md` at the repo root for the full
 architecture writeup.
 
-Milestone 1 scope: database schema + migrations only. The HTTP API itself
-starts in Milestone 2.
+Milestone 1: database schema + migrations. Milestone 2 (current): the
+Express API foundation — server config, error handling, request
+validation, auth/rate-limit middleware, and the first two endpoints
+(`GET /health`, `GET /user/me`).
 
 ## Setup
 
@@ -48,3 +50,33 @@ works identically (Neon is standard wire-compatible Postgres) — just point
 ```
 DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<database>
 ```
+
+## Running the API locally
+
+```
+npm run dev
+```
+
+Starts the server on `PORT` (default 3000) with auto-restart on file
+changes. `npm run build && npm start` runs the compiled, non-watching
+version the same way a deployment would.
+
+## Running the automated API tests
+
+Tests need their own disposable database — **never** point them at the
+same database as `DATABASE_URL`, since the suite runs `TRUNCATE` between
+every test:
+
+```
+cp .env.test.example .env.test
+# edit .env.test: TEST_DATABASE_URL=postgresql://<user>:<password>@localhost:5432/<a throwaway database>
+npm test
+```
+
+`npm test` always migrates that test database first (the `pretest`
+script), then runs the suite against it. `TEST_DATABASE_URL` is
+completely separate from `.env`'s `DATABASE_URL` — the test suite never
+reads `DATABASE_URL` at all, so a real database configured there is never
+at risk just because it was sitting in `.env` when tests ran. CI runs the
+same suite against a throwaway `postgres:16` service container instead of
+a local database, and needs no secret to do it.

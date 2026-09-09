@@ -69,3 +69,48 @@ jobs:
         run: npm run verify-schema
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
+
+  # Separate job, separate database on purpose: the automated API test
+  # suite (tests/*.test.ts) TRUNCATEs its tables between every test, so it
+  # runs against a throwaway Postgres service container that lives only
+  # for this job, never against the real Neon project the `db` job above
+  # verifies. That also means this job needs no secret at all — full test
+  # coverage runs the same way for every push or PR, with no dependency on
+  # repository-secret access.
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: server
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: mangotv_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      TEST_DATABASE_URL: postgresql://postgres:postgres@localhost:5432/mangotv_test
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: server/package-lock.json
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Run automated API tests
+        run: npm test
