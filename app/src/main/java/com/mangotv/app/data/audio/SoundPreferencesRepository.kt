@@ -23,7 +23,7 @@ private val Context.soundPreferencesDataStore: DataStore<Preferences> by prefere
 
 @Serializable
 data class SoundPreferences(
-    val selectedBootSound: BootSound = BootSound.CLASSIC
+    val selectedBootSound: BootSound = BootSound.BOOT_SOUND_1
 )
 
 /** Same DataStore+JSON pattern as PlayerPreferencesRepository, applied to the boot-sound choice. */
