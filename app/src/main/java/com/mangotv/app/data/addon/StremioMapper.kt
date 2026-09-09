@@ -5,9 +5,9 @@ import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.model.Episode
 import com.mangotv.app.data.model.Genre
-import com.mangotv.app.data.model.QualityTier
 import com.mangotv.app.data.model.ResolutionTier
 import com.mangotv.app.data.model.Season
+import com.mangotv.app.data.model.SourceHealth
 import com.mangotv.app.data.model.Stream
 
 fun StremioMetaPreview.toContent(providerId: String): Content {
@@ -105,8 +105,21 @@ private val SOURCE_TAG = Regex("BluRay|BDRip|BRRip|WEB-?DL|WEBRip|HDTV|DVDRip|RE
 private val CODEC_HEVC = Regex("x265|HEVC|H\\.?265", RegexOption.IGNORE_CASE)
 private val CODEC_H264 = Regex("x264|H\\.?264|AVC", RegexOption.IGNORE_CASE)
 private val CODEC_AV1 = Regex("AV1", RegexOption.IGNORE_CASE)
+// Ordered so a more specific tag (e.g. "DDP7.1") wins over a bare channel
+// count ("7.1") that's a substring of it -- Regex.find tries alternatives at
+// the earliest position in the string first, and DDP7.1's "D" comes before
+// where a standalone "7.1" alternative would otherwise start matching, so
+// this ordering only matters for readability, not correctness. Bare channel
+// counts (5.1/7.1/2.0) are word-bounded since they're common enough
+// elsewhere (version numbers, aspect ratios) that an unbounded match could
+// false-positive.
 private val AUDIO_TAG = Regex(
-    "DDP?5\\.1(\\.Atmos)?|DD5\\.1|DTS-?HD(\\.MA)?|DTS|TrueHD(\\.Atmos)?|AAC(2\\.0|5\\.1)?|Atmos|EAC3|AC3",
+    "Dual[- ]?Audio|Multi[- ]?Audio|" +
+        "DDP?7\\.1(\\.Atmos)?|DD7\\.1|" +
+        "DDP?5\\.1(\\.Atmos)?|DD5\\.1|" +
+        "DTS-?HD(\\.MA)?|DTS:?X|DTS|TrueHD(\\.Atmos)?|Atmos|EAC3|AC3|" +
+        "AAC(2\\.0|5\\.1|7\\.1)?|" +
+        "\\b7\\.1\\b|\\b5\\.1\\b|\\b2\\.0\\b",
     RegexOption.IGNORE_CASE
 )
 private val SIZE_PATTERN = Regex("(\\d+(?:\\.\\d+)?)\\s?(GB|MB)", RegexOption.IGNORE_CASE)
@@ -150,12 +163,12 @@ fun StremioStream.toStream(providerId: String, providerLabel: String): Stream {
     val seeders = (SEEDERS_EMOJI.find(haystack) ?: SEEDERS_WORD.find(haystack))
         ?.groupValues?.get(1)?.toIntOrNull()
     val seedersLabel = seeders?.let { formatSeederCount(it) }
-    val qualityTier = seeders?.let {
+    val sourceHealth = seeders?.let {
         when {
-            it >= 500 -> QualityTier.VERY_HIGH
-            it >= 100 -> QualityTier.HIGH
-            it >= 20 -> QualityTier.GOOD
-            else -> QualityTier.LOW
+            it >= 500 -> SourceHealth.VERY_HIGH
+            it >= 100 -> SourceHealth.HIGH
+            it >= 20 -> SourceHealth.GOOD
+            else -> SourceHealth.LOW
         }
     }
 
@@ -183,7 +196,7 @@ fun StremioStream.toStream(providerId: String, providerLabel: String): Stream {
         sizeBytes = sizeBytes,
         seeders = seeders,
         seedersLabel = seedersLabel,
-        qualityTier = qualityTier,
+        sourceHealth = sourceHealth,
         url = url,
         infoHash = infoHash,
         ytId = ytId

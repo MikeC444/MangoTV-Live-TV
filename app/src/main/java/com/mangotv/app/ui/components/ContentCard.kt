@@ -52,7 +52,12 @@ fun ContentCard(
     // layout need) — an additional multiplier a caller can apply on top,
     // e.g. Home shrinking its poster rows. Defaults to 1f so every other
     // existing caller is unaffected.
-    posterScale: Float = 1f
+    posterScale: Float = 1f,
+    // Reports this specific card's own focus state, distinct from a row's
+    // aggregate "is any card in me focused" (see ContentRow.onFocusChanged)
+    // -- e.g. My List uses this to remember exactly which title the user
+    // was last hovering so returning from the nav bar re-lands on it.
+    onFocusChanged: (Boolean) -> Unit = {}
 ) {
     val isContinueWatching = style == RowStyle.CONTINUE_WATCHING
     val scale = (if (compact) 2f / 3f else 1f) * posterScale
@@ -73,7 +78,7 @@ fun ContentCard(
             shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
             backgroundColor = MangoSurface,
             focusRequester = focusRequester,
-            onFocusChanged = { focused = it },
+            onFocusChanged = { isFocused -> focused = isFocused; onFocusChanged(isFocused) },
             // The enclosing LazyRow already has its own built-in
             // scroll-into-view behavior that runs as focus moves from card
             // to card. Leaving this surface's own explicit bringIntoView

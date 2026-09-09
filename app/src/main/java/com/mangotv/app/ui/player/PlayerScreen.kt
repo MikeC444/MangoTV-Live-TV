@@ -33,6 +33,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -127,6 +128,22 @@ private fun PlaybackContent(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val exoPlayer = remember { buildExoPlayer(context) }
+
+    // Without this, Fire TV's system screensaver/idle timeout kicks in
+    // during playback the same as it would over any other idle screen --
+    // it has no way to know a video is actively playing here (this player
+    // is a plain Compose UI over ExoPlayer, not something driving a system
+    // media session it could key off of). Scoped to exactly this
+    // composable's lifetime (mounted for as long as there's real playback
+    // content on screen, cleared on dispose below whenever PlayerScreen
+    // leaves composition) rather than to play/pause state -- a paused
+    // player (e.g. while a settings panel is open) shouldn't let the
+    // screensaver interrupt the session either.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
 
     DisposableEffect(exoPlayer) {
         val listener = PlayerListenerBridge(onPhaseChanged, onTracksChanged)

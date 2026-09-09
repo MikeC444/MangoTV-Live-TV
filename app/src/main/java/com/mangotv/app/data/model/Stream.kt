@@ -10,11 +10,18 @@ package com.mangotv.app.data.model
 
 enum class ResolutionTier { UHD_4K, FHD_1080P, HD_720P, OTHER }
 
-enum class QualityTier(val label: String) {
-    VERY_HIGH("Very High Quality"),
-    HIGH("High Quality"),
-    GOOD("Good Quality"),
-    LOW("Low Quality")
+// Deliberately not named "quality" anything -- that word is already owned by
+// ResolutionTier/qualityBadge (4K/1080p/etc, the actual video quality). This
+// is purely a seeder-count health reading of a torrent source: a 4K remux
+// with 3 seeders is still a 4K remux, just a poorly-seeded one, so labeling
+// it "Low Quality" right next to a "4K" badge read as a contradiction (see
+// SourceRow, which shows this beside the resolution badge, not in place of
+// it).
+enum class SourceHealth(val label: String) {
+    VERY_HIGH("Excellent Health"),
+    HIGH("Good Health"),
+    GOOD("Fair Health"),
+    LOW("Poor Health")
 }
 
 data class Stream(
@@ -31,7 +38,7 @@ data class Stream(
     val sizeBytes: Long? = null,
     val seeders: Int? = null,
     val seedersLabel: String? = null,
-    val qualityTier: QualityTier? = null,
+    val sourceHealth: SourceHealth? = null,
     val url: String? = null,
     val infoHash: String? = null,
     val ytId: String? = null
