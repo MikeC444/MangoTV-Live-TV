@@ -11,6 +11,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -32,11 +33,13 @@ import com.mangotv.app.ui.theme.TextSecondary
 fun SettingsScreen(
     onNavigate: (String) -> Unit,
     onOpenAddons: () -> Unit,
-    onOpenHomeRows: () -> Unit
+    onOpenHomeRows: () -> Unit,
+    onOpenSounds: () -> Unit
 ) {
     val navFocusRequester = remember { FocusRequester() }
     val addonsFocusRequester = remember { FocusRequester() }
     val homeRowsFocusRequester = remember { FocusRequester() }
+    val soundsFocusRequester = remember { FocusRequester() }
 
     SettingsScaffold(
         title = "Settings",
@@ -59,6 +62,14 @@ fun SettingsScreen(
             subtitle = "Choose which rows show up on Home",
             onClick = onOpenHomeRows,
             focusRequester = homeRowsFocusRequester
+        )
+        Spacer(Modifier.height(14.dp))
+        SettingsCategoryRow(
+            icon = Icons.Filled.MusicNote,
+            title = "Sounds",
+            subtitle = "Choose your app boot sound",
+            onClick = onOpenSounds,
+            focusRequester = soundsFocusRequester
         )
         Spacer(Modifier.height(32.dp))
         Text(

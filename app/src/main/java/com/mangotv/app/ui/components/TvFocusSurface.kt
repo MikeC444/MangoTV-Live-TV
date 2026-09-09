@@ -28,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.ui.theme.FocusBorder
 import com.mangotv.app.ui.theme.MangoMotion
 
@@ -86,6 +87,12 @@ fun TvFocusSurface(
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    // Every focusable card/button/nav item in the app is built on this one
+    // composable, so hooking the nav/click sounds in here is what makes
+    // them play everywhere automatically instead of every screen having to
+    // wire sound playback into its own click handlers. Null outside the
+    // real app tree (previews, tests) -- see LocalUiSoundPlayer's own doc.
+    val uiSoundPlayer = LocalUiSoundPlayer.current
 
     // scale/elevation are read via .value INSIDE the graphicsLayer block
     // below rather than through `by` at composable scope, so an animation
@@ -110,8 +117,11 @@ fun TvFocusSurface(
 
     LaunchedEffect(isFocused) {
         onFocusChanged(isFocused)
-        if (isFocused && bringIntoViewOnFocus) {
-            bringIntoViewRequester.bringIntoView()
+        if (isFocused) {
+            uiSoundPlayer?.playNav()
+            if (bringIntoViewOnFocus) {
+                bringIntoViewRequester.bringIntoView()
+            }
         }
     }
 
@@ -157,7 +167,10 @@ fun TvFocusSurface(
         .clickable(
             interactionSource = interactionSource,
             indication = null,
-            onClick = onClick
+            onClick = {
+                uiSoundPlayer?.playClick()
+                onClick()
+            }
         )
 
     Box(modifier = boxModifier, content = content)
