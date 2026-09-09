@@ -382,6 +382,24 @@ private fun PlaybackContent(
                 // (its own list navigation/selection) — don't fight it with
                 // the player's own global seek/reveal shortcuts.
                 if (activeOverlay != null) return@onPreviewKeyEvent false
+                // Any D-pad direction wakes the controls when they're
+                // hidden -- previously only DPAD_CENTER/Enter did, so
+                // pressing e.g. UP or LEFT while watching silently did
+                // nothing instead of bringing up the timeline/transport row
+                // the way every other TV player does. Deliberately just
+                // reveals on this first press rather than also performing
+                // that key's normal action (a seek, a focus move) --
+                // nothing below (seekEligible in particular) can act on it
+                // yet anyway, since every control is still off screen and
+                // unfocusable at this point.
+                if (!controlsVisible &&
+                    event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
+                        event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                ) {
+                    controlsVisible = true
+                    return@onPreviewKeyEvent true
+                }
                 // LEFT/RIGHT only seeks while the timeline itself has focus
                 // AND the user has actively selected it (DPAD_CENTER/Enter,
                 // toggled below) — deliberately not just "has focus", so
