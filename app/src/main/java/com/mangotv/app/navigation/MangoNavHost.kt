@@ -22,6 +22,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.navigation.NavGraph.Companion.findStartDestination
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
+import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangotv.app.MangoTvApplication
@@ -127,24 +128,29 @@ fun MangoNavHost() {
 
         val navController = rememberNavController()
 
-        // Global fallback for the hardware/remote BACK button: every screen
-        // without its own more specific BackHandler falls through to this
-        // one -- which today is every screen except the player (it needs to
-        // close menus/scrub-mode/controls before actually leaving, so it
-        // registers its own -- see PlayerScreen's own BackHandler). Composed
-        // once, here, so it's always the LEAST recently registered
-        // BackHandler in the stack; Compose gives priority to whichever was
-        // registered most recently, so PlayerScreen's still correctly wins
-        // over this one whenever it's the active screen. Falls back to
-        // finishing the Activity when there's nothing left to pop (i.e. at
-        // Home), matching what BACK would already do with no handler at all
-        // -- this replaces that default, so it has to reproduce it itself.
-        BackHandler {
-            container.uiSoundPlayer.playBack()
-            if (!navController.popBackStack()) {
-                (context as? Activity)?.finish()
-            }
-        }
+        // NavHost registers its OWN back-press handling internally (it's
+        // what makes plain BACK navigate the back stack, and what drives
+        // predictive-back) the moment it composes -- so a BackHandler
+        // composed BEFORE the NavHost call below would be registered
+        // EARLIER, making it the LESS recently registered callback, which
+        // Compose's dispatcher always loses to whatever was registered
+        // after it. That's exactly what silently broke this the first time:
+        // NavHost's own default handling won, popped the stack correctly,
+        // and this BackHandler's sound-playing body just never ran at all.
+        // Composing it below, AFTER NavHost, fixes that -- it becomes the
+        // most recently registered handler, so it wins by default.
+        //
+        // PlayerScreen registers its own more specific BackHandler (close
+        // menus/scrub-mode/controls before actually leaving) as part of
+        // NavHost's own content, i.e. AFTER NavHost's internal handler but
+        // BEFORE this one -- so simply being "most recent" would make this
+        // one wrongly outrank it too. enabled = !isPlayerActive is what
+        // keeps the ordering fix from also swallowing that: disabled here
+        // means Compose's dispatcher skips straight past this callback to
+        // the next-most-recently-registered enabled one, which is
+        // PlayerScreen's.
+        val currentBackStackEntry by navController.currentBackStackEntryAsState()
+        val isPlayerActive = currentBackStackEntry?.destination?.route == MangoRoutes.PLAYER_PATTERN
 
         fun navigateTo(route: String) {
             if (route in TAB_ROOT_ROUTES) {
@@ -284,6 +290,20 @@ fun MangoNavHost() {
                         }
                     )
                 }
+            }
+        }
+
+        // Global fallback for the hardware/remote BACK button -- see the
+        // doc above (by navController/isPlayerActive) for why this has to
+        // be composed here, after NavHost, rather than before it. Falls
+        // back to finishing the Activity when there's nothing left to pop
+        // (i.e. at Home), matching what BACK would already do with no
+        // handler at all -- this replaces that default, so it has to
+        // reproduce it itself.
+        BackHandler(enabled = !isPlayerActive) {
+            container.uiSoundPlayer.playBack()
+            if (!navController.popBackStack()) {
+                (context as? Activity)?.finish()
             }
         }
     }
