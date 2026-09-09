@@ -6,8 +6,10 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyListState
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -55,7 +57,15 @@ fun ContentRow(
     // TV Shows, Genre Results, Search, My List) can land the nav bar's DOWN
     // key directly on the first poster. Home/Detail don't pass this — they
     // land DOWN on a hero button instead, so it defaults to null there.
-    firstItemFocusRequester: FocusRequester? = null
+    firstItemFocusRequester: FocusRequester? = null,
+    // Exposed (rather than always remembered internally) so a caller using
+    // firstItemFocusRequester can reset this row's own horizontal scroll
+    // back to 0 before jumping focus back to it -- otherwise, if this row
+    // was previously scrolled right, its first card can be scrolled out of
+    // the LazyRow's composed window, and requestFocus() on
+    // firstItemFocusRequester throws (silently, since callers wrap it in
+    // runCatching), leaving focus stuck wherever it was.
+    listState: LazyListState = rememberLazyListState()
 ) {
     Column(
         modifier = modifier.onFocusChanged { onFocusChanged(it.hasFocus) }
@@ -75,6 +85,7 @@ fun ContentRow(
         // so this only ever affects this row's own horizontal LazyRow.
         CompositionLocalProvider(LocalBringIntoViewSpec provides MangoMotion.FastBringIntoViewSpec) {
             LazyRow(
+                state = listState,
                 modifier = if (onNavigateUpPastRow != null) {
                     Modifier.onPreviewKeyEvent { event ->
                         // Consume both KeyDown and KeyUp for this key — an

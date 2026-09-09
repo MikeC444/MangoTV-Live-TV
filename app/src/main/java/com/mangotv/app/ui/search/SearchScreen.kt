@@ -33,6 +33,7 @@ import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusProperties
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEventType
 import androidx.compose.ui.input.key.key
@@ -162,6 +163,7 @@ fun SearchScreen(
                         icon = Icons.Filled.Search,
                         onClick = { viewModel.search(query) },
                         style = MangoButtonStyle.FILLED,
+                        backgroundOverride = Color.White,
                         focusRequester = searchButtonFocusRequester,
                         focusDown = if (uiState is SearchUiState.Results) firstResultFocusRequester else null
                     )

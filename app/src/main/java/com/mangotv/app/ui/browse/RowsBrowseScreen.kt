@@ -170,6 +170,15 @@ private fun RowsBrowseLoadedContent(
     val coroutineScope = rememberCoroutineScope()
     val navFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
+    // The first row's own horizontal LazyRow state -- passed into ContentRow
+    // below (index == 0) so the nav bar's DOWN handler can reset this row's
+    // scroll back to its start before jumping focus to firstCardFocusRequester.
+    // Without this, scrolling that row all the way right, then returning to
+    // the nav bar and pressing DOWN again, tries to focus a first card that's
+    // no longer composed (scrolled out of the LazyRow's window) -- that
+    // requestFocus() throws, gets swallowed by runCatching, and focus is
+    // stuck on the nav bar with no way back into the list.
+    val firstRowListState = rememberLazyListState()
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
 
     // Mirrors HomeContent's heroRegionFocused, minus the intermediate hero
@@ -262,6 +271,7 @@ private fun RowsBrowseLoadedContent(
                             posterScale = 0.75f,
                             onFocusChanged = { hasFocus -> if (hasFocus) focusedRowIndex = index },
                             firstItemFocusRequester = if (index == 0) firstCardFocusRequester else null,
+                            listState = if (index == 0) firstRowListState else rememberLazyListState(),
                             onNavigateUpPastRow = if (index == 0) {
                                 {
                                     navRegionFocused = true
@@ -294,6 +304,10 @@ private fun RowsBrowseLoadedContent(
                     navRegionFocused = false
                     coroutineScope.launch {
                         listState.scrollToItem(0, 0)
+                        // Reset the first row's own horizontal scroll too --
+                        // see firstRowListState's doc above for why this is
+                        // needed before focusing its first card.
+                        firstRowListState.scrollToItem(0)
                         runCatching { firstCardFocusRequester.requestFocus() }
                     }
                 }
