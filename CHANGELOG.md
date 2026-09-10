@@ -2318,10 +2318,33 @@ specific workaround. Verified by reproducing the exact failure condition
 locally (`rm -rf node_modules && NODE_ENV=production npm ci && NODE_ENV=production npm run build`,
 which failed identically to the Render log before the fix) and
 confirming it now succeeds, then re-running the full 131-test suite
-after the clean reinstall to confirm nothing else regressed. This is a
-genuine, if narrow, illustration of exactly what Milestone 16's hardware/
-real-deployment pass is for: proving the system against reality, not
-just against its own test suite.
+after the clean reinstall to confirm nothing else regressed.
+
+**A second, different failure surfaced immediately after** — the build
+itself now succeeded, but `npm start` on Render failed with `Cannot find
+module '.../dist/index.js'`. Root cause: `tsconfig.json`'s `rootDir` is
+`"."` (the `server/` directory itself), not `"src"` — deliberately, so
+one tsconfig can typecheck both `src/` and the sibling `scripts/`
+directory — and `tsc` preserves that root when emitting, so the real
+compiled entrypoint lands at `dist/src/index.js`, not `dist/index.js`.
+`package.json`'s own `"start": "node dist/index.js"` never matched that.
+**This is also on this session**, not just a pre-existing gap passively
+inherited: the very verification just described (`npm run build`
+succeeding) was incomplete — it checked that the build produced *a*
+`dist/` directory, not that `npm start` could actually run from it, so
+this second bug was sitting right next to the first one and the first
+round of verification didn't catch it. Fixed by pointing `start` at
+`node dist/src/index.js` (the actual emitted path, confirmed with `find
+dist -name '*.js'` rather than assumed), then verified properly this
+time: a full clean rebuild followed by actually running `npm start`
+under `NODE_ENV=production` and confirming `curl /health` returns `200`
+from the real running process — not just that the build step exits 0.
+
+Together, both are a genuine, if narrow, illustration of exactly what
+Milestone 16's hardware/real-deployment pass is for: proving the system
+against reality, not just against its own test suite — and a reminder
+that "the build succeeded" and "the app actually starts and serves
+traffic" are two different claims that both need checking.
 
 **Milestone 16 is complete for the code-verifiable half**, and the
 backend is now confirmed to actually build on a real deployment target.
