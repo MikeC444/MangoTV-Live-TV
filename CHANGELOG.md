@@ -2289,20 +2289,46 @@ authorization guarantee.
   **40/40**, twice.
 - Android: no changes this milestone.
 
-**Issues discovered:** none in the system under test — every one of the
-40 checks passed on the first run. The value of building this was
-confirmatory, not corrective: Milestones 6-15 already worked correctly
-end-to-end, this is what actually proves that claim, in sequence, against
-a live process, rather than each milestone's own isolated test slice
-standing in for it.
+**Issues discovered (at the time this milestone was written):** none in
+the system under test — every one of the 40 checks passed on the first
+run. The value of building this was confirmatory, not corrective:
+Milestones 6-15 already worked correctly end-to-end, this is what
+actually proves that claim, in sequence, against a live process, rather
+than each milestone's own isolated test slice standing in for it.
 
-**Issues fixed:** N/A — see above.
+**Issues fixed (at the time):** N/A — see above.
 
-**Milestone 16 is complete for the code-verifiable half.** The hardware
-pass in `docs/milestone-16-e2e-test-plan.md` is ready to run on real
-Fire TV devices whenever they're available; its result should be appended
-to this entry when it is, the same way every other milestone records its
-test results.
+**Update — real deployment attempt (post-Milestone-17):** the user's own
+first real deploy to Render caught something this project's own
+end-to-end script and CI genuinely could not have: `npm run build`
+failed with a wall of TypeScript errors (`@types/express`/`@types/node`/
+`@types/pg` all "cannot find" errors) because Render sets
+`NODE_ENV=production` *during the build step*, and `npm ci` skips
+`devDependencies` — which is exactly where TypeScript itself and every
+`@types/*` package live — whenever `NODE_ENV=production` is set in its
+environment. GitHub Actions never sets `NODE_ENV=production` during
+`npm ci`, and this sandbox's own local builds never had a reason to
+either, so this gap was invisible to every automated check that existed
+before a human actually tried deploying to a real host.
+
+**Fixed:** added `server/.npmrc` (`production=false`), which forces
+`devDependencies` to install regardless of `NODE_ENV` — portable to any
+host (Render, Railway, Heroku, ...) rather than a Render-dashboard-
+specific workaround. Verified by reproducing the exact failure condition
+locally (`rm -rf node_modules && NODE_ENV=production npm ci && NODE_ENV=production npm run build`,
+which failed identically to the Render log before the fix) and
+confirming it now succeeds, then re-running the full 131-test suite
+after the clean reinstall to confirm nothing else regressed. This is a
+genuine, if narrow, illustration of exactly what Milestone 16's hardware/
+real-deployment pass is for: proving the system against reality, not
+just against its own test suite.
+
+**Milestone 16 is complete for the code-verifiable half**, and the
+backend is now confirmed to actually build on a real deployment target.
+The remaining hardware pass in `docs/milestone-16-e2e-test-plan.md` is
+ready to run on real Fire TV devices whenever they're available; its
+result should be appended to this entry when it is, the same way every
+other milestone records its test results.
 
 ## Milestone 17 — Final Documentation
 
