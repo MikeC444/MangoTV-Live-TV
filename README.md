@@ -10,9 +10,10 @@ Full-featured: Home, Movies/TV Shows/Genres browsing, Search, a Detail page, pla
 
 ```
 app/src/main/java/com/mangotv/app/
-  data/model/        Content, Genre, Episode, Season, WatchProgress — the shared metadata model
-  data/provider/      CatalogProvider interface + ProviderRegistry (Stremio-style addon architecture)
-  data/addon/         Stremio addon client/mapper + local-network addon pairing
+  data/model/          Content, Genre, Episode, Season, WatchProgress — the shared metadata model
+  data/provider/       CatalogProvider interface + ProviderRegistry (Stremio-style addon architecture)
+  data/addon/          Stremio addon client/mapper + local-network addon pairing
+  data/audio/          Boot chime + UI navigation/click sound playback and preferences
   data/auth/           Session/device identity, encrypted-at-rest session storage (Tink/Android Keystore)
   data/network/        OkHttp + kotlinx.serialization API clients talking to the backend (server/)
   data/sync/           Per-domain cloud sync (settings, watchlist, continue watching, addons), retry queues, account switching
@@ -20,7 +21,9 @@ app/src/main/java/com/mangotv/app/
   data/player/         Local player-preferences cache
   ui/theme/            Colors, typography, motion tokens, dimens — the design system
   ui/components/       Reusable focusable primitives: TvFocusSurface, ContentCard, ContentRow, MangoButton, MangoLogo, loading/error states
-  ui/home/ ui/browse/ ui/detail/ ui/genres/ ui/search/ ui/mylist/ ui/player/  The main app screens
+  ui/loading/          Branded cold-boot loading screen
+  ui/home/ ui/browse/ ui/detail/ ui/genres/ ui/search/ ui/mylist/ ui/sources/ ui/player/  The main app screens
+  ui/player/overlay/   In-player menus: quality, audio/subtitle tracks, playback speed, source info, settings
   ui/auth/             Authentication gate, sign-in start screen, QR sign-in flow
   ui/settings/         Settings, Home Rows, Addons, Account
   navigation/          Jetpack Navigation-Compose routes/nav host

@@ -2,9 +2,12 @@ package com.mangotv.app
 
 import android.content.Context
 import com.mangotv.app.data.addon.AddonRepository
+import com.mangotv.app.data.audio.SoundPreferencesRepository
+import com.mangotv.app.data.audio.UiSoundPlayer
 import com.mangotv.app.data.auth.AuthRepository
 import com.mangotv.app.data.history.ContinueWatchingRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
+import com.mangotv.app.data.provider.HomeCacheRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
 import com.mangotv.app.data.sync.AccountSwitchCoordinator
@@ -113,6 +116,19 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * constructor argument, it has no init{} side effect, and its only
  * caller (AccountViewModel.signOut()) only ever needs it the moment a
  * signed-in user actually taps Sign Out.
+ *
+ * homeCacheRepository stays lazy: only HomeViewModel ever touches it (to
+ * paint instantly from the last successful fetch on cold boot instead of
+ * a blank skeleton every launch; see its own doc), and nothing here
+ * constructs it as an eager constructor argument the way sync
+ * repositories force their local caches.
+ *
+ * soundPreferencesRepository/uiSoundPlayer follow the same lazy pattern
+ * once more, even though MangoNavHost ends up touching both on the very
+ * first frame (to pick/play the boot chime and provide UiSoundPlayer to
+ * the rest of the tree via LocalUiSoundPlayer) -- lazy still costs nothing
+ * there since that first access happens immediately either way, and
+ * neither is read as a constructor argument by anything else here.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
@@ -124,6 +140,7 @@ class AppContainer(context: Context) {
         context, homeRowPreferencesRepository, playerPreferencesRepository, authRepository
     )
     val myListRepository: MyListRepository = MyListRepository(context)
+    val homeCacheRepository: HomeCacheRepository by lazy { HomeCacheRepository(context) }
     val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(context, myListRepository, authRepository)
     val continueWatchingRepository: ContinueWatchingRepository = ContinueWatchingRepository(context)
     val continueWatchingSyncRepository: ContinueWatchingSyncRepository = ContinueWatchingSyncRepository(
@@ -163,4 +180,6 @@ class AppContainer(context: Context) {
             addonSyncRepository = addonSyncRepository
         )
     }
+    val soundPreferencesRepository: SoundPreferencesRepository by lazy { SoundPreferencesRepository(context) }
+    val uiSoundPlayer: UiSoundPlayer by lazy { UiSoundPlayer(context, soundPreferencesRepository) }
 }

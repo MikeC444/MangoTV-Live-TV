@@ -7,6 +7,7 @@ import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -16,15 +17,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.unit.dp
+import com.mangotv.app.ui.browse.GRID_COLUMNS
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.MangoSurfaceHigh
+import com.mangotv.app.ui.theme.TextPrimary
 
 @Composable
 fun HomeLoadingSkeleton(modifier: Modifier = Modifier) {
@@ -99,6 +104,62 @@ fun RowsLoadingSkeleton(modifier: Modifier = Modifier, rowCount: Int = 4) {
                             modifier = Modifier
                                 .width(MangoDimens.PosterWidth)
                                 .height(MangoDimens.PosterHeight)
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+/**
+ * Grid-shaped sibling of [RowsLoadingSkeleton] for screens that render their
+ * loaded content as a vertical poster grid rather than horizontal shelves
+ * (Movies, TV Shows, Genre Results -- see RowsBrowseLayout.GRID). Mirrors
+ * RowsBrowseGridContent's own structure -- same screen title, same
+ * width-driven posterScale computation using the same [GRID_COLUMNS], same
+ * padding/spacing -- so the transition from skeleton to real content is a
+ * simple crossfade of poster art rather than the whole layout re-flowing
+ * from stacked horizontal rows into a grid.
+ */
+@Composable
+fun GridLoadingSkeleton(screenTitle: String, modifier: Modifier = Modifier, rowCount: Int = 3) {
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .background(MangoBackground)
+    ) {
+        val availableWidth = maxWidth - MangoDimens.ScreenPaddingHorizontal * 2
+        val cardWidth = (availableWidth - MangoDimens.CardSpacing * (GRID_COLUMNS - 1)) / GRID_COLUMNS
+        val posterScale = (cardWidth / MangoDimens.PosterWidth).coerceIn(0.3f, 1f)
+
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(top = MangoDimens.NavBarHeight + 24.dp)
+        ) {
+            Text(
+                text = screenTitle,
+                color = TextPrimary,
+                style = MaterialTheme.typography.displayMedium,
+                modifier = Modifier.padding(
+                    horizontal = MangoDimens.ScreenPaddingHorizontal,
+                    vertical = 4.dp
+                )
+            )
+            repeat(rowCount) {
+                Row(
+                    modifier = Modifier.padding(
+                        horizontal = MangoDimens.ScreenPaddingHorizontal,
+                        vertical = MangoDimens.RowSpacing / 2
+                    ),
+                    horizontalArrangement = Arrangement.spacedBy(MangoDimens.CardSpacing)
+                ) {
+                    repeat(GRID_COLUMNS) {
+                        ShimmerBox(
+                            modifier = Modifier
+                                .width(MangoDimens.PosterWidth * posterScale)
+                                .height(MangoDimens.PosterHeight * posterScale)
                         )
                     }
                 }

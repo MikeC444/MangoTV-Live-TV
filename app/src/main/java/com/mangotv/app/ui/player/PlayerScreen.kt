@@ -33,6 +33,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
@@ -40,6 +41,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import androidx.media3.common.PlaybackParameters
 import androidx.media3.common.Tracks
+import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.Episode
 import com.mangotv.app.data.model.PlayerPreferences
@@ -134,6 +136,23 @@ private fun PlaybackContent(
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     val exoPlayer = remember { buildExoPlayer(context) }
+    val uiSoundPlayer = LocalUiSoundPlayer.current
+
+    // Without this, Fire TV's system screensaver/idle timeout kicks in
+    // during playback the same as it would over any other idle screen --
+    // it has no way to know a video is actively playing here (this player
+    // is a plain Compose UI over ExoPlayer, not something driving a system
+    // media session it could key off of). Scoped to exactly this
+    // composable's lifetime (mounted for as long as there's real playback
+    // content on screen, cleared on dispose below whenever PlayerScreen
+    // leaves composition) rather than to play/pause state -- a paused
+    // player (e.g. while a settings panel is open) shouldn't let the
+    // screensaver interrupt the session either.
+    val view = LocalView.current
+    DisposableEffect(view) {
+        view.keepScreenOn = true
+        onDispose { view.keepScreenOn = false }
+    }
 
     DisposableEffect(exoPlayer) {
         val listener = PlayerListenerBridge(onPhaseChanged, onTracksChanged)
@@ -409,6 +428,24 @@ private fun PlaybackContent(
                 // (its own list navigation/selection) — don't fight it with
                 // the player's own global seek/reveal shortcuts.
                 if (activeOverlay != null) return@onPreviewKeyEvent false
+                // Any D-pad direction wakes the controls when they're
+                // hidden -- previously only DPAD_CENTER/Enter did, so
+                // pressing e.g. UP or LEFT while watching silently did
+                // nothing instead of bringing up the timeline/transport row
+                // the way every other TV player does. Deliberately just
+                // reveals on this first press rather than also performing
+                // that key's normal action (a seek, a focus move) --
+                // nothing below (seekEligible in particular) can act on it
+                // yet anyway, since every control is still off screen and
+                // unfocusable at this point.
+                if (!controlsVisible &&
+                    event.type == KeyEventType.KeyDown &&
+                    (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
+                        event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                ) {
+                    controlsVisible = true
+                    return@onPreviewKeyEvent true
+                }
                 // LEFT/RIGHT only seeks while the timeline itself has focus
                 // AND the user has actively selected it (DPAD_CENTER/Enter,
                 // toggled below) — deliberately not just "has focus", so
@@ -584,6 +621,7 @@ private fun PlaybackContent(
     }
 
     BackHandler {
+        uiSoundPlayer?.playBack()
         when {
             timelineScrubbing -> timelineScrubbing = false
             overlayStack.isNotEmpty() -> {

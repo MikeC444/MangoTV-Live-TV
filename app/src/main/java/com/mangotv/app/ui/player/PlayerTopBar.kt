@@ -19,6 +19,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.Episode
+import com.mangotv.app.ui.components.ClickSound
 import com.mangotv.app.ui.components.HeroIconButton
 import com.mangotv.app.ui.components.MangoLogo
 import com.mangotv.app.ui.theme.TextPrimary
@@ -53,7 +54,8 @@ fun PlayerTopBar(
             focusDown = backFocusDown,
             onFocusChanged = onBackFocusChanged,
             showBackground = false,
-            borderColor = Color.White
+            borderColor = Color.White,
+            clickSound = ClickSound.BACK
         )
 
         Column(

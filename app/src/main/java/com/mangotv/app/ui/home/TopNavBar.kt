@@ -1,17 +1,25 @@
 package com.mangotv.app.ui.home
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.snap
 import androidx.compose.animation.core.tween
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,11 +40,13 @@ import com.mangotv.app.ui.components.MangoLogo
 import com.mangotv.app.ui.components.TvFocusSurface
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoDimens
+import com.mangotv.app.ui.theme.MangoMotion
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
 val MangoNavItems = listOf("Home", "Movies", "TV Shows", "Genres", "Search", "My List", "Settings")
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun TopNavBar(
     transparentBackground: Boolean,
@@ -57,7 +67,12 @@ fun TopNavBar(
     onNavigateDown: (() -> Unit)? = null
 ) {
     val scrimAlpha by animateFloatAsState(
-        targetValue = if (transparentBackground) 0.45f else 0.96f,
+        // Was 0.45f, then 0.6f -- against a bright/busy hero image behind
+        // it (the common case: transparentBackground is true right when
+        // Home loads, before any scrolling), that still left the nav bar
+        // hard to read. A bit darker keeps the see-through hero effect but
+        // gives the labels enough contrast.
+        targetValue = if (transparentBackground) 0.72f else 0.96f,
         animationSpec = tween(300),
         label = "navBarScrimAlpha"
     )
@@ -88,28 +103,81 @@ fun TopNavBar(
                 }
             }
             .background(
+                // Was a straight top-to-bottom fade (scrimAlpha -> fully
+                // transparent) spanning this Row's own bounds -- since the
+                // logo/nav items sit vertically CENTERED in it, the text
+                // was drawn where that gradient had already faded to
+                // roughly half of scrimAlpha, well short of the peak value
+                // increased above. Holding full strength through 70% of
+                // the bar's height puts the text comfortably inside the
+                // solid portion, and only the last 30% (below the text)
+                // tapers off -- reading as a soft shadow trailing into the
+                // content underneath rather than a wash that's already
+                // thin by the time it reaches anything worth reading.
                 Brush.verticalGradient(
-                    colors = listOf(
-                        MangoBackground.copy(alpha = scrimAlpha),
-                        Color.Transparent
+                    colorStops = arrayOf(
+                        0f to MangoBackground.copy(alpha = scrimAlpha),
+                        0.7f to MangoBackground.copy(alpha = scrimAlpha),
+                        1f to Color.Transparent
                     )
                 )
             )
-            .padding(horizontal = MangoDimens.ScreenPaddingHorizontal, vertical = 20.dp),
+            // Top padding trimmed from the original 20dp -- the logo and
+            // nav items were sitting noticeably lower than the actual top
+            // edge of the screen. Bottom stays as-is so the bar's overall
+            // height (and everything that reserves MangoDimens.NavBarHeight
+            // of clearance below it, e.g. RowsBrowseContent) is unaffected.
+            .padding(
+                start = MangoDimens.ScreenPaddingHorizontal,
+                end = MangoDimens.ScreenPaddingHorizontal,
+                top = 8.dp,
+                bottom = 20.dp
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         MangoLogo()
         Spacer(Modifier.width(56.dp))
-        MangoNavItems.forEachIndexed { index, label ->
-            NavItem(
-                label = label,
-                selected = index == selectedIndex,
-                onClick = { onItemClick(label) },
-                focusRequester = if (index == selectedIndex) selectedItemFocusRequester else null,
-                focusDown = contentFocusRequester
-            )
-            if (index != MangoNavItems.lastIndex) {
-                Spacer(Modifier.width(8.dp))
+        // LazyRow rather than a plain Row: with enough nav items (this list
+        // has grown since this bar was first built), the fully laid-out
+        // width can exceed a real TV screen's — a plain Row still draws
+        // every child at its natural size regardless, which just clips the
+        // last item(s) off the edge instead of scrolling to reach them.
+        // Wrapping only the item list (not the logo) means it's still drawn
+        // exactly as before, at its natural (unscrolled) size, whenever it
+        // already fits — this only engages once it doesn't.
+        // Fast bring-into-view spec (same one every other horizontally-
+        // scrolling row in the app already uses, see ContentRow.kt) so a
+        // held D-pad moving across nav items doesn't outrun Compose's
+        // slower default spring-based scroll and stutter.
+        CompositionLocalProvider(LocalBringIntoViewSpec provides MangoMotion.FastBringIntoViewSpec) {
+            LazyRow(
+                modifier = Modifier.weight(1f, fill = false),
+                // LazyRow clips its content to its own laid-out bounds --
+                // with no content padding, that boundary sat exactly at
+                // the first/last item's un-scaled edge, so the focused
+                // scale-up (TvFocusSurface animates to 1.08x on focus)
+                // pushed Home's/Settings' border past it and got clipped.
+                // A little breathing room on each end gives the scale
+                // somewhere to grow into.
+                contentPadding = PaddingValues(horizontal = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                // Tightened from 8dp -- at the old spacing plus the old
+                // (larger) label size, this row started scrolling once
+                // enough nav items were added to no longer fit one screen
+                // width. See NavItem's smaller labelMedium text below;
+                // together these reclaim enough width that it shouldn't
+                // need to anymore.
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
+            ) {
+                itemsIndexed(MangoNavItems) { index, label ->
+                    NavItem(
+                        label = label,
+                        selected = index == selectedIndex,
+                        onClick = { onItemClick(label) },
+                        focusRequester = if (index == selectedIndex) selectedItemFocusRequester else null,
+                        focusDown = contentFocusRequester
+                    )
+                }
             }
         }
     }
@@ -128,6 +196,25 @@ private fun NavItem(
         onClick = onClick,
         shape = RoundedCornerShape(6.dp),
         backgroundColor = Color.Transparent,
+        // White rather than TvFocusSurface's default amber border -- scoped
+        // to just the nav bar via this explicit override, not a global
+        // FocusBorder change, so every other focusable element in the app
+        // (cards, buttons) keeps its usual focus color.
+        borderColor = TextPrimary,
+        // TvFocusSurface's default focus shadow is a blurred black
+        // ambient/spot shadow -- invisible against the amber border/dark
+        // cards it was designed for, but at nav-item size it sits right at
+        // the white border's inner edge and reads as a faint dark ring
+        // inside the border. Nav items don't need the "lift" effect anyway
+        // (there's no card underneath to lift off of), so this just turns
+        // it off here.
+        focusedElevation = 0f,
+        // Adjacent nav items are separate TvFocusSurfaces, each fading its
+        // own border independently -- with the shared 150ms fade, the
+        // outgoing item's fade-out and the incoming item's fade-in overlap
+        // and read as the border lagging behind on the previous item.
+        // Snapping it instant gives a clean, immediate handoff instead.
+        borderAnimationSpec = snap(),
         onFocusChanged = { focused = it },
         bringIntoViewOnFocus = false,
         focusRequester = focusRequester,
@@ -136,9 +223,21 @@ private fun NavItem(
         Text(
             text = label,
             color = if (focused || selected) TextPrimary else TextSecondary,
-            fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
-            style = MaterialTheme.typography.titleMedium,
-            modifier = Modifier.padding(horizontal = 14.dp, vertical = 8.dp)
+            // Keyed on selected only, not focused -- selected stays fixed
+            // while moving focus around the bar, but focused changes on
+            // every D-pad step, and Bold glyphs measure wider than Medium
+            // ones. NavItem isn't a fixed-width box, so that width change
+            // reflowed every item after the focused one (and the whole
+            // LazyRow, which sizes to fit its content) on every step,
+            // reading as the entire bar twitching. Color alone (plus the
+            // border) is enough to show focus without moving anything.
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
+            // labelMedium (13sp) rather than the original titleMedium
+            // (16sp) -- see the tightened item spacing above, both
+            // together are needed to fit all the nav items without the
+            // row falling back to scrolling.
+            style = MaterialTheme.typography.labelMedium,
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 8.dp)
         )
     }
 }

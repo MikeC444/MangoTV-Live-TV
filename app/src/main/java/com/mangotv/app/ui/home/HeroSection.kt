@@ -32,6 +32,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
@@ -52,7 +53,9 @@ import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import coil.compose.AsyncImage
+import coil.compose.AsyncImagePainter
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.ui.components.HeroIconButton
 import com.mangotv.app.ui.components.MangoButton
@@ -227,10 +230,20 @@ fun HeroSection(
                     current.runtimeMinutes?.let { add("${it / 60}h ${it % 60}m") }
                     current.rating?.let { add("★ ${"%.1f".format(it)}") }
                 }
+                // Sized down from the shared titleMedium/bodyMedium/bodyLarge
+                // tokens via .copy() (font family/weight/letter-spacing still
+                // come from them) rather than editing those tokens directly
+                // in Type.kt -- this is scoped to the hero's own meta/genre/
+                // description text specifically, not every other screen that
+                // happens to use the same named styles.
                 Text(
                     text = metaParts.joinToString("   •   "),
                     color = Color.White,
-                    style = MaterialTheme.typography.titleMedium.copy(shadow = HeroTextShadow),
+                    style = MaterialTheme.typography.titleMedium.copy(
+                        fontSize = 14.sp,
+                        lineHeight = 18.sp,
+                        shadow = HeroTextShadow
+                    ),
                     fontWeight = FontWeight.Medium
                 )
             }
@@ -240,7 +253,11 @@ fun HeroSection(
                 Text(
                     text = current.genres.joinToString("  ·  ") { it.name },
                     color = Color.White,
-                    style = MaterialTheme.typography.bodyMedium.copy(shadow = HeroTextShadow)
+                    style = MaterialTheme.typography.bodyMedium.copy(
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                        shadow = HeroTextShadow
+                    )
                 )
             }
 
@@ -249,7 +266,11 @@ fun HeroSection(
             Text(
                 text = current.description,
                 color = Color.White,
-                style = MaterialTheme.typography.bodyLarge.copy(shadow = HeroTextShadow),
+                style = MaterialTheme.typography.bodyLarge.copy(
+                    fontSize = 14.sp,
+                    lineHeight = 20.sp,
+                    shadow = HeroTextShadow
+                ),
                 maxLines = 3,
                 overflow = TextOverflow.Ellipsis
             )
@@ -346,16 +367,26 @@ private fun KenBurnsBackdrop(url: String?, modifier: Modifier = Modifier) {
         ),
         label = "kenBurnsScale"
     )
+    // The backdrop shows nothing until it loads (no placeholder), so
+    // animating its scale before then is both pointless and, now that Home
+    // can paint from cache the instant the app opens, a continuous
+    // per-frame graphicsLayer transform competing with every other
+    // now-simultaneously-loading row image for the same cold-boot window.
+    // Deferring the transform until there's an actual image on screen
+    // fixes both at once.
+    var isLoaded by remember(url) { mutableStateOf(false) }
 
     AsyncImage(
         model = rememberOpaqueImageRequest(url),
         contentDescription = null,
         contentScale = ContentScale.Crop,
+        onState = { state -> if (state is AsyncImagePainter.State.Success) isLoaded = true },
         modifier = modifier
             .fillMaxSize()
             .graphicsLayer {
-                scaleX = scale
-                scaleY = scale
+                val appliedScale = if (isLoaded) scale else 1f
+                scaleX = appliedScale
+                scaleY = appliedScale
             }
     )
 }

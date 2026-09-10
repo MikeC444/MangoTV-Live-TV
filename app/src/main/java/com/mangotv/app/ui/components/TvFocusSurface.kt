@@ -1,5 +1,6 @@
 package com.mangotv.app.ui.components
 
+import androidx.compose.animation.core.AnimationSpec
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.ExperimentalFoundationApi
@@ -27,8 +28,12 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.unit.dp
+import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.ui.theme.FocusBorder
 import com.mangotv.app.ui.theme.MangoMotion
+
+/** Which sound (if any) a TvFocusSurface's click plays -- see TvFocusSurface's own doc. */
+enum class ClickSound { DEFAULT, BACK, NONE }
 
 /**
  * The single building block behind every focusable tile in Mango TV (cards,
@@ -45,8 +50,23 @@ import com.mangotv.app.ui.theme.MangoMotion
 fun TvFocusSurface(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    // Which click sound to play -- DEFAULT for virtually every caller (cards,
+    // buttons, nav items); BACK for anything whose whole purpose is leaving
+    // the current screen (an on-screen Back button); NONE for a caller that
+    // handles its own feedback (none currently do, kept for completeness).
+    // Threaded straight through by HeroIconButton/MangoButton so a caller
+    // several layers up (e.g. PlayerTopBar's Back button) can still pick it.
+    clickSound: ClickSound = ClickSound.DEFAULT,
     shape: Shape = RoundedCornerShape(10.dp),
     focusedScale: Float = MangoMotion.FocusScale,
+    // RenderNode-level ambient/spot shadow (both default to black) cast by
+    // the focus scale-up below. Fine, even desirable, on the cards/buttons
+    // this was designed for -- it reads as a lift off a dark background.
+    // A caller whose own border is near-white (e.g. the nav bar) can zero
+    // this out: at that size/elevation the blurred black shadow sits right
+    // at the border's inner edge and reads as an unwanted dark ring inside
+    // an otherwise clean white outline.
+    focusedElevation: Float = 18f,
     backgroundColor: Color = Color.Transparent,
     backgroundBrush: Brush? = null,
     focusRequester: FocusRequester? = null,
@@ -64,11 +84,25 @@ fun TvFocusSurface(
     // fixed size while the focused card scaled up around it.
     alwaysShowBorder: Boolean = false,
     borderColor: Color = FocusBorder,
+    // Defaults to the same shared timing as scale/elevation. A caller with
+    // several adjacent focusable siblings whose borders fade independently
+    // (e.g. the top nav bar) can override this to something near-instant --
+    // otherwise the outgoing item's fade-out and the incoming item's
+    // fade-in both take the full duration and visibly overlap, reading as
+    // the border "lagging behind" on the previously-focused item instead of
+    // a clean handoff.
+    borderAnimationSpec: AnimationSpec<Float> = MangoMotion.focusTween,
     content: @Composable BoxScope.() -> Unit
 ) {
     val interactionSource = remember { MutableInteractionSource() }
     val isFocused by interactionSource.collectIsFocusedAsState()
     val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    // Every focusable card/button/nav item in the app is built on this one
+    // composable, so hooking the nav/click sounds in here is what makes
+    // them play everywhere automatically instead of every screen having to
+    // wire sound playback into its own click handlers. Null outside the
+    // real app tree (previews, tests) -- see LocalUiSoundPlayer's own doc.
+    val uiSoundPlayer = LocalUiSoundPlayer.current
 
     // scale/elevation are read via .value INSIDE the graphicsLayer block
     // below rather than through `by` at composable scope, so an animation
@@ -81,16 +115,26 @@ fun TvFocusSurface(
         label = "focusScale"
     )
     val elevation = animateFloatAsState(
-        targetValue = if (isFocused) 18f else 0f,
+        targetValue = if (isFocused) focusedElevation else 0f,
         animationSpec = MangoMotion.focusTween,
         label = "focusElevation"
     )
     val borderAlpha by animateFloatAsState(
         targetValue = if (isFocused || alwaysShowBorder) 1f else 0f,
-        animationSpec = MangoMotion.focusTween,
+        animationSpec = borderAnimationSpec,
         label = "focusBorder"
     )
 
+    // Deliberately NOT where the nav sound plays, despite this being where
+    // every element's focus-gained transition is already visible: this
+    // fires for EVERY cause of a focus change, including the app's own
+    // programmatic requestFocus() calls (landing on a screen's first item
+    // when it opens, restoring focus after returning from Detail, etc.) --
+    // none of which are the user "physically" moving around. Playing here
+    // meant every screen navigation played an extra, unearned tick the
+    // instant its content appeared. The nav sound instead lives on a single
+    // global D-pad-direction key listener in MangoNavHost, which only ever
+    // sees REAL key presses, never a bare requestFocus() call.
     LaunchedEffect(isFocused) {
         onFocusChanged(isFocused)
         if (isFocused && bringIntoViewOnFocus) {
@@ -140,7 +184,14 @@ fun TvFocusSurface(
         .clickable(
             interactionSource = interactionSource,
             indication = null,
-            onClick = onClick
+            onClick = {
+                when (clickSound) {
+                    ClickSound.DEFAULT -> uiSoundPlayer?.playClick()
+                    ClickSound.BACK -> uiSoundPlayer?.playBack()
+                    ClickSound.NONE -> Unit
+                }
+                onClick()
+            }
         )
 
     Box(modifier = boxModifier, content = content)

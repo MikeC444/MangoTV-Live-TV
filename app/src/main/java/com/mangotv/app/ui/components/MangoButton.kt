@@ -48,9 +48,18 @@ fun MangoButton(
     // screen's "Log In"/"Sign Up") — leaving this null preserves the
     // original wrap-content, left-aligned icon+text layout every other
     // caller already relies on.
-    trailingIcon: ImageVector? = null
+    trailingIcon: ImageVector? = null,
+    // Per-caller solid-color override, e.g. Search's button wanting plain
+    // white instead of FILLED's brand gradient without recoloring every
+    // other FILLED button (Settings, empty-state retry, ...) app-wide.
+    // Null (the default) leaves `style` in full control of both the
+    // background and content color, same as before this param existed.
+    backgroundOverride: Color? = null,
+    // Passed straight through to TvFocusSurface -- e.g. PlaybackErrorOverlay's
+    // "Back" button passes ClickSound.BACK.
+    clickSound: ClickSound = ClickSound.DEFAULT
 ) {
-    val contentColor = when (style) {
+    val contentColor = backgroundOverride?.let { Color.Black } ?: when (style) {
         MangoButtonStyle.FILLED -> MangoBackground
         MangoButtonStyle.LIGHT -> Color.Black
         MangoButtonStyle.GLASS -> TextPrimary
@@ -75,17 +84,18 @@ fun MangoButton(
         onClick = onClick,
         modifier = modifier.height(buttonHeight),
         shape = shape,
-        backgroundColor = when (style) {
+        backgroundColor = backgroundOverride ?: when (style) {
             MangoButtonStyle.GLASS -> Color.White.copy(alpha = 0.12f)
             MangoButtonStyle.LIGHT -> Color.White
             MangoButtonStyle.FILLED -> Color.Transparent
         },
-        backgroundBrush = if (style == MangoButtonStyle.FILLED) MangoBrandGradient else null,
+        backgroundBrush = if (backgroundOverride == null && style == MangoButtonStyle.FILLED) MangoBrandGradient else null,
         focusRequester = focusRequester,
         focusUp = focusUp,
         focusDown = focusDown,
         borderColor = borderColor,
-        bringIntoViewOnFocus = bringIntoViewOnFocus
+        bringIntoViewOnFocus = bringIntoViewOnFocus,
+        clickSound = clickSound
     ) {
         Row(
             modifier = Modifier

@@ -12,6 +12,8 @@ import com.mangotv.app.data.model.Stream
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.flow
 
 private val SUPPORTED_CATALOG_TYPES = setOf("movie", "series")
 
@@ -31,6 +33,15 @@ private const val MAX_GENRE_ROWS = 30
 // showing up; the only consequence is possibly a small gap or overlap
 // between pages, not a crash.
 private const val PAGE_SIZE = 100
+
+// How many base/genre row requests getHomeSections() fans out per batch --
+// matches the batch size Nuvio (a comparable Stremio-client app) uses for
+// the same job. Small on purpose: it's not about raw throughput (this app's
+// own OkHttp client already allows far more concurrent requests than this),
+// it's about how soon the FIRST batch -- and therefore the first visible
+// rows -- lands, and about being a reasonably polite load against a shared,
+// free community addon server rather than firing 30 requests at once.
+private const val HOME_BATCH_SIZE = 4
 
 /**
  * A [CatalogProvider] backed by a real, user-installed Stremio-protocol
@@ -56,9 +67,10 @@ class StremioAddonProvider(
     // across types by GENRE NAME (rather than by id, which silently failed
     // to merge anything and produced one "Action" row per type instead of
     // one combined row) is what actually merges movies and TV shows into a
-    // single row per genre. All fetches (base + every genre) run in
-    // parallel so the genre fan-out doesn't multiply Home's real load time.
-    override suspend fun getHomeSections(): List<HomeSection> = buildSections(supportedCatalogs, rowKeyPrefix = "")
+    // single row per genre. Fetches run in batches of HOME_BATCH_SIZE (see
+    // its own doc) rather than all at once, emitting each batch's rows as
+    // soon as it resolves -- see buildSectionsFlow.
+    override fun getHomeSections(): Flow<List<HomeSection>> = buildSectionsFlow(supportedCatalogs, rowKeyPrefix = "")
 
     // Movies/TV Shows show one flattened, shuffled row -- no genre
     // breakdown -- so unlike getHomeSections() this deliberately does NOT
@@ -178,38 +190,52 @@ class StremioAddonProvider(
             .take(MAX_GENRE_ROWS)
 
     // One row per catalog family, PLUS one additional row per genre the
-    // family declares. rowKeyPrefix lets callers (getHomeSections vs.
-    // getSectionsByType) share this exact fan-out logic while still
-    // producing distinct row ids from each other.
-    private suspend fun buildSections(catalogs: List<AddonCatalogDef>, rowKeyPrefix: String): List<HomeSection> = coroutineScope {
+    // family declares -- emitted in HOME_BATCH_SIZE-sized batches (base row
+    // always in the first batch) rather than one final list, so Home can
+    // reveal rows as they arrive instead of waiting for every genre to
+    // resolve. rowKeyPrefix mirrors the plain-list version this replaced,
+    // kept for parity even though getSectionsByType doesn't go through this
+    // path (it only ever wants the base row, no genre fan-out).
+    private fun buildSectionsFlow(catalogs: List<AddonCatalogDef>, rowKeyPrefix: String): Flow<List<HomeSection>> = flow {
         // Base ("no genre filter") row: every catalog that can answer an
         // unfiltered request (its genre extra, if any, isn't required)
         // merges into one row, regardless of type.
         val baseCatalogs = catalogs.filter { catalogDef ->
             catalogDef.extra.firstOrNull { it.name == "genre" }?.isRequired != true
         }
-        val baseRowDeferred = if (baseCatalogs.isNotEmpty()) {
+        val baseRowFetch: (suspend () -> HomeSection?)? = if (baseCatalogs.isNotEmpty()) {
             // Prefer the catalog's own declared name (Cinemeta calls its
             // base catalog "Popular") over the addon's name -- besides
             // being the more accurate label, it's also what lets this row
             // match DEFAULT_ROW_PRIORITY's "popular"/"featured" entries and
             // sort to the top instead of getting lost among 30 genre rows.
             val title = baseCatalogs.firstNotNullOfOrNull { it.name } ?: manifest.name
-            listOf(async { fetchMergedSection(baseCatalogs, title = title, extra = emptyMap(), rowKey = "${rowKeyPrefix}base") })
+            { fetchMergedSection(baseCatalogs, title = title, extra = emptyMap(), rowKey = "${rowKeyPrefix}base") }
         } else {
-            emptyList()
+            null
         }
 
         // Genre rows: the union of every genre any of these catalogs
         // declares, each merging every catalog (any type) that lists it.
-        val genreRowDeferreds = declaredGenres(catalogs).map { genre ->
+        val genreRowFetches = declaredGenres(catalogs).map { genre ->
             val catalogsForGenre = catalogs.filter { catalogDef ->
                 genre in catalogDef.extra.firstOrNull { extra -> extra.name == "genre" }?.options.orEmpty()
             }
-            async { fetchMergedSection(catalogsForGenre, title = genre, extra = mapOf("genre" to genre), rowKey = "$rowKeyPrefix$genre") }
+            suspend { fetchMergedSection(catalogsForGenre, title = genre, extra = mapOf("genre" to genre), rowKey = "$rowKeyPrefix$genre") }
         }
 
-        (baseRowDeferred + genreRowDeferreds).awaitAll().filterNotNull()
+        // Base row first (guarantees it lands in the first batch), then
+        // genres in declared order -- chunking preserves that order across
+        // batches (awaitAll returns results in input order, not completion
+        // order), it just controls how many requests are in flight at once
+        // and how often a batch's worth of rows gets published.
+        val allFetches = listOfNotNull(baseRowFetch) + genreRowFetches
+        allFetches.chunked(HOME_BATCH_SIZE).forEach { batch ->
+            val ready = coroutineScope {
+                batch.map { fetchRow -> async { fetchRow() } }.awaitAll()
+            }.filterNotNull()
+            if (ready.isNotEmpty()) emit(ready)
+        }
     }
 
     // Fetches every catalog matched for this row in parallel and interleaves

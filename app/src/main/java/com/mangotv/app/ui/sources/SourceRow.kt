@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.SurroundSound
 import androidx.compose.material.icons.filled.Wifi
 import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.outlined.CheckCircle
@@ -30,8 +31,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import com.mangotv.app.data.model.QualityTier
 import com.mangotv.app.data.model.ResolutionTier
+import com.mangotv.app.data.model.SourceHealth
 import com.mangotv.app.data.model.Stream
 import com.mangotv.app.ui.components.GlowPlayBadge
 import com.mangotv.app.ui.components.TvFocusSurface
@@ -89,7 +90,7 @@ fun SourceRow(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis
                     )
-                    val subtitle = listOfNotNull(stream.codec, stream.sourceTag, stream.audioTag)
+                    val subtitle = listOfNotNull(stream.codec, stream.sourceTag)
                         .joinToString("  •  ")
                     if (subtitle.isNotEmpty()) {
                         Spacer(Modifier.height(3.dp))
@@ -101,7 +102,7 @@ fun SourceRow(
                             overflow = TextOverflow.Ellipsis
                         )
                     }
-                    if (stream.seedersLabel != null || stream.qualityTier != null) {
+                    if (stream.seedersLabel != null || stream.sourceHealth != null || stream.audioTag != null) {
                         Spacer(Modifier.height(4.dp))
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             stream.seedersLabel?.let {
@@ -121,22 +122,51 @@ fun SourceRow(
                                 )
                                 Spacer(Modifier.width(10.dp))
                             }
-                            stream.qualityTier?.let { tier ->
-                                val tierColor = when (tier) {
-                                    QualityTier.VERY_HIGH, QualityTier.HIGH -> MangoTeal
-                                    QualityTier.GOOD -> MangoAzure
-                                    QualityTier.LOW -> TextTertiary
+                            // Named/colored around seed health, deliberately
+                            // independent of resolutionTier/qualityBadge above
+                            // (the actual video quality) -- see SourceHealth's
+                            // own doc for why conflating the two read as a
+                            // contradiction (e.g. a 4K badge next to "Low
+                            // Quality").
+                            stream.sourceHealth?.let { health ->
+                                val healthColor = when (health) {
+                                    SourceHealth.VERY_HIGH, SourceHealth.HIGH -> MangoTeal
+                                    SourceHealth.GOOD -> MangoAzure
+                                    SourceHealth.LOW -> TextTertiary
                                 }
                                 Icon(
                                     imageVector = Icons.Outlined.CheckCircle,
                                     contentDescription = null,
-                                    tint = tierColor,
+                                    tint = healthColor,
                                     modifier = Modifier.width(13.dp)
                                 )
                                 Spacer(Modifier.width(3.dp))
                                 Text(
-                                    text = tier.label,
-                                    color = tierColor,
+                                    text = health.label,
+                                    color = healthColor,
+                                    style = MaterialTheme.typography.labelSmall,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis
+                                )
+                                Spacer(Modifier.width(10.dp))
+                            }
+                            // Its own bullet (not folded into the codec/source
+                            // subtitle line above) so a long codec+source
+                            // combo can't ellipsis this away -- dual audio and
+                            // 5.1/7.1 are exactly the kind of detail someone
+                            // picking a source cares about and shouldn't have
+                            // to guess at.
+                            stream.audioTag?.let {
+                                Icon(
+                                    imageVector = Icons.Filled.SurroundSound,
+                                    contentDescription = null,
+                                    tint = TextTertiary,
+                                    modifier = Modifier.width(13.dp)
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    text = it,
+                                    color = TextTertiary,
                                     style = MaterialTheme.typography.labelSmall,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis
