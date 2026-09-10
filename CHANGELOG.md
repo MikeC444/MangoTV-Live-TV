@@ -2052,8 +2052,22 @@ future pass doesn't "fix" it again by breaking addons instead.
   changed files in full and confirming the `require()` block sits before
   any use of `apiBaseUrl.toString()`-style interpolation into
   `buildConfigField`, so a real misconfiguration fails before ever
-  reaching the generated `BuildConfig`. `build-apk.yml` CI compile
-  pending, same as every prior milestone.
+  reaching the generated `BuildConfig`. `build-apk.yml` — see below.
+
+**Issues discovered (CI, not self-review):** the manifest comment
+explaining the `usesCleartextTraffic` decision used `--` as a sentence
+separator twice. XML forbids `--` anywhere inside a comment body (only
+the opening `<!--`/closing `-->` delimiters may contain it), so
+`:app:processDebugMainManifest` failed with a `ManifestMerger2` parse
+error — caught by CI, not by the manual re-read that preceded the first
+push (this sandbox has no XML validator wired into that review step).
+
+**Issues fixed:** replaced both `--` occurrences with plain punctuation;
+verified with `xmllint --noout` (available in this sandbox) that the
+file is well-formed *before* pushing the fix, rather than re-pushing on
+faith. Re-ran `build-apk.yml`
+([run 34515773634](https://github.com/MikeC444/MangoTV-Live-TV/actions/runs/34515773634)):
+`testDebugUnitTest` and `assembleDebug` both green.
 
 **Deliberately not re-litigated:** items already covered by an existing,
 passing automated test (see the checklist above) were verified by
