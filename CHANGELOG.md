@@ -1913,3 +1913,152 @@ not via a test failure or a crash report.
   before this milestone.
 
 **Milestone 13 is complete.**
+
+## Milestone 14 — Security Audit
+
+**Status:** Complete.
+
+**Approach:** A dedicated adversarial pass over the whole system against
+the spec's own checklist, run in two stages: first an independent review
+(at the user's request, before starting Milestone 13) that read the
+actual code for every high-risk area rather than trusting prior
+milestones' own changelog claims at face value, then this milestone's own
+follow-up pass closing the one concrete gap that review found and
+explicitly confirming the remaining checklist items against real evidence
+(code read directly, or an existing automated test that proves it) rather
+than re-asserting what earlier milestones already said about themselves.
+No backend changes were needed — every backend-side item below was
+already correct when read directly.
+
+**Checklist, evidence-first:**
+- **Hardcoded secrets / Neon credentials in the APK** — grepped the
+  entire `app/` tree for `postgres://`, `postgresql://`, `neon.tech`,
+  `jdbc:postgresql`: zero matches. The Android app only ever holds
+  `BuildConfig.API_BASE_URL`; `server/.env.example`/`.env.test.example`
+  contain placeholders only, `.env`/`.env.test` are gitignored and
+  confirmed never staged (`git status`/`git show`).
+- **Weak authentication / weak password hashing** — Argon2id with
+  explicit OWASP-recommended parameters (`security/password.ts`), never
+  the library default. Login returns an identical error and always runs
+  exactly one argon2 verify (against a dummy hash for an unknown email)
+  whether the account exists or not — closes the timing side-channel
+  Milestone 3 originally found and fixed.
+- **Token leakage / session hijacking / refresh token problems** — every
+  bearer token (session access/refresh, QR activation) is a random
+  256-bit value, SHA-256-hashed before it ever touches storage
+  (`security/tokens.ts`); the raw value is never persisted anywhere, even
+  transiently. `requireAuth` joins `devices` and rejects a session whose
+  device was remotely revoked. `refresh()` is one atomic
+  `UPDATE ... WHERE ... RETURNING` that validates and rotates in the same
+  statement — no separate check-then-act window — and rotating
+  invalidates the *previous* access token immediately too (Milestone 3's
+  own test-derived finding).
+- **QR token replay / QR token guessing** — `pollQrSession`'s claim is a
+  single atomic `UPDATE qr_auth_sessions SET status='consumed' WHERE
+  status='completed'`, which can match a given token at most once by
+  construction (re-verified by reading `qrAuthService.ts` directly, not
+  just trusting Milestone 4's own tests); 256 bits of entropy makes
+  guessing infeasible.
+- **Missing authorization checks / user ID manipulation** — read every
+  route file (`watchlist.ts`, `addons.ts`, `history.ts`, `settings.ts`,
+  `auth.ts`, `me.ts`) directly: every one requires `requireAuth` and
+  scopes its query to `req.user!.id`, the value `requireAuth` itself
+  derived from the verified session — never a param/query/body value.
+  Grepped for `req.(params|query|body).(userId|user_id|id)` across
+  `server/src`: zero matches.
+- **SQL injection** — grepped every service file for a template-literal
+  query containing `${`: zero matches. Every query uses `$1`/`$2`
+  parameterization throughout.
+- **Input validation problems** — every mutating route is behind the
+  shared Zod `validate()` middleware (body *and*, since Milestone 7,
+  query params); confirmed by reading the schemas directly, not just
+  their existence.
+- **Excessive API permissions** — `AndroidManifest.xml` requests exactly
+  `INTERNET` and `ACCESS_NETWORK_STATE`, nothing else.
+- **Sensitive information in logs** — `requestLogger.ts` logs only
+  method/path/status/duration/user id, explicitly never bodies, headers,
+  or query strings (read directly, not assumed from its own comment).
+  The Android app has zero `android.util.Log` calls anywhere (confirmed
+  by grep) — there is no logging call site that could leak a token even
+  by mistake.
+- **Insecure local storage** — the one genuinely sensitive local value
+  (the session, carrying both bearer tokens) is encrypted at rest via
+  Tink + Android Keystore (`TokenCipher`/`SessionManager`, read directly:
+  encrypt-before-write and decrypt-after-read both confirmed, with a
+  corrupted/undecryptable blob safely treated as signed-out rather than
+  crashing). Every other local DataStore cache (watchlist, continue
+  watching, addon list, settings, pending-change outboxes) holds no
+  credential material, so plaintext storage there is correct, not an
+  oversight.
+- **Account data leakage / cross-user access** — the spec's own explicit
+  test ("User A attempting to access User B's Settings, Watchlist,
+  History, Continue Watching, Addons — every attempt must fail") already
+  exists as real, passing automated tests, not something this milestone
+  had to write from scratch: `tests/settings.test.ts`,
+  `tests/watchlist.test.ts`, `tests/addons.test.ts`,
+  `tests/watch-progress.test.ts` each include a dedicated cross-user
+  test (confirmed by reading `settings.test.ts`'s own "cross-user
+  isolation" block directly: alice's write is invisible to bob's GET),
+  several going further than a passive check — a dedicated attack
+  simulation where bob attempts to remove/complete alice's exact item by
+  guessing her natural key with a far-future `updatedAt` engineered to
+  win any last-write-wins race, and is still scoped away entirely
+  because every query filters on `user_id` from the authenticated
+  session. `tests/auth-sessions.test.ts`/`tests/me.test.ts` cover
+  sessions and `/user/me` the same way. All still pass: 131/131.
+- **Improper logout / expired sessions** — Milestone 12's
+  `AccountSwitchCoordinator.signOut()` clears every local cache and
+  pending-change outbox in parallel with the session revoke, so a
+  different account signing in right after starts genuinely blank.
+  Access tokens expire in 1 hour, refresh in 30 days, both enforced
+  server-side (`auth-refresh.test.ts`); a session revoked from another
+  device is rejected by `requireAuth` immediately.
+
+**Issue found and fixed this milestone:** `AndroidManifest.xml` sets
+`android:usesCleartextTraffic="true"` globally (present since the
+Initial commit — confirmed via `git log`, so this predates the account
+system entirely; it exists for the pre-existing, unrelated addon
+ecosystem, which fetches arbitrary user-supplied `http://`/`https://`
+addon manifest URLs by design — `AddonUrl.kt` explicitly accepts both).
+Left unscoped, nothing at the OS level would stop the account API's own
+traffic (a bearer token on nearly every request) from going out over
+plaintext if `API_BASE_URL` were ever misconfigured without `https://`.
+A `network_security_config.xml` was the first idea, but doesn't actually
+work here: it's a static XML resource and can't reference
+`API_BASE_URL`, which only exists as a value read from the gitignored,
+deployment-specific `local.properties` at build time. Fixed at the
+source instead — `app/build.gradle.kts` now does
+`require(apiBaseUrl.startsWith("https://"))` right where `apiBaseUrl` is
+computed, failing the *build* (not just discovered at runtime) if it's
+ever misconfigured with a non-`https://` scheme. This is a strictly
+stronger guarantee than a network security config could give anyway,
+since it can't be bypassed by anything the running app does — there's no
+build to ship. The manifest flag itself is left as `true` (removing it
+would break the addon ecosystem, not fix anything the account API
+actually needed) with a comment explaining both why it's intentional and
+where the account API's own transport security actually lives, so a
+future pass doesn't "fix" it again by breaking addons instead.
+
+**Tests performed:**
+- `npm run typecheck` / `npm test` (backend) — clean, 131/131 (sanity
+  check only; no backend files changed this milestone).
+- The build-time `require()` fix has no `local.properties` in CI (it's
+  gitignored, never checked out), so `apiBaseUrl` falls back to
+  `"https://not-configured.invalid"`, which itself starts with
+  `https://` — confirmed by reading the fallback value directly before
+  relying on it, so this fix cannot break CI's existing build.
+- Android: no new pure-logic unit tests this milestone (the fix is a
+  build-time `require()`, not app logic); verified by re-reading both
+  changed files in full and confirming the `require()` block sits before
+  any use of `apiBaseUrl.toString()`-style interpolation into
+  `buildConfigField`, so a real misconfiguration fails before ever
+  reaching the generated `BuildConfig`. `build-apk.yml` CI compile
+  pending, same as every prior milestone.
+
+**Deliberately not re-litigated:** items already covered by an existing,
+passing automated test (see the checklist above) were verified by
+reading that test's actual assertions, not rewritten — this milestone's
+job was confirming the existing claims hold up and closing the one gap
+that didn't, not duplicating test coverage that already exists.
+
+**Milestone 14 is complete.**

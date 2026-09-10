@@ -22,6 +22,20 @@ val localProperties = Properties().apply {
 val apiBaseUrl: String =
     localProperties.getProperty("API_BASE_URL") ?: "https://not-configured.invalid"
 
+// Milestone 14: fail the build, not just at runtime, if this ever points
+// at plain http:// -- every account API client sends a bearer token on
+// almost every request, and the manifest's usesCleartextTraffic="true"
+// (needed for the pre-existing, unrelated addon ecosystem, which fetches
+// arbitrary user-supplied http:// and https:// addon URLs by design) means
+// the OS itself won't block a misconfigured http:// API_BASE_URL from
+// being attempted. Enforcing the scheme here, at build-config generation
+// time, is what actually closes that gap for this app's own account
+// traffic specifically -- unlike a network security config, which can't
+// reference a value only known at build time like this one.
+require(apiBaseUrl.startsWith("https://")) {
+    "API_BASE_URL must use https:// (was: $apiBaseUrl) -- this app sends bearer tokens on almost every account API request, which must never go out over plaintext HTTP."
+}
+
 android {
     namespace = "com.mangotv.app"
     compileSdk = 34
