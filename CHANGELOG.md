@@ -1467,3 +1467,142 @@ already-tested endpoints.
   on this.
 
 **Milestone 10 is complete.**
+
+## Milestone 11 — First-Login Local Data Migration
+
+**Status:** Complete.
+
+**Changes:** Pure Android-side change — no backend endpoints needed
+adding, since the "sync up" path replays each domain's existing push
+endpoints and the "start fresh" path is just `SyncManager.syncAll()`,
+both already built and tested in earlier milestones. What was missing
+was the decision layer in front of them: through Milestone 10, a QR
+sign-in always called `syncAll()` unconditionally, meaning a device with
+real pre-existing local data (a re-install, or a second device an
+account is being added to for the first time) would have had that data
+silently overwritten by whatever the cloud already had, the first time
+this milestone's SYNC/START FRESH prompt was actually needed.
+
+- `data/sync/FirstSyncState.kt` (new) — a device-scoped (not
+  account-scoped) DataStore boolean flag: has this device ever resolved
+  the migration decision? Deliberately device-, not account-scoped:
+  Milestone 5's Sign Out doesn't clear local caches yet (Milestone 12's
+  job), so scoping this per-account would risk a second, different
+  account signing in on the same device being asked to "sync" the
+  *previous* account's leftover local data into its own cloud account.
+  Once set, a later sign-in as a different account just pulls and
+  overwrites local state as normal — safe, since nothing is ever pushed
+  from a state this flag hasn't vetted.
+- `data/sync/{Settings,Watchlist,ContinueWatching,Addon}SyncRepository.kt`
+  — each gained two additions: `isCloudEmpty(): Boolean?` (a read-only
+  peek at whether this account has any data at all for that domain from
+  any device, returning `null` — never a guessed `true`/`false` — when
+  the check itself couldn't complete) and `pushAllLocalUp()` (pushes
+  every item currently in that domain's local cache, suspending until
+  done, reusing each domain's existing per-item push/reconcile logic
+  rather than a new bulk endpoint).
+- `data/sync/AddonSyncRepository.kt` — also a real architectural fix, not
+  just the two additions above: through Milestone 10, `pullFromServer()`
+  special-cased an empty cloud response by pushing this device's local
+  addons up as a seed, on *every* pull, to protect a brand-new account's
+  auto-installed Cinemeta default from being silently uninstalled on
+  first sign-in. Milestone 11 found the real bug in doing that
+  unconditionally: a user who deliberately clears every addon on one
+  device would have it silently resurrected the next time a second,
+  already-signed-in device happened to pull with a (correctly) empty
+  cloud response. That seed-from-local behavior is still needed, but
+  only belongs at first login — it now lives here only as the public
+  `pushAllLocalUp()` above, called by `FirstLoginMigrationCoordinator`
+  and gated by `FirstSyncState`; an ordinary pull now follows the same
+  plain "cloud is the source of truth" rule every other domain's
+  `pullFromServer()` already does.
+- `data/addon/AddonRepository.kt` — new `isJustDefaultAddon()`: true only
+  when the installed list is exactly the untouched first-launch default
+  (just Cinemeta, enabled), so the migration decision below can tell
+  "genuinely customized" apart from "never touched since install"
+  without leaking the Cinemeta URL constant outside this class.
+- `data/sync/FirstLoginMigrationCoordinator.kt` (new) — the actual
+  decision layer, called once per QR sign-in completion. In order: (1)
+  already resolved on this device before → proceed normally, nothing
+  rechecked; (2) no meaningful local data across any of the four domains
+  (including Home Row order/hidden rows and non-default player
+  preferences, not just the three domains with their own sync
+  repository) → proceed normally, and mark first-sync done, since
+  there's nothing here ever worth asking about again; (3) local data
+  exists and every domain's cloud peek confirms empty → auto-push,
+  no prompt needed, since there's no actual disagreement to resolve; (4)
+  local data exists and the cloud has something too → the real
+  SYNC/START FRESH prompt. A cloud peek that fails outright (offline,
+  server error) is never treated as empty — that would risk silently
+  pushing local data over cloud state this device just couldn't see —
+  it falls back to "proceed normally" and deliberately leaves first-sync
+  *not* marked done, so a later sign-in gets a genuine chance to resolve
+  this properly instead of the question being silently skipped forever
+  because of one transient failure.
+- `AppContainer.kt` — `firstLoginMigrationCoordinator` added, `by lazy`
+  (unlike most of this file's other singletons): nothing else constructs
+  it as an eager constructor argument, and it has no `init{}` side effect
+  of its own to arm early — `QrSignInViewModel` is its only caller, and
+  only right after a fresh sign-in completes.
+- `ui/auth/QrSignInViewModel.kt` — a completed QR session no longer
+  authenticates immediately. It first asks
+  `FirstLoginMigrationCoordinator.decide()` — almost always "proceed
+  normally," which authenticates exactly as before (fire-and-forget
+  sync, instant navigation, no perceptible change for the common case).
+  Only a genuine local-vs-cloud conflict surfaces the new
+  `QrUiState.MigrationChoice` and waits for the user's explicit choice
+  (`onSyncChosen()`/`onStartFreshChosen()`) before authenticating —
+  unlike the automatic paths, this one deliberately does wait for the
+  chosen push/pull to finish first, since it's a rare, user-initiated
+  action that deserves visible confirmation rather than the screen
+  instantly vanishing on tap.
+- `ui/auth/QrSignInScreen.kt` — a new `MigrationChoice` branch rendering
+  the prompt ("Sync existing MangoTV data to your account?") and two
+  `MangoButton`s (SYNC / START FRESH), focus-chained and TV-remote
+  navigable like every other auth screen in this app, matching
+  `AuthStartScreen`'s own filled/glass two-button styling.
+
+**Tests performed:**
+- `npm run typecheck` / `npm test` (backend) — clean, 131/131 (sanity
+  check only; no backend files changed this milestone, confirmed via
+  `git status` before starting).
+- Android: no new pure-logic unit tests this milestone (same rationale
+  as Milestones 6-10); verified instead by a full manual re-read of
+  every new/changed file — with particular attention to imports on the
+  two files this milestone's `AddonSyncRepository.kt` touches directly,
+  given Milestones 9 and 10 both caught real compile errors from
+  confusing `kotlinx.serialization` (core `decodeFromString`/
+  `encodeToString`) with `kotlinx.serialization.json`
+  (`decodeFromJsonElement`/`encodeToJsonElement`) — this milestone's new
+  files don't call either family of function directly, so the risk
+  didn't actually apply here, but the check was made deliberately rather
+  than assumed — and the `build-apk.yml` CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- `FirstLoginMigrationCoordinator.hasLocalData()`'s addon check would
+  have been wrong if written as `!addonRepository.isJustDefaultAddon()`
+  alone — true for a genuinely *empty* addon list too (size `0` isn't
+  size `1`), which would have meant a device with zero addons installed
+  incorrectly counted as "has customized addon data worth protecting."
+  Fixed by requiring `addons.isNotEmpty() &&
+  !addonRepository.isJustDefaultAddon()` — caught during design, before
+  the file was ever written in its buggy form.
+
+**Issues fixed:** the `hasLocalData()` bug above.
+
+**Deliberately not built yet:**
+- **A `viewModelScope` cancellation race** on the automatic (no-prompt)
+  paths: if navigation away from `QrSignInScreen` happens to cancel
+  `QrSignInViewModel` before its fire-and-forget `syncManager.syncAll()`/
+  `resolveSync()` calls finish, the sync could be interrupted mid-flight.
+  This risk pre-dates Milestone 11 (the same shape existed for
+  `syncAll()` through Milestone 10) and is deliberately left unchanged
+  for those paths, to avoid altering already-shipped, already-verified
+  behavior as a side effect of this milestone. The new interactive path
+  (`onSyncChosen()`/`onStartFreshChosen()`) sidesteps it by construction
+  — the screen only flips `authenticated` (which triggers navigation)
+  *after* awaiting the chosen operation, not before.
+- **Clearing local caches on logout** — still Milestone 12's job,
+  unchanged from every prior milestone's own note on this.
+
+**Milestone 11 is complete.**

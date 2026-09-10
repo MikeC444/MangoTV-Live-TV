@@ -26,28 +26,22 @@ import java.io.IOException
  * The fourth cloud-sync domain (Milestone 9), item-level like Watchlist:
  * an install/enable-toggle pushes just the one changed addon, a remove
  * pushes just that removal, and a pull replaces the local cache with the
- * account's full active addon list -- with one deliberate exception (see
- * [pullFromServer]) that no other domain needed.
+ * account's full active addon list.
  *
- * Every other synced domain starts genuinely empty locally before any
- * account exists (an empty watchlist, default settings, no watch
- * history), so a brand-new account's equally-empty cloud state is a
- * harmless no-op to pull down. Addons are different: AddonRepository
- * auto-installs Cinemeta on first launch, unconditionally, before the
- * auth gate even exists -- so by the time a user finishes creating a
- * brand-new account, the local list is *never* empty. A naive
- * pull-always-wins policy would silently uninstall that default the
- * moment every single new account signs in for the first time, which
- * would be this milestone's own sync code actively destroying working,
- * existing functionality (the one thing the project's rules are most
- * explicit about never doing). So: an empty *cloud* response pushes this
- * device's current local addons up as the account's initial set instead
- * of pulling the empty state down over them. This is deliberately narrow
- * and safe-by-construction (it only ever pushes local state up, never
- * discards it) -- it is not an attempt at Milestone 11's full "reconcile
- * pre-existing local data across every domain, with an explicit user
- * choice" design, which stays exactly as out of scope here as it is for
- * every other sync repository.
+ * Through Milestone 10, [pullFromServer] special-cased an empty cloud
+ * response by pushing this device's local addons (e.g. the
+ * auto-installed Cinemeta default) up as a seed, on *every* pull, to
+ * avoid a brand-new account's first sign-in silently uninstalling it.
+ * Milestone 11 found the real bug in doing that unconditionally: a user
+ * who deliberately clears every addon on one device would have it
+ * silently resurrected the next time a second, already-signed-in device
+ * happened to pull with an (now correctly) empty cloud response. That
+ * "seed from local if the cloud is empty" behavior is still real and
+ * still needed, but only belongs at *first login* — it now lives in
+ * FirstLoginMigrationCoordinator (via [pushAllLocalUp], gated by
+ * FirstSyncState), not here. An ordinary pull, from here on, follows the
+ * same plain "cloud is the source of truth" rule every other domain's
+ * pullFromServer() already does.
  *
  * Milestone 10 added [retryPending]: a failed push now persists to a
  * small durable outbox ([pendingStore]) instead of just being dropped --
@@ -67,21 +61,54 @@ class AddonSyncRepository(
         addonRepository.onLocalChange = { change -> pushToServer(change) }
     }
 
-    /** Pulls this account's active addon list and replaces the local cache with it -- except when the cloud has nothing yet, see the class kdoc. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
+    /** Pulls this account's active addon list and replaces the local cache with it. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
     suspend fun pullFromServer() {
         val token = freshAccessTokenOrNull() ?: return
         try {
             val response = apiClient.getAddons(token)
-            if (response.items.isEmpty()) {
-                pushAllLocalAsInitialSeed(token)
-            } else {
-                val items = response.items.mapNotNull { dto -> runCatching { dto.toInstalledAddon() }.getOrNull() }
-                addonRepository.applyRemote(items)
-            }
+            val items = response.items.mapNotNull { dto -> runCatching { dto.toInstalledAddon() }.getOrNull() }
+            addonRepository.applyRemote(items)
         } catch (e: ApiException) {
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
             // Transient -- local cache stays at its last-known-good state.
+        }
+    }
+
+    /**
+     * Peeks whether this account has ever synced an addon from any
+     * device, without applying anything locally. Used only by Milestone
+     * 11's first-login migration decision. Returns null (not a guess)
+     * when the check itself couldn't complete.
+     */
+    suspend fun isCloudEmpty(): Boolean? {
+        val token = freshAccessTokenOrNull() ?: return null
+        return try {
+            apiClient.getAddons(token).items.isEmpty()
+        } catch (e: ApiException) {
+            null
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    /** Pushes every addon currently installed on this device up, in their current list order -- used by FirstLoginMigrationCoordinator, both for the user's explicit SYNC choice and for the no-prompt-needed "cloud has nothing yet" auto-resolution. One addon failing doesn't block the rest; a failure is queued for retry like any other failed push. */
+    suspend fun pushAllLocalUp() {
+        val token = freshAccessTokenOrNull() ?: return
+        val localAddons = addonRepository.installedAddons.value
+        localAddons.forEachIndexed { index, addon ->
+            val dto = addon.toDto(sortOrder = index, updatedAt = Iso8601.nowString())
+            try {
+                apiClient.upsertAddon(token, dto)
+            } catch (e: ApiException) {
+                pendingStore.put(addon.manifestUrl, dto)
+                if (e.statusCode == 401) {
+                    authRepository.clearSessionOnConfirmedUnauthorized()
+                    return
+                }
+            } catch (e: IOException) {
+                pendingStore.put(addon.manifestUrl, dto)
+            }
         }
     }
 
@@ -110,25 +137,6 @@ class AddonSyncRepository(
                 // Still offline -- leave this and the rest of the batch
                 // queued and stop; they'd fail identically right now.
                 return
-            }
-        }
-    }
-
-    /** This account has never synced an addon from any device -- push whatever this device already has (e.g. the auto-installed Cinemeta default) up as the seed, rather than pulling the empty cloud state down over it. Each addon is pushed independently; one failing doesn't block the rest, and is queued for retry like any other failed push. */
-    private suspend fun pushAllLocalAsInitialSeed(token: String) {
-        val localAddons = addonRepository.installedAddons.value
-        localAddons.forEachIndexed { index, addon ->
-            val dto = addon.toDto(sortOrder = index, updatedAt = Iso8601.nowString())
-            try {
-                apiClient.upsertAddon(token, dto)
-            } catch (e: ApiException) {
-                pendingStore.put(addon.manifestUrl, dto)
-                if (e.statusCode == 401) {
-                    authRepository.clearSessionOnConfirmedUnauthorized()
-                    return
-                }
-            } catch (e: IOException) {
-                pendingStore.put(addon.manifestUrl, dto)
             }
         }
     }

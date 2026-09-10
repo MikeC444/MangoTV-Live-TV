@@ -88,38 +88,62 @@ class SettingsSyncRepository(
         }
     }
 
+    /**
+     * Peeks whether this account has ever pushed settings from any
+     * device, without applying anything locally. Used only by Milestone
+     * 11's first-login migration decision. Returns null (rather than a
+     * guess) when the check itself couldn't complete -- the coordinator
+     * treats that as "can't safely decide" and falls back to an ordinary
+     * sync, never as "assume empty and push over it."
+     */
+    suspend fun isCloudEmpty(): Boolean? {
+        val token = freshAccessTokenOrNull() ?: return null
+        return try {
+            apiClient.getSettings(token).updatedAt == null
+        } catch (e: ApiException) {
+            null
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    /** Pushes this device's current local settings up as the account's state, suspending until it finishes (or fails and is queued for retry) -- used by Milestone 11's SYNC choice. Unlike the fire-and-forget pushToServer() below, a caller resolving the migration decision needs to know when this actually completes. */
+    suspend fun pushAllLocalUp() = doPush()
+
     /** Fire-and-forget: HomeRowPreferencesRepository/PlayerPreferencesRepository call this via onLocalChange after persisting a genuine local mutation. */
     private fun pushToServer() {
-        scope.launch {
-            val home = homeRowPreferencesRepository.preferences.value
-            val player = playerPreferencesRepository.preferences.value
-            val body = SettingsRequest(
-                homeRowOrder = home.order,
-                hiddenRowIds = home.hiddenRowIds.toList(),
-                autoplayNextEpisode = player.autoplayNextEpisode,
-                skipIntroEnabled = player.skipIntroEnabled,
-                updatedAt = Iso8601.nowString()
-            )
-            val token = freshAccessTokenOrNull()
-            if (token == null) {
-                pendingStore.put(PENDING_KEY, body)
-                return@launch
-            }
-            try {
-                val response = apiClient.putSettings(token, body)
-                // Reconciles the rare case this write lost a last-write-wins
-                // race (e.g. a near-simultaneous change from another
-                // device): applies whatever the server says is
-                // authoritative now, which is just this write's own values
-                // echoed back when it won.
-                applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
-                pendingStore.remove(PENDING_KEY)
-            } catch (e: ApiException) {
-                pendingStore.put(PENDING_KEY, body)
-                if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
-            } catch (e: IOException) {
-                pendingStore.put(PENDING_KEY, body)
-            }
+        scope.launch { doPush() }
+    }
+
+    private suspend fun doPush() {
+        val home = homeRowPreferencesRepository.preferences.value
+        val player = playerPreferencesRepository.preferences.value
+        val body = SettingsRequest(
+            homeRowOrder = home.order,
+            hiddenRowIds = home.hiddenRowIds.toList(),
+            autoplayNextEpisode = player.autoplayNextEpisode,
+            skipIntroEnabled = player.skipIntroEnabled,
+            updatedAt = Iso8601.nowString()
+        )
+        val token = freshAccessTokenOrNull()
+        if (token == null) {
+            pendingStore.put(PENDING_KEY, body)
+            return
+        }
+        try {
+            val response = apiClient.putSettings(token, body)
+            // Reconciles the rare case this write lost a last-write-wins
+            // race (e.g. a near-simultaneous change from another
+            // device): applies whatever the server says is
+            // authoritative now, which is just this write's own values
+            // echoed back when it won.
+            applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
+            pendingStore.remove(PENDING_KEY)
+        } catch (e: ApiException) {
+            pendingStore.put(PENDING_KEY, body)
+            if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
+        } catch (e: IOException) {
+            pendingStore.put(PENDING_KEY, body)
         }
     }
 

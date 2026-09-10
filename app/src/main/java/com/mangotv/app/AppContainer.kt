@@ -9,6 +9,8 @@ import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
 import com.mangotv.app.data.sync.AddonSyncRepository
 import com.mangotv.app.data.sync.ContinueWatchingSyncRepository
+import com.mangotv.app.data.sync.FirstLoginMigrationCoordinator
+import com.mangotv.app.data.sync.FirstSyncState
 import com.mangotv.app.data.sync.SettingsSyncRepository
 import com.mangotv.app.data.sync.SyncManager
 import com.mangotv.app.data.sync.WatchlistSyncRepository
@@ -87,6 +89,14 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * the process starts, not the moment some screen first needs it" reasoning
  * as addonRepository/authRepository above, just for a different kind of
  * side effect (a registered OS callback instead of a disk read).
+ *
+ * firstLoginMigrationCoordinator (Milestone 11) is lazy, unlike most of
+ * the above: nothing else constructs it as an eager constructor argument
+ * the way e.g. watchlistSyncRepository forces myListRepository, and it
+ * has no init{} side effect of its own to arm early (no hook to wire, no
+ * callback to register) -- QrSignInViewModel is its only caller, and only
+ * right after a fresh sign-in completes, so there's no reason for it to
+ * exist before then.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
@@ -106,4 +116,19 @@ class AppContainer(context: Context) {
     val syncManager: SyncManager = SyncManager(
         context, settingsSyncRepository, watchlistSyncRepository, continueWatchingSyncRepository, addonSyncRepository
     )
+    val firstLoginMigrationCoordinator: FirstLoginMigrationCoordinator by lazy {
+        FirstLoginMigrationCoordinator(
+            firstSyncState = FirstSyncState(context),
+            addonRepository = addonRepository,
+            myListRepository = myListRepository,
+            continueWatchingRepository = continueWatchingRepository,
+            homeRowPreferencesRepository = homeRowPreferencesRepository,
+            playerPreferencesRepository = playerPreferencesRepository,
+            settingsSyncRepository = settingsSyncRepository,
+            watchlistSyncRepository = watchlistSyncRepository,
+            continueWatchingSyncRepository = continueWatchingSyncRepository,
+            addonSyncRepository = addonSyncRepository,
+            syncManager = syncManager
+        )
+    }
 }

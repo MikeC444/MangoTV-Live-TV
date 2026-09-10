@@ -50,6 +50,12 @@ class AddonRepository(context: Context) {
     /** Fired after a genuine local install/remove/enable-toggle finishes persisting -- AddonSyncRepository (Milestone 9) hooks this to push just the one changed addon. Never invoked from [applyRemote]. */
     var onLocalChange: ((AddonChange) -> Unit)? = null
 
+    /** True only when the installed list is exactly the untouched first-launch default (just Cinemeta, enabled) -- used by Milestone 11's FirstLoginMigrationCoordinator to tell "genuinely customized" apart from "never touched since install," without leaking the Cinemeta URL constant itself outside this class. */
+    fun isJustDefaultAddon(): Boolean {
+        val current = _installedAddons.value
+        return current.size == 1 && current[0].manifestUrl == CINEMETA_MANIFEST_URL && current[0].enabled
+    }
+
     init {
         scope.launch { restoreFromDisk() }
     }

@@ -65,6 +65,58 @@ class ContinueWatchingSyncRepository(
         }
     }
 
+    /**
+     * Peeks whether this account has any Continue Watching entries from
+     * any device, without applying anything locally. Used only by
+     * Milestone 11's first-login migration decision. Returns null (not a
+     * guess) when the check itself couldn't complete.
+     */
+    suspend fun isCloudEmpty(): Boolean? {
+        val token = freshAccessTokenOrNull() ?: return null
+        return try {
+            apiClient.getContinueWatching(token).items.isEmpty()
+        } catch (e: ApiException) {
+            null
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    /** Pushes every entry currently in ContinueWatchingRepository up as an in-progress report, each using its own already-stored lastWatchedAt rather than a fresh "now" -- used by Milestone 11's SYNC choice. One entry failing doesn't block the rest; a failure is queued for retry like any other failed push. */
+    suspend fun pushAllLocalUp() {
+        val token = freshAccessTokenOrNull() ?: return
+        for (entry in continueWatchingRepository.items.value) {
+            val key = "${entry.providerId}|${entry.contentId}|${entry.contentType.name}"
+            val request = WatchProgressRequest(
+                providerId = entry.providerId,
+                contentId = entry.contentId,
+                contentType = entry.contentType.name,
+                seasonNumber = entry.seasonNumber,
+                episodeNumber = entry.episodeNumber,
+                episodeTitle = entry.episodeTitle,
+                title = entry.title,
+                posterUrl = entry.posterUrl,
+                backdropUrl = entry.backdropUrl,
+                positionMs = entry.positionMs,
+                durationMs = entry.durationMs,
+                completed = false,
+                watchedAt = entry.lastWatchedAt
+            )
+            try {
+                val response = apiClient.postProgress(token, request)
+                reconcile(entry.providerId, entry.contentId, entry.contentType, response.continueWatching)
+            } catch (e: ApiException) {
+                pendingStore.put(key, request)
+                if (e.statusCode == 401) {
+                    authRepository.clearSessionOnConfirmedUnauthorized()
+                    return
+                }
+            } catch (e: IOException) {
+                pendingStore.put(key, request)
+            }
+        }
+    }
+
     /** Retries every progress report this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer) and when network connectivity returns. */
     suspend fun retryPending() {
         val pending = pendingStore.all()

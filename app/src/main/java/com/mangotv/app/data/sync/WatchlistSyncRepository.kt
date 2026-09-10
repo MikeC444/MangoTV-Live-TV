@@ -35,12 +35,13 @@ import java.io.IOException
  * change's own updatedAt as a marker) rather than inventing a parallel
  * serializable type just for this.
  *
- * Deliberately does not bulk-push whatever is already sitting in
- * MyListRepository the first time this runs on an existing install — that
- * is Milestone 11's "first-login local data migration" (SYNC vs. START
- * FRESH), not this milestone's job. Until that ships, a pull always wins:
- * an account's local list is replaced by whatever the server has (empty,
- * for a brand new account), and only *future* toggles get pushed.
+ * Bulk-pushing whatever is already sitting in MyListRepository the first
+ * time this ever runs on a device is Milestone 11's job
+ * (FirstLoginMigrationCoordinator, via [pushAllLocalUp]), gated on the
+ * user's own SYNC/START FRESH choice — not something this repository
+ * decides on its own. Absent that, an ordinary pull always wins: an
+ * account's local list is replaced by whatever the server has, and only
+ * *future* toggles get pushed.
  */
 class WatchlistSyncRepository(
     context: Context,
@@ -66,6 +67,42 @@ class WatchlistSyncRepository(
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
             // Transient -- local cache stays at its last-known-good state.
+        }
+    }
+
+    /**
+     * Peeks whether this account has ever synced a watchlist item from
+     * any device, without applying anything locally. Used only by
+     * Milestone 11's first-login migration decision. Returns null (not a
+     * guess) when the check itself couldn't complete.
+     */
+    suspend fun isCloudEmpty(): Boolean? {
+        val token = freshAccessTokenOrNull() ?: return null
+        return try {
+            apiClient.getWatchlist(token).items.isEmpty()
+        } catch (e: ApiException) {
+            null
+        } catch (e: IOException) {
+            null
+        }
+    }
+
+    /** Pushes every item currently in MyListRepository up, each using its own already-stored updatedAt (when this device last actually changed it) rather than a fresh "now" -- used by Milestone 11's SYNC choice. One item failing doesn't block the rest; a failure is queued for retry like any other failed push. */
+    suspend fun pushAllLocalUp() {
+        val token = freshAccessTokenOrNull() ?: return
+        for (item in myListRepository.items.value) {
+            val dto = item.toDto()
+            try {
+                reconcile(apiClient.addOrUpdateItem(token, dto))
+            } catch (e: ApiException) {
+                pendingStore.put(item.naturalKey(), dto)
+                if (e.statusCode == 401) {
+                    authRepository.clearSessionOnConfirmedUnauthorized()
+                    return
+                }
+            } catch (e: IOException) {
+                pendingStore.put(item.naturalKey(), dto)
+            }
         }
     }
 
@@ -165,9 +202,11 @@ class WatchlistSyncRepository(
     }
 
     private fun WatchlistChange.naturalKey(): String = when (this) {
-        is WatchlistChange.Added -> "${item.providerId}|${item.id}|${item.type.name}"
+        is WatchlistChange.Added -> item.naturalKey()
         is WatchlistChange.Removed -> "$providerId|$contentId|${contentType.name}"
     }
+
+    private fun SavedListItem.naturalKey(): String = "$providerId|$id|${type.name}"
 
     /** A pending removal is stored as a DTO with only the fields a DELETE actually needs, deletedAt set to its own updatedAt as the "this is a removal, not an upsert" marker retryPending() reads. */
     private fun WatchlistChange.toPendingDto(): WatchlistItemDto = when (this) {
