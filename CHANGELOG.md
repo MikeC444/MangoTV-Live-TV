@@ -2303,3 +2303,92 @@ pass in `docs/milestone-16-e2e-test-plan.md` is ready to run on real
 Fire TV devices whenever they're available; its result should be appended
 to this entry when it is, the same way every other milestone records its
 test results.
+
+## Milestone 17 — Final Documentation
+
+**Status:** Complete.
+
+**Scope note:** the spec frames this as coming "once all milestones are
+complete." Milestone 16's hardware pass is still open (see above) — this
+milestone proceeded anyway, at the user's explicit direction, since
+writing accurate reference documentation for a system whose code and
+behavior are already finished and verified doesn't depend on a human
+having since run it on physical Fire TV hardware. Nothing in this
+milestone claims the hardware pass happened; every document below states
+plainly that it hasn't.
+
+**Changes:** No application code touched — documentation only. Rather
+than write from memory, every fact below was re-verified against current
+source immediately before writing it: all 12 migration files read fresh
+in full (not recalled from earlier in this session), every route file's
+actual response shape, `.env.example`'s exact variable names, and
+`server/README.md`'s existing (already-accurate) endpoint reference cross-
+checked rather than duplicated.
+
+**New:**
+- `docs/ARCHITECTURE.md` — the centerpiece: a system overview (with an
+  ASCII diagram of the Fire TV → API → Neon path and what each layer owns
+  and never touches), a full table-by-table database reference (purpose +
+  key design decisions for all 10 application tables, drawn from each
+  migration's own header comments but reorganized as a lookup table
+  rather than 12 separate chronological files), the QR/session/token-
+  expiration/device-association/logout authentication flow with a
+  sequence diagram, and the synchronization architecture (what syncs, how
+  often, conflict resolution, offline behavior, retry behavior) distilled
+  from Milestones 6-13's own reasoning into one current-state reference
+  instead of scattered across per-milestone changelog entries.
+- `docs/DEPLOYMENT.md` — Neon setup (including the pooled-vs-direct
+  connection string distinction migrations need), backend deployment
+  (graceful shutdown, health check, `trust proxy`'s single-hop assumption
+  and when to revisit it), every environment variable on both the backend
+  and Android sides, domain configuration, why HTTPS here is load-bearing
+  rather than incidental (tied directly to Milestone 14/15's build-time
+  `require(apiBaseUrl.startsWith("https://"))` check), and how the QR
+  activation URL is actually constructed.
+- `docs/TESTING.md` — the durable, non-milestone-numbered testing guide:
+  running the 131 backend unit tests, running the automated
+  `npm run e2e` end-to-end script, and the eight-scenario real-hardware
+  test plan (moved here from `docs/milestone-16-e2e-test-plan.md`, which
+  now points here instead of carrying its own now-duplicate copy, so the
+  steps exist in exactly one place rather than two that could drift).
+
+**Changed:**
+- `docs/milestone-16-e2e-test-plan.md` — its "What still needs real
+  hardware" section (the eight step-by-step scenarios) replaced with a
+  pointer to `docs/TESTING.md`'s canonical copy; the historical "what was
+  verified, 40/40" record from Milestone 16 itself is untouched.
+- `server/README.md` — removed the stale "Milestone 9 (current)"
+  framing (the file was last edited when addon sync was in progress; the
+  system has since reached Milestone 16) in favor of linking
+  `docs/ARCHITECTURE.md`/`docs/DEPLOYMENT.md`; added the `npm run e2e`
+  section. Its existing endpoint-by-endpoint reference was left as-is —
+  already accurate, already thorough, no reason to duplicate it into
+  `ARCHITECTURE.md` as well.
+- `README.md` (repo root) — replaced the "Step 1 of the rebuild: Home
+  screen" status line (accurate when written, badly stale after 16
+  milestones of feature and account-system work since) with the app's
+  actual current feature set, and expanded the project-structure listing
+  to include every package added since (`data/auth`, `data/network`,
+  `data/sync`, `data/history`, `data/player`, `ui/auth`, plus the
+  `server/` subproject) — the previous listing only ever described the
+  original home-screen-only rebuild.
+
+**Tests performed:** N/A for the documentation itself (no code changed to
+test); every factual claim inside the new documents was checked against
+its actual source (migration SQL, route handlers, schema files, kdoc
+comments) at write time rather than assumed correct from memory —
+documented as an explicit step in "Changes" above rather than left
+implicit, since inaccurate documentation would be a real defect in a
+milestone whose entire deliverable *is* documentation.
+
+**Issues discovered:** none in the underlying system — this milestone
+read and organized what Milestones 0-16 already built and verified, it
+didn't uncover new application behavior.
+
+**Issues fixed:** N/A — see above.
+
+**Milestone 17 is complete.** All 18 milestones (0-17) are now done. The
+one open item across the whole project remains Milestone 16's hardware
+pass — see `docs/TESTING.md` §3 to run it, and append the result to
+Milestone 16's entry above when it happens, per that section's own
+"Recording a hardware run" note.

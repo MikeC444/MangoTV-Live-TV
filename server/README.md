@@ -2,17 +2,13 @@
 
 Backend API sitting between the Fire TV app and Neon Postgres. The Fire TV
 app never receives database credentials or talks to Postgres directly —
-see `docs/milestone-0-audit-and-plan.md` at the repo root for the full
-architecture writeup.
+see [`docs/ARCHITECTURE.md`](../docs/ARCHITECTURE.md) at the repo root for
+the full architecture writeup (system overview, every database table,
+authentication flow, and how cloud synchronization works), and
+[`docs/DEPLOYMENT.md`](../docs/DEPLOYMENT.md) for running a real instance
+against Neon.
 
-Milestone 1: database schema + migrations. Milestone 2: the Express API
-foundation. Milestone 3: real accounts. Milestone 4: QR sign-in for the
-Fire TV. Milestone 5: the Fire TV app itself wired to all of the above.
-Milestone 6: Home Rows + Player settings cloud sync. Milestone 7: My
-List/watchlist cloud sync. Milestone 8: watch history + Continue
-Watching cloud sync. Milestone 9 (current): installed addon cloud sync.
-
-Endpoints so far:
+Endpoints:
 
 - `GET /health` — unauthenticated liveness/DB-connectivity check.
 - `POST /auth/register`, `POST /auth/login` — `{ email, password,
@@ -144,3 +140,18 @@ reads `DATABASE_URL` at all, so a real database configured there is never
 at risk just because it was sitting in `.env` when tests ran. CI runs the
 same suite against a throwaway `postgres:16` service container instead of
 a local database, and needs no secret to do it.
+
+## Running the full end-to-end test
+
+```
+npm run e2e
+```
+
+Drives a **real, running** server (start one first with `npm run dev`)
+over real HTTP through all eight of this project's named multi-device
+test scenarios in one continuous session — a genuinely different kind of
+check than the unit tests above, which each verify one endpoint in
+isolation. Safe to re-run against a persistent database; see
+[`docs/TESTING.md`](../docs/TESTING.md) for the full walkthrough,
+including the parts of those eight scenarios that need a real Fire TV
+device rather than this script.

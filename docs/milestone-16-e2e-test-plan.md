@@ -49,97 +49,13 @@ output when it runs.
 
 ## What still needs real hardware
 
-Everything below requires: the backend deployed somewhere reachable over
-HTTPS (see Milestone 17's deployment docs), a real Neon database behind it,
-the app built with that deployment's `API_BASE_URL` in `local.properties`,
-and at least two Fire TV / Android TV devices (or one device plus one
-emulator with working GPU acceleration, if the toolchain running this has
-one — this sandbox does not).
-
-### TEST 1 — New user
-
-1. Fresh-install the APK on Device A. Launch it.
-2. **Expect:** the authentication screen appears immediately — never the
-   existing Home/catalog UI first.
-3. Select **Create Account**. A QR code appears.
-4. Scan it with a phone. The activation page loads (account-creation tab).
-5. Enter a new email + password, submit.
-6. **Expect:** Device A detects completion on its own (polling, no manual
-   refresh) within a few seconds and proceeds straight into the main app.
-
-### TEST 2 — Data creation
-
-On Device A: add at least two titles to My List, watch part of one title
-then back out of the player, change a setting under Settings, install an
-addon under Settings → Addons, and change that addon's enabled state.
-
-**Expect:** every action reflects locally right away (no visible delay
-waiting on the network) — this is the local-cache-first behavior Milestone
-6 onward established.
-
-### TEST 3 — Second device
-
-1. Fresh-install the APK on Device B.
-2. Select **Sign In**, scan the QR with a phone, sign in with Device A's
-   account credentials (not create-account).
-3. **Expect:** Device B proceeds into the main app and, within a few
-   seconds, shows the exact same My List, Continue Watching entry,
-   settings, and addon configuration Device A has.
-
-### TEST 4 — Cross-device changes
-
-On Device B: remove one My List item, change a setting to a different
-value.
-
-**Expect:** Device A reflects both changes without needing a restart — on
-its own next sync trigger (app foreground, or within the periodic retry
-window — see `SyncManager`'s Milestone 13 kdoc for the exact triggers).
-
-### TEST 5 — Logout
-
-On Device B: Settings → Account → Sign Out.
-
-**Expect:** Device B returns to the authentication screen and none of
-Device A's — now the *account's* — data is reachable from Device B
-afterward (back button, relaunch) without signing in again. Device A stays
-signed in and unaffected throughout.
-
-### TEST 6 — Account switch
-
-On Device B (now signed out): sign in with a **different** account (or
-create a new one).
-
-**Expect:** completely different My List / history / settings / addons —
-nothing from the first account is visible.
-
-### TEST 7 — Offline
-
-1. On a signed-in device, disable Wi-Fi entirely.
-2. **Expect:** the app continues to function using cached data — Home, My
-   List, Continue Watching, Settings, and Addons all still render; nothing
-   crashes or blanks out waiting on a dead network (per Milestone 13's
-   hardening).
-3. While still offline, add/remove a My List item and change a setting.
-4. **Expect:** both changes apply locally and instantly, same as when
-   online.
-5. Re-enable Wi-Fi.
-6. **Expect:** within a few seconds to a few minutes (immediately if the
-   OS delivers a connectivity-changed callback promptly; within 5 minutes
-   regardless, via `SyncManager`'s periodic retry — see its Milestone 13
-   kdoc), the offline changes appear on a second signed-in device.
-
-### TEST 8 — Security
-
-This one is already exhaustively covered without hardware: `npm run e2e`'s
-TEST 8, plus the 131 backend unit tests (several of them dedicated attack
-simulations — e.g. one account guessing another's exact watchlist/addon
-natural key with an engineered far-future timestamp to try to win a
-last-write-wins race), already prove every cross-account access path
-fails. Nothing about running the real Android app changes that server-side
-guarantee. Worth a spot check on real devices only if you want to see it
-firsthand: sign into two different accounts on two devices and confirm
-each only ever shows its own data — there is no code path left unverified
-that a manual pass here would newly catch.
+**Superseded by [`docs/TESTING.md`](TESTING.md)**, written as part of
+Milestone 17's final documentation pass — that file now holds the
+maintained, canonical copy of the eight hardware-pass steps (§3) so they
+exist in exactly one place going forward rather than drifting between a
+milestone-numbered snapshot and a living doc. This file stays as the
+Milestone 16 historical record of what was verified and when (see above);
+go to `TESTING.md` to actually run the hardware pass.
 
 ## Recording results
 
