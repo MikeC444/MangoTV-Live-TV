@@ -1289,9 +1289,21 @@ Android:
   milestone introduced, but worth stating plainly rather than letting
   "verbatim" imply something the system was never actually capable of.
 
-**Issues fixed:** N/A beyond the empty-cloud design decision itself,
-which was built correctly from the start once identified rather than
-requiring a later fix.
+**Issues fixed:**
+- The empty-cloud design decision itself was built correctly from the
+  start once identified, not patched in after.
+- **CI caught a real compile error** the manual re-read missed:
+  `AddonSyncRepository.kt` imported `decodeFromJsonElement`/
+  `encodeToJsonElement` from `kotlinx.serialization` (the package
+  `decodeFromString`/`encodeToString` live in, used correctly elsewhere
+  in this file and across the codebase) instead of
+  `kotlinx.serialization.json` (where the JSON-`JsonElement`-specific
+  overloads actually live) — two genuinely different packages in the
+  same library that happen to export similarly-named functions. Fixed
+  by correcting both imports; consistent with `kotlinx-serialization-json`
+  1.7.3's own package layout (pinned in `gradle/libs.versions.toml`).
+  Pushed as a second commit and re-ran `build-apk.yml`, which came back
+  green.
 
 **Deliberately not built yet:**
 - **Reordering addons.** There is no reorder UI anywhere in the app
