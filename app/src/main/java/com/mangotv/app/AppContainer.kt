@@ -7,6 +7,7 @@ import com.mangotv.app.data.history.ContinueWatchingRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
+import com.mangotv.app.data.sync.AddonSyncRepository
 import com.mangotv.app.data.sync.ContinueWatchingSyncRepository
 import com.mangotv.app.data.sync.SettingsSyncRepository
 import com.mangotv.app.data.sync.WatchlistSyncRepository
@@ -71,10 +72,18 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * repository call the way My List/Settings are — see its own kdoc), so
  * eagerness here is purely about that resume-position lookup and
  * pull-on-launch being ready immediately, not about hook wiring order.
+ *
+ * addonSyncRepository is eager for the same onLocalChange-wiring reason
+ * as settingsSyncRepository/watchlistSyncRepository — addonRepository
+ * itself was already eager well before Milestone 9 for its own,
+ * unrelated reason (see its own paragraph above), so this milestone
+ * didn't need to change addonRepository's own laziness, only add its
+ * sync counterpart alongside it.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
     val authRepository: AuthRepository = AuthRepository(context)
+    val addonSyncRepository: AddonSyncRepository = AddonSyncRepository(addonRepository, authRepository)
     val playerPreferencesRepository: PlayerPreferencesRepository = PlayerPreferencesRepository(context)
     val homeRowPreferencesRepository: HomeRowPreferencesRepository = HomeRowPreferencesRepository(context)
     val settingsSyncRepository: SettingsSyncRepository = SettingsSyncRepository(

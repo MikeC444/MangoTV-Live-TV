@@ -1158,3 +1158,156 @@ Android:
   repositories use — not a new gap unique to Continue Watching.
 
 **Milestone 8 is complete.**
+
+## Milestone 9 — Addon Synchronization
+
+**Status:** Complete.
+
+**Changes:** Structurally the same item-level shape as Milestone 7's
+watchlist sync (`user_addons`, created in Milestone 1, already had the
+right columns — `manifest_url` as the natural key, `deleted_at` for
+soft-delete — so no new migration was needed), but with one real
+architectural wrinkle none of the previous three domains had: addons are
+never actually empty locally. `AddonRepository` auto-installs Cinemeta on
+first launch, unconditionally, before the auth gate even exists — so a
+naive pull-always-wins policy would have silently uninstalled that
+default the moment *every single* brand-new account signed in for the
+first time. Confirmed `addon_settings` (reserved in Milestone 1 for
+per-addon configurable state) is still genuinely unused — this app has no
+addon configurability beyond enabled/order today, matching that
+migration's own header comment — so this milestone's sync target is
+`user_addons` alone.
+
+Backend:
+- `schemas/addons.ts` — `addonBodySchema` (`manifestJson` validated only
+  as "a JSON object" via `z.record(z.string(), z.unknown())" — its real
+  shape is entirely addon-defined, the same "opaque JSONB" treatment
+  `addon_settings.config` already got in Milestone 1) and
+  `addonDeleteQuerySchema` (`manifestUrl` + `updatedAt` as query params,
+  same reasoning as watchlist's DELETE).
+- `services/addonService.ts` — `listActiveAddons`, `upsertAddon` (the
+  same atomic `INSERT/DO UPDATE ... WHERE EXCLUDED.updated_at > ...`
+  last-write-wins shape as watchlist, on a single-column natural key
+  instead of a three-column one; `installed_at` is left untouched by the
+  `DO UPDATE`, same "durable slot" reasoning as watchlist's `added_at`),
+  `removeAddon` (soft-delete, `null` only when the addon never existed
+  for this user at all).
+- `routes/addons.ts` — `GET`/`POST`/`DELETE /user/addons`, all
+  `requireAuth`, mounted alongside history/watchlist/settings in
+  `app.ts`.
+
+Android:
+- `data/network/{AddonSyncDtos,AddonSyncApiClient}.kt` — mirrors
+  `WatchlistApiClient`'s style; `manifestJson` travels as a plain
+  `JsonObject` rather than being decoded into `AddonManifest` at this
+  layer, so `AddonSyncRepository` owns the one place that converts
+  between the wire shape and the local model.
+- `data/addon/AddonRepository.kt` — a new `AddonChange` sealed type
+  (`Upserted` — carrying the addon's own list-position `sortOrder`, since
+  `AddonRepository` already knows it at the moment of mutation, cheaper
+  than having the sync layer re-derive it — and `Removed`) and an
+  `onLocalChange` hook, fired from `installAddon`/`removeAddon`/
+  `setEnabled`, same shape as `MyListRepository`'s `WatchlistChange`
+  hook. A new `applyRemote(remoteAddons)` — unlike
+  `MyListRepository`/`ContinueWatchingRepository`'s own `applyRemote`,
+  this one has a real side effect to reconcile: it unregisters every
+  addon this device previously knew about from `ProviderRegistry`, then
+  registers whichever of the new list is enabled — the same
+  "clear-and-rebuild-from-a-fresh-list" shape `restoreFromDisk()` already
+  uses at app startup, rather than diffing old vs. new.
+- `data/sync/AddonSyncRepository.kt` (new) — `pullFromServer()` and
+  `pushToServer(change)`/`reconcile(...)`, same fire-and-forget,
+  no-suspend-push shape as `WatchlistSyncRepository`. The one real
+  addition: when a pull's response is an **empty** list, this device's
+  current local addons are pushed *up* as the account's initial set
+  instead of the empty cloud state being pulled *down* over them (see
+  the class's own kdoc for the full reasoning) — deliberately narrow and
+  safe-by-construction (it only ever pushes local state up, never
+  discards it), not an attempt at Milestone 11's general "reconcile
+  pre-existing local data, with an explicit user choice" design, which
+  stays exactly as out of scope here as for every other sync repository.
+  A non-empty cloud response still always wins outright (Device B
+  signing into an *existing* account correctly replaces its own
+  bootstrapped Cinemeta with that account's real addons — the
+  empty-cloud exception only ever protects a genuinely new account's
+  very first sync).
+- `AppContainer.kt` — `addonSyncRepository` added as an eager singleton
+  (same onLocalChange-wiring reason as `settingsSyncRepository`/
+  `watchlistSyncRepository`); `addonRepository` itself needed no
+  laziness change since it was already eager, for its own pre-existing,
+  unrelated reason (registering enabled addons into `ProviderRegistry`
+  at startup).
+- `AuthGateViewModel.kt` / `QrSignInViewModel.kt` — call
+  `addonSyncRepository.pullFromServer()` alongside the existing three
+  pulls, same two call sites, same fire-and-forget posture.
+
+**Tests performed:**
+- `npm run typecheck` / `npm audit` — clean.
+- `npm test` locally against `mangotv_test` — **131/131 passed** (up from
+  112; 19 new): install-and-echo with `manifestJson` round-tripping
+  intact through JSONB; a later GET reflecting an install; GET ordering
+  by `sortOrder`; enabling/disabling with a strictly newer `updatedAt`
+  overwriting; an older `updatedAt` losing to current state;
+  re-installing a removed addon (newer `updatedAt`) clearing `deletedAt`
+  and reappearing in GET; a stale-timestamped remove losing to a newer
+  install; a `204` for an addon that was never synced; validation
+  failures (missing fields, `manifestJson` that isn't a JSON object,
+  non-ISO-8601 `updatedAt`, missing DELETE query params); 401s with no
+  Authorization header on all three endpoints; cross-user isolation,
+  including a dedicated test confirming bob cannot remove alice's addon
+  by guessing her exact `manifestUrl` with a far-future `updatedAt`
+  (scoped away entirely — every query filters on `user_id` from the
+  authenticated session, never a client-supplied value).
+- Manual smoke test against a real running server, over actual HTTP:
+  POST install → GET (shows it) → DELETE (200, `deletedAt` set) → GET
+  (empty) → unauthenticated GET (401). Seeded data deleted immediately
+  after.
+- Android: no new pure-logic unit tests this milestone (same rationale
+  as Milestones 6-8); verified instead by a full manual re-read of every
+  new/changed file, cross-checking wire-format field names against the
+  actual backend schema/routes, confirming `AddonManifest`'s
+  round-trip through `Json.encodeToJsonElement`/`decodeFromJsonElement`
+  correctly carries its nested `resources: List<JsonElement>` field
+  (kotlinx.serialization handles this recursively — no hand-written
+  field mapping to go stale if `AddonManifest` gains fields later), and
+  the `build-apk.yml` CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- The Cinemeta-auto-install-vs-empty-cloud-pull collision described
+  above — caught by working through Milestone 16's own "TEST 1 — NEW
+  USER" flow by hand (install app → auth screen → create account via QR)
+  before writing any sync code, not discovered after the fact. This is
+  the reason `pullFromServer()`'s empty-list branch exists at all, not a
+  bug fixed after shipping a naive version.
+- Migration 0007's own comment says `manifest_json` caches the addon's
+  manifest.json "verbatim." In practice it can't be byte-identical to
+  the addon's original HTTP response: `StremioAddonClient.fetchManifest()`
+  (pre-existing, untouched by this milestone) decodes straight into
+  `AddonManifest` and never retains the raw response text anywhere, so
+  the *only* thing this milestone's client code has to serialize back up
+  is that already-normalized `AddonManifest` — not a regression this
+  milestone introduced, but worth stating plainly rather than letting
+  "verbatim" imply something the system was never actually capable of.
+
+**Issues fixed:** N/A beyond the empty-cloud design decision itself,
+which was built correctly from the start once identified rather than
+requiring a later fix.
+
+**Deliberately not built yet:**
+- **Reordering addons.** There is no reorder UI anywhere in the app
+  today (confirmed: `AddonsViewModel` only exposes `setEnabled`/`remove`,
+  unlike Home Rows' own drag-to-reorder) — `sortOrder` is populated from
+  each addon's position in the local list at install/seed time and
+  faithfully round-trips, so the column is ready for a future reorder
+  feature, but this milestone didn't build one that doesn't exist to
+  sync in the first place.
+- **`addon_settings` (per-addon configuration).** Confirmed still
+  genuinely unused by the app — nothing here to sync yet. If a future
+  milestone adds Stremio "configurable" addon support, that config JSONB
+  lands in this reserved table exactly as migration 0008 anticipated.
+- **A generic `SyncManager`/retry queue and clearing local caches on
+  logout** — out of scope for the same reasons given in Milestones 6-8;
+  this domain's failure/retry behavior matches the already-established
+  pattern the other three sync repositories use.
+
+**Milestone 9 is complete.**

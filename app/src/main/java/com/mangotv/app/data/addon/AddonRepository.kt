@@ -26,6 +26,12 @@ import kotlinx.serialization.json.Json
 
 private val Context.addonDataStore: DataStore<Preferences> by preferencesDataStore(name = "mango_addons")
 
+/** What AddonSyncRepository (Milestone 9) reacts to after a genuine local install/remove/enable-toggle -- never fired from [AddonRepository.applyRemote]. sortOrder travels with Upserted rather than being re-derived by the sync layer, since AddonRepository already knows an addon's position in its own list at the moment it changes. */
+sealed interface AddonChange {
+    data class Upserted(val addon: InstalledAddon, val sortOrder: Int) : AddonChange
+    data class Removed(val manifestUrl: String) : AddonChange
+}
+
 /**
  * Owns the addon lifecycle: fetching + validating a manifest, persisting the
  * installed list across restarts, and keeping [ProviderRegistry] (which
@@ -40,6 +46,9 @@ class AddonRepository(context: Context) {
 
     private val _installedAddons = MutableStateFlow<List<InstalledAddon>>(emptyList())
     val installedAddons: StateFlow<List<InstalledAddon>> = _installedAddons.asStateFlow()
+
+    /** Fired after a genuine local install/remove/enable-toggle finishes persisting -- AddonSyncRepository (Milestone 9) hooks this to push just the one changed addon. Never invoked from [applyRemote]. */
+    var onLocalChange: ((AddonChange) -> Unit)? = null
 
     init {
         scope.launch { restoreFromDisk() }
@@ -79,6 +88,7 @@ class AddonRepository(context: Context) {
             persist(updated)
 
             ProviderRegistry.register(StremioAddonProvider(manifestUrl, manifest, client))
+            onLocalChange?.invoke(AddonChange.Upserted(record, updated.lastIndex))
             record
         }
     }
@@ -89,6 +99,7 @@ class AddonRepository(context: Context) {
         _installedAddons.value = updated
         persist(updated)
         addon?.let { ProviderRegistry.unregister(it.manifest.id) }
+        if (addon != null) onLocalChange?.invoke(AddonChange.Removed(manifestUrl))
     }
 
     suspend fun setEnabled(manifestUrl: String, enabled: Boolean) = withContext(Dispatchers.IO) {
@@ -101,6 +112,31 @@ class AddonRepository(context: Context) {
             ProviderRegistry.register(StremioAddonProvider(manifestUrl, addon.manifest, client))
         } else {
             ProviderRegistry.unregister(addon.manifest.id)
+        }
+
+        val sortOrder = updated.indexOfFirst { it.manifestUrl == manifestUrl }
+        onLocalChange?.invoke(AddonChange.Upserted(addon.copy(enabled = enabled), sortOrder))
+    }
+
+    /**
+     * Applies the server's current active addon list (a pull), replacing
+     * the local cache wholesale and reconciling [ProviderRegistry] to
+     * match -- unlike MyListRepository/ContinueWatchingRepository's own
+     * applyRemote, this one has a live side effect to keep in sync, not
+     * just a DataStore-backed cache. Unregisters every addon this device
+     * previously knew about, then registers whichever of the new list is
+     * enabled, the same "clear and rebuild from a fresh list" shape
+     * restoreFromDisk() already uses at startup, rather than diffing old
+     * vs. new.
+     */
+    suspend fun applyRemote(remoteAddons: List<InstalledAddon>) = withContext(Dispatchers.IO) {
+        val previous = _installedAddons.value
+        _installedAddons.value = remoteAddons
+        persist(remoteAddons)
+
+        previous.forEach { ProviderRegistry.unregister(it.manifest.id) }
+        remoteAddons.filter { it.enabled }.forEach { addon ->
+            ProviderRegistry.register(StremioAddonProvider(addon.manifestUrl, addon.manifest, client))
         }
     }
 

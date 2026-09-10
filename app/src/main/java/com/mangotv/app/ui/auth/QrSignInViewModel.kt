@@ -40,6 +40,7 @@ class QrSignInViewModel(
     private val settingsSyncRepository = container.settingsSyncRepository
     private val watchlistSyncRepository = container.watchlistSyncRepository
     private val continueWatchingSyncRepository = container.continueWatchingSyncRepository
+    private val addonSyncRepository = container.addonSyncRepository
     val intent: String = savedStateHandle.get<String>("intent") ?: "login"
 
     private val _uiState = MutableStateFlow<QrUiState>(QrUiState.Loading)
@@ -101,6 +102,7 @@ class QrSignInViewModel(
                                 settingsSyncRepository.pullFromServer()
                                 watchlistSyncRepository.pullFromServer()
                                 continueWatchingSyncRepository.pullFromServer()
+                                addonSyncRepository.pullFromServer()
                                 return@launch
                             }
                             QrPollOutcome.Expired -> {

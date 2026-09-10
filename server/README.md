@@ -9,8 +9,8 @@ Milestone 1: database schema + migrations. Milestone 2: the Express API
 foundation. Milestone 3: real accounts. Milestone 4: QR sign-in for the
 Fire TV. Milestone 5: the Fire TV app itself wired to all of the above.
 Milestone 6: Home Rows + Player settings cloud sync. Milestone 7: My
-List/watchlist cloud sync. Milestone 8 (current): watch history +
-Continue Watching cloud sync.
+List/watchlist cloud sync. Milestone 8: watch history + Continue
+Watching cloud sync. Milestone 9 (current): installed addon cloud sync.
 
 Endpoints so far:
 
@@ -64,6 +64,15 @@ Endpoints so far:
   is an ISO-8601 timestamp cursor from a previous page's oldest item). No
   Fire TV screen consumes this yet — the app has no History browse screen
   — but the data is captured and available for one.
+- `GET /user/addons` (authenticated) — this account's active installed
+  addons, ordered by `sortOrder`.
+- `POST /user/addons` (authenticated) — install (or un-remove/update) one
+  addon, keyed on `manifestUrl`, last-write-wins on `updatedAt`.
+  `manifestJson` caches the addon's manifest as opaque JSONB — validated
+  only as "a JSON object," never interpreted server-side.
+- `DELETE /user/addons?manifestUrl=&updatedAt=` (authenticated) — remove
+  one addon, same last-write-wins rule and `204`/`200` contract as
+  `DELETE /user/watchlist`.
 
 ## Setup
 
