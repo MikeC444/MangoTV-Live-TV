@@ -21,10 +21,14 @@ import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 
 /**
- * Minimal on purpose — device management (Milestone 3's /auth/sessions),
- * "sync existing data" prompts, and account switching are their own
- * later milestones. What's here exists so a signed-in build is actually
- * re-testable (create account -> sign out -> sign in again) without
+ * Minimal on purpose — device management (Milestone 3's /auth/sessions:
+ * viewing or revoking this account's *other* active sessions) is still
+ * its own later milestone. "Sync existing data" prompts (Milestone 11)
+ * and account switching (Milestone 12: Sign Out here now actually wipes
+ * local caches, not just this device's session -- see
+ * AccountSwitchCoordinator) are both built. What's here exists so a
+ * signed-in build is actually re-testable (create account -> sign out ->
+ * sign in again, as the same account or a different one) without
  * clearing app data, which would otherwise be the only way back to the
  * auth screen once past it.
  */

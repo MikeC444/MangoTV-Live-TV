@@ -146,6 +146,14 @@ class AddonRepository(context: Context) {
         }
     }
 
+    /** Wipes every locally-cached addon (Milestone 12's account switching) without notifying [onLocalChange] — unregisters everything from [ProviderRegistry], same as [applyRemote]'s own cleanup step, but replaces with an empty list rather than a new one. The account being signed out of still owns these addons server-side; this device is only forgetting its own local copy. Deliberately leaves the Cinemeta auto-bootstrap flag untouched — that flag is a device-scoped "has this install ever shown default content" concept, not an account-scoped one, so a second account signing in on this same device is treated the same as a user who's deliberately removed every addon: no auto-reinstall. */
+    suspend fun clear() = withContext(Dispatchers.IO) {
+        val previous = _installedAddons.value
+        _installedAddons.value = emptyList()
+        persist(emptyList())
+        previous.forEach { ProviderRegistry.unregister(it.manifest.id) }
+    }
+
     private suspend fun readPersisted(): List<InstalledAddon> {
         val prefs = appContext.addonDataStore.data.first()
         val raw = prefs[ADDONS_KEY] ?: return emptyList()

@@ -57,6 +57,12 @@ class PlayerPreferencesRepository(context: Context) {
         persist(preferences)
     }
 
+    /** Resets to defaults (Milestone 12's account switching) without notifying [onLocalChange] — same reasoning as [applyRemote]; this device is forgetting its own local copy, not asking the server to reset anything. Deliberately doesn't reuse the private [update] helper above, since that one always fires [onLocalChange]. */
+    suspend fun clear() = withContext(Dispatchers.IO) {
+        _preferences.value = PlayerPreferences()
+        persist(PlayerPreferences())
+    }
+
     private suspend fun update(transform: (PlayerPreferences) -> PlayerPreferences) = withContext(Dispatchers.IO) {
         val updated = transform(_preferences.value)
         _preferences.value = updated

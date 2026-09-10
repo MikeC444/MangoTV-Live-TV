@@ -49,6 +49,11 @@ class FirstSyncState(context: Context) {
         appContext.firstSyncDataStore.edit { it[DONE_KEY] = true }
     }
 
+    /** Milestone 12's account switching: called on sign-out now that local caches are actually wiped too, so a genuinely different account's own first sign-in on this device gets evaluated fresh rather than skipped as "already resolved" for a question that a *previous* account, not this one, resolved. */
+    suspend fun reset() {
+        appContext.firstSyncDataStore.edit { it.remove(DONE_KEY) }
+    }
+
     companion object {
         private val DONE_KEY = booleanPreferencesKey("first_sync_done")
     }

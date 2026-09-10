@@ -106,6 +106,9 @@ class WatchlistSyncRepository(
         }
     }
 
+    /** Drops every pending outbox entry (Milestone 12's account switching) -- see PendingChangeStore.clear()'s own kdoc for why a queued push must never survive into a different account's session. */
+    suspend fun clearPending() = pendingStore.clear()
+
     /** Retries every item this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer, so a fresh account state is established first) and when network connectivity returns. */
     suspend fun retryPending() {
         val pending = pendingStore.all()

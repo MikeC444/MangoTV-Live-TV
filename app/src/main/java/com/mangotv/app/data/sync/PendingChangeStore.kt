@@ -74,6 +74,11 @@ class PendingChangeStore<T>(
     /** Every currently-pending entry, natural key to its latest payload -- what retryPending() iterates. */
     suspend fun all(): Map<String, T> = decode(dataStore.data.first()[ENTRIES_KEY])
 
+    /** Drops every pending entry (Milestone 12's account switching) -- a queued push belongs to the account it was queued for; carrying it into a different account's session and retrying it later would write that data into the wrong account server-side. */
+    suspend fun clear() {
+        dataStore.edit { it.remove(ENTRIES_KEY) }
+    }
+
     private fun decode(raw: String?): Map<String, T> {
         if (raw == null) return emptyMap()
         return runCatching { json.decodeFromString(mapSerializer, raw) }.getOrDefault(emptyMap())

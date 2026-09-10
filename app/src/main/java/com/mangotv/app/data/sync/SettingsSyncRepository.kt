@@ -110,6 +110,9 @@ class SettingsSyncRepository(
     /** Pushes this device's current local settings up as the account's state, suspending until it finishes (or fails and is queued for retry) -- used by Milestone 11's SYNC choice. Unlike the fire-and-forget pushToServer() below, a caller resolving the migration decision needs to know when this actually completes. */
     suspend fun pushAllLocalUp() = doPush()
 
+    /** Drops this domain's pending outbox entry, if any (Milestone 12's account switching) -- see PendingChangeStore.clear()'s own kdoc for why a queued push must never survive into a different account's session. */
+    suspend fun clearPending() = pendingStore.clear()
+
     /** Fire-and-forget: HomeRowPreferencesRepository/PlayerPreferencesRepository call this via onLocalChange after persisting a genuine local mutation. */
     private fun pushToServer() {
         scope.launch { doPush() }

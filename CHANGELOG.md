@@ -1606,3 +1606,156 @@ this milestone's SYNC/START FRESH prompt was actually needed.
   unchanged from every prior milestone's own note on this.
 
 **Milestone 11 is complete.**
+
+## Milestone 12 — Account Switching
+
+**Status:** Complete.
+
+**Scope note:** this milestone's original spec text predates this
+session's own context (the work resumed mid-project from an earlier
+Claude Code session, per this project's own established process — see
+Milestone 0). Rather than guess, scope was reconstructed from this
+codebase's own explicit, repeated notes: migration `0003_devices.sql`'s
+header comment names "Milestone 12's account switching" directly (the
+same physical device — `device_identifier` — can carry multiple
+accounts' own `devices` rows); `AccountScreen.kt`'s Milestone 5 kdoc
+separately named "device management" (Milestone 3's `/auth/sessions`:
+viewing/revoking this account's *other* sessions) as its own distinct
+later milestone; and `FirstSyncState.kt`'s Milestone 11 kdoc explicitly
+deferred "whether logging out should reset this flag once it actually
+clears local caches on logout" to this milestone by name. All three
+agree on the same scope: making sign-out actually safe for a different
+account to sign in after — not building a device/session-management
+screen, which stays out of scope here on the same evidence.
+
+**Changes:** Pure Android-side change — no backend endpoints needed;
+account switching is a purely local-data-hygiene problem, not a server
+one (the server already scopes every query to the authenticated
+session's own `user_id`; nothing server-side needed to change). Through
+Milestone 11, Sign Out revoked this device's session but left every
+local cache exactly as it was. Two real, concrete problems fell out of
+that once accounted for:
+
+1. A *different* account signing in on the same device right after
+   would have briefly rendered the *previous* account's watchlist,
+   continue watching, addons, and settings on screen — during the
+   window between authenticating and the first `syncAll()` pull
+   overwriting that stale local cache with the new account's own data.
+2. A queued-but-not-yet-pushed change from the previous account (in any
+   of the four `PendingChangeStore` outboxes) could have been retried
+   later under the *new* account's own access token — actually writing
+   the wrong account's data into the new account's cloud storage, not
+   just a display glitch.
+
+- `data/provider/MyListRepository.kt`, `data/history/ContinueWatchingRepository.kt`,
+  `data/addon/AddonRepository.kt`, `data/provider/HomeRowPreferencesRepository.kt`,
+  `data/player/PlayerPreferencesRepository.kt` — each gained a `clear()`
+  that wipes/resets its local cache and persists that, deliberately
+  without notifying that domain's `onLocalChange` push hook (the account
+  being signed out of still owns this data server-side; the device is
+  only forgetting its own local copy, not asking the server to delete or
+  reset anything — the same reasoning `applyRemote()` already documented
+  for pulls, extended to this new local-only case). `AddonRepository.clear()`
+  also unregisters every addon from `ProviderRegistry`, mirroring
+  `applyRemote()`'s own cleanup step, and deliberately leaves the
+  Cinemeta auto-bootstrap flag untouched — that flag is a device-scoped
+  "has this install ever shown default content" concept (matching
+  `FirstSyncState`'s own device-scoping precedent from Milestone 11), so
+  a second account signing in on the same device is treated the same as
+  a user who deliberately removed every addon: no auto-reinstall.
+- `data/sync/PendingChangeStore.kt` — gained `clear()`, dropping every
+  pending entry outright. `data/sync/{Settings,Watchlist,ContinueWatching,Addon}SyncRepository.kt`
+  each gained a `clearPending()` wrapper around it, following the same
+  encapsulation pattern `retryPending()`/`pushAllLocalUp()`/
+  `isCloudEmpty()` already established (the private `pendingStore` field
+  itself is never reached into from outside its owning repository).
+- `data/sync/FirstSyncState.kt` — gained `reset()`, clearing the
+  device's "first-login migration already resolved" flag. Resolves the
+  question that class's own Milestone 11 kdoc explicitly left open:
+  logging out now does reset it, so a genuinely different account's own
+  first sign-in on this device gets evaluated fresh instead of being
+  skipped as "already resolved" for a question a *previous* account, not
+  this one, actually resolved.
+- `data/sync/AccountSwitchCoordinator.kt` (new) — the actual orchestrator,
+  mirroring `SyncManager`'s "one coordinator, one parallel `coroutineScope`
+  sweep across every domain" shape. `signOut()` launches
+  `authRepository.logout()` (unconditional local session clear regardless
+  of the server call's outcome, unchanged from Milestone 5) alongside all
+  five domain `clear()` calls, all four `clearPending()` calls, and
+  `firstSyncState.reset()`, all in parallel, and doesn't return until
+  every one of them has finished — so by the time `AccountViewModel`
+  flips `signedOut` and navigation carries the user back to
+  `AuthStartScreen`, the device is genuinely blank, not just
+  session-less.
+- `AppContainer.kt` — `firstSyncState` promoted from an inline
+  `FirstSyncState(context)` constructed inside `firstLoginMigrationCoordinator`'s
+  own lazy block to its own shared, eager `val`, so
+  `firstLoginMigrationCoordinator` and the new `accountSwitchCoordinator`
+  read and write the exact same instance instead of each wrapping the
+  same underlying DataStore file independently. `accountSwitchCoordinator`
+  added as a lazy singleton, same "no eager constructor argument forces
+  it, no init{} side effect, only needed the moment its one caller
+  actually runs" reasoning as `firstLoginMigrationCoordinator`.
+- `ui/settings/AccountViewModel.kt` — `signOut()` now calls
+  `accountSwitchCoordinator.signOut()` instead of `authRepository.logout()`
+  directly; found and confirmed (via `grep`) as the only call site of
+  `AuthRepository.logout()` outside its own class, so no other path could
+  still bypass the new local-cache clearing.
+- `ui/settings/AccountScreen.kt` — updated its own Milestone 5 kdoc,
+  which had gone stale after Milestone 11 (sync prompts) and now this
+  milestone (account switching) — both no longer belong on its "later
+  milestones" list; only device/session management still does.
+
+**Tests performed:**
+- `npm run typecheck` / `npm test` (backend) — clean, 131/131 (sanity
+  check only; no backend files changed this milestone, confirmed via
+  `git status` before starting — account switching is local-data hygiene
+  only, nothing server-side needed to change).
+- Android: no new pure-logic unit tests this milestone (same rationale as
+  Milestones 6-11); verified instead by a full manual re-read of every
+  new/changed file, a `grep` sweep confirming every new `clear()`/`reset()`/
+  `clearPending()` method actually exists where `AccountSwitchCoordinator`
+  calls it and takes the exact parameter names `AppContainer` passes by
+  name, a `grep` confirming `AuthRepository.logout()` has exactly the one
+  call site now routed through the coordinator, and the `build-apk.yml`
+  CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- None required a code fix — the one real design risk (whether
+  `PlayerPreferencesRepository.clear()` could reuse its existing private
+  `update()` helper the way `HomeRowPreferencesRepository.clear()` reuses
+  its own) was caught by reading `update()`'s body *before* writing
+  `clear()`, not after: `PlayerPreferencesRepository.update()`
+  unconditionally calls `onLocalChange?.invoke()`, unlike
+  `HomeRowPreferencesRepository.update()`, which doesn't (callers there
+  invoke it themselves) — so `PlayerPreferencesRepository.clear()` was
+  written with its own standalone body from the start, mirroring
+  `applyRemote()`'s shape instead, rather than being written the
+  shortcut way and then found broken.
+
+**Issues fixed:** none required — see above.
+
+**Deliberately not built yet:**
+- **Device/session management** — viewing or revoking this account's
+  *other* active sessions via the already-built, already-tested (since
+  Milestone 3) `GET`/`DELETE /auth/sessions` endpoints. Confirmed still
+  genuinely unused by the Android app (no caller anywhere in
+  `data/network/AuthApiClient.kt`). Out of scope on the same evidence
+  this milestone's own scope was reconstructed from — `AccountScreen.kt`'s
+  Milestone 5 kdoc named it as its own separate later milestone, distinct
+  from account switching, and nothing found while building this one
+  changed that.
+- **Re-bootstrapping Cinemeta for a second account on the same device.**
+  A brand-new second account, signing in on a device that already
+  auto-installed Cinemeta for a first account, will see an empty addon
+  list (until their own cloud sync brings in whatever they actually have)
+  rather than Cinemeta being re-installed for them — `restoreFromDisk()`'s
+  bootstrap logic only ever runs once per process (`AddonRepository`'s own
+  `init{}`), and its bootstrapped flag is deliberately device-, not
+  account-scoped (see `AddonRepository.clear()`'s own note above). A minor
+  onboarding rough edge for the less common "same device, second account,
+  same process" path, not a correctness or data-safety issue — flagged
+  rather than fixed, since re-bootstrapping per-account would be new
+  onboarding polish this milestone wasn't asked to build.
+
+**Milestone 12 is complete.**

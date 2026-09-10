@@ -7,6 +7,7 @@ import com.mangotv.app.data.history.ContinueWatchingRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
+import com.mangotv.app.data.sync.AccountSwitchCoordinator
 import com.mangotv.app.data.sync.AddonSyncRepository
 import com.mangotv.app.data.sync.ContinueWatchingSyncRepository
 import com.mangotv.app.data.sync.FirstLoginMigrationCoordinator
@@ -97,6 +98,21 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * callback to register) -- QrSignInViewModel is its only caller, and only
  * right after a fresh sign-in completes, so there's no reason for it to
  * exist before then.
+ *
+ * firstSyncState (Milestone 11) is a plain eager val, not lazy: it's a
+ * thin DataStore-backed wrapper with no init{} side effect of its own
+ * (DataStore's own delegate property is itself lazy about touching disk
+ * until something actually collects `.data`), so there's no cost to
+ * constructing it eagerly, and doing so lets both
+ * firstLoginMigrationCoordinator and accountSwitchCoordinator (Milestone
+ * 12) share the exact same instance instead of each constructing their
+ * own redundant wrapper around the same underlying DataStore file.
+ *
+ * accountSwitchCoordinator (Milestone 12) is lazy for the same reason
+ * firstLoginMigrationCoordinator is: nothing constructs it eagerly as a
+ * constructor argument, it has no init{} side effect, and its only
+ * caller (AccountViewModel.signOut()) only ever needs it the moment a
+ * signed-in user actually taps Sign Out.
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
@@ -116,9 +132,10 @@ class AppContainer(context: Context) {
     val syncManager: SyncManager = SyncManager(
         context, settingsSyncRepository, watchlistSyncRepository, continueWatchingSyncRepository, addonSyncRepository
     )
+    val firstSyncState: FirstSyncState = FirstSyncState(context)
     val firstLoginMigrationCoordinator: FirstLoginMigrationCoordinator by lazy {
         FirstLoginMigrationCoordinator(
-            firstSyncState = FirstSyncState(context),
+            firstSyncState = firstSyncState,
             addonRepository = addonRepository,
             myListRepository = myListRepository,
             continueWatchingRepository = continueWatchingRepository,
@@ -129,6 +146,21 @@ class AppContainer(context: Context) {
             continueWatchingSyncRepository = continueWatchingSyncRepository,
             addonSyncRepository = addonSyncRepository,
             syncManager = syncManager
+        )
+    }
+    val accountSwitchCoordinator: AccountSwitchCoordinator by lazy {
+        AccountSwitchCoordinator(
+            authRepository = authRepository,
+            firstSyncState = firstSyncState,
+            myListRepository = myListRepository,
+            continueWatchingRepository = continueWatchingRepository,
+            addonRepository = addonRepository,
+            homeRowPreferencesRepository = homeRowPreferencesRepository,
+            playerPreferencesRepository = playerPreferencesRepository,
+            settingsSyncRepository = settingsSyncRepository,
+            watchlistSyncRepository = watchlistSyncRepository,
+            continueWatchingSyncRepository = continueWatchingSyncRepository,
+            addonSyncRepository = addonSyncRepository
         )
     }
 }

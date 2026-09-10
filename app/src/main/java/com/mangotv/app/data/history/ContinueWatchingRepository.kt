@@ -95,6 +95,12 @@ class ContinueWatchingRepository(context: Context) {
         persist(items)
     }
 
+    /** Wipes the locally-cached list (Milestone 12's account switching) — the account being signed out of still owns this data server-side; this device is only forgetting its own local copy, not asking the server to delete anything. */
+    suspend fun clear() = withContext(Dispatchers.IO) {
+        _items.value = emptyList()
+        persist(emptyList())
+    }
+
     private fun ContinueWatchingEntry.matchesKey(providerId: String, contentId: String, contentType: ContentType) =
         this.providerId == providerId && this.contentId == contentId && this.contentType == contentType
 

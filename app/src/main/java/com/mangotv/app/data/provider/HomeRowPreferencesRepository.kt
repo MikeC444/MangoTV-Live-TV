@@ -139,6 +139,11 @@ class HomeRowPreferencesRepository(context: Context) {
         update(prefs)
     }
 
+    /** Resets to defaults (Milestone 12's account switching), same "forget the local copy, don't notify onLocalChange" reasoning as [applyRemote]. */
+    suspend fun clear() = withContext(Dispatchers.IO) {
+        update(HomeRowPreferences())
+    }
+
     private suspend fun update(new: HomeRowPreferences) {
         _preferences.value = new
         persist(new)
