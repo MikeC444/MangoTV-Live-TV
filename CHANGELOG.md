@@ -2189,3 +2189,117 @@ by milestone in that file's own kdoc — this pass confirmed each reason
 still holds rather than second-guessing settled design).
 
 **Milestone 15 is complete.**
+
+## Milestone 16 — Full End-to-End Test
+
+**Status:** Complete for everything determinable without real Fire TV
+hardware; the remainder is a documented, ready-to-run hardware pass, not
+yet executed (this sandbox has no Android SDK, emulator, or physical
+device — stated since Milestone 0, unchanged here).
+
+**Approach:** Rather than mark this complete on the strength of the 131
+existing unit/integration tests alone (each of which verifies one endpoint
+or one milestone's slice in isolation), built a genuine end-to-end
+script — `server/scripts/e2e-full-flow.ts` (`npm run e2e`) — that drives a
+**real, running** server instance over **real HTTP**, no `supertest`, no
+in-process shortcuts, no direct database access, through all eight named
+scenarios from the spec in one continuous multi-device session, the same
+way the Fire TV app's own `AuthApiClient`/`SettingsApiClient`/etc. talk to
+it. This is a different, and genuinely additional, kind of verification
+than the existing test suite: it proves the *whole flow* holds together in
+sequence — register, populate data, a second device converging on that
+exact state, cross-device edits propagating, logout, a third completely
+separate account, replay-safety, and cross-account attacks — not just that
+each endpoint is correct on its own.
+
+**What the script covers and how it was actually run:**
+- Created a fresh local Postgres database (`mangotv_dev`), ran `npm run
+  migrate` against it (12/12 migrations applied cleanly, same as every
+  prior milestone's own rehearsal), started the real `npm run dev` server
+  against it, and ran `npm run e2e` against that live server — genuinely
+  live, not simulated.
+- **40/40 checks passed**, run twice in a row to confirm the script is
+  safely re-runnable against a persistent (non-truncated) database — each
+  run uses a timestamp-unique email per account, so it never collides with
+  a previous run's data, matching how a real smoke test against a shared
+  dev/staging deployment would actually need to behave.
+- TEST 1 (New User): QR create → resolve (pending) → complete (register) →
+  status delivers real tokens → a second status call proves the token
+  can't be claimed twice (replay prevention, re-verified live, not just
+  trusted from Milestone 4's own tests) → `/user/me` confirms the new
+  identity.
+- TEST 2 (Data Creation): watchlist adds, a watch-progress report
+  (confirmed it populates Continue Watching), a settings change, an addon
+  install.
+- TEST 3 (Second Device): a second QR session with a different `deviceId`,
+  logging into the *same* account, receiving *different* session tokens
+  than Device A's own (proving independent per-device sessions, not one
+  shared credential), and seeing Device A's exact watchlist/continue-
+  watching/settings/addons.
+- TEST 4 (Cross-Device Changes): Device B removes an item and changes a
+  setting; Device A's next `GET` reflects both.
+- TEST 5 (Logout): Device B's access token is confirmed rejected
+  immediately after logout, while Device A's own session is confirmed
+  still valid throughout — sessions are per-device, not account-wide.
+- TEST 6 (Account Switch): a third device registers a completely different
+  account; its watchlist/addons are confirmed empty and its settings are
+  confirmed to be untouched defaults (`updatedAt: null`), not a leak of
+  the first account's state.
+- TEST 7 (Offline): honestly scoped to what a backend-only script can
+  actually prove — replaying an identical "queued" write after a simulated
+  reconnect is safe (no duplicate, no error), and a stale-timestamped
+  replay correctly loses to the already-applied newer write (last-write-
+  wins holds under replay). The script's own console output states plainly
+  that local cache continuity and automatic queued-change replay on a real
+  device are Milestone 13's Android-side behaviors and require real
+  hardware to verify — not glossed over as covered when it isn't.
+- TEST 8 (Security): Bob's attempt to delete Alice's exact watchlist item
+  (natural key guessed, `updatedAt` engineered far into the future to try
+  to win any last-write-wins race) affects nothing of Alice's; an
+  unauthenticated request, a malformed token, and an attempt to revoke a
+  session id Bob doesn't own (404, not a confirmation it exists) all fail
+  exactly as designed.
+
+**Deliberately scoped out of the script, staying real endpoint coverage
+rather than exhaustive:** an addon removal round trip and the paginated
+`GET /user/history` endpoint aren't exercised here — both already have
+dedicated tests in the existing 131 (`addons.test.ts`,
+`watch-progress.test.ts`), and this script's job is proving the eight
+*named scenarios* hold end-to-end, not re-covering ground the unit suite
+already owns.
+
+**New:** `docs/milestone-16-e2e-test-plan.md` — the hardware-dependent half
+of this milestone: the same eight scenarios, broken into concrete steps
+for a human running two or more real Fire TV devices against a real
+deployment, each one clearly marked with what to expect, plus instructions
+for running `npm run e2e` yourself. Explicitly separates what's already
+proven (this changelog entry, and the script itself) from what still
+needs a human on real hardware (QR scanning with a real camera, D-pad
+navigation, actually disabling Wi-Fi, on-device performance) — TEST 8 in
+that document is marked as already exhaustively covered without hardware,
+since nothing about the real Android app changes a server-side
+authorization guarantee.
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm test` (backend) — 131/131, unaffected (no existing file changed
+  behavior this milestone, only a new script and one new `package.json`
+  script entry added).
+- `npm run e2e` against a real local server + real local Postgres —
+  **40/40**, twice.
+- Android: no changes this milestone.
+
+**Issues discovered:** none in the system under test — every one of the
+40 checks passed on the first run. The value of building this was
+confirmatory, not corrective: Milestones 6-15 already worked correctly
+end-to-end, this is what actually proves that claim, in sequence, against
+a live process, rather than each milestone's own isolated test slice
+standing in for it.
+
+**Issues fixed:** N/A — see above.
+
+**Milestone 16 is complete for the code-verifiable half.** The hardware
+pass in `docs/milestone-16-e2e-test-plan.md` is ready to run on real
+Fire TV devices whenever they're available; its result should be appended
+to this entry when it is, the same way every other milestone records its
+test results.
