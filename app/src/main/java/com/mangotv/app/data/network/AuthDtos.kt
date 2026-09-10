@@ -2,11 +2,11 @@ package com.mangotv.app.data.network
 
 import kotlinx.serialization.Serializable
 
-// Wire-format DTOs for the /auth/qr/* and /auth/refresh endpoints (see
-// server/src/schemas/qr.ts and src/routes/auth.ts). The TV never calls
-// /auth/register or /auth/login directly — those are the phone/web
-// activation page's job — so no request/response shapes for them exist
-// on this side.
+// Wire-format DTOs for the /auth/qr/*, /auth/refresh, /auth/register, and
+// /auth/login endpoints (see server/src/schemas/{qr,auth}.ts and
+// src/routes/auth.ts). Register/login were built and tested in Milestone
+// 3 but never called from the TV until the direct-entry sign-in path was
+// added alongside the QR flow -- see PasswordSignInViewModel.
 
 @Serializable
 data class QrCreateRequest(
@@ -48,6 +48,37 @@ data class TokenPairResponse(
     val accessTokenExpiresAt: String,
     val refreshToken: String,
     val refreshTokenExpiresAt: String
+)
+
+/** Body for POST /auth/register — mirrors server/src/schemas/auth.ts's registerSchema exactly. */
+@Serializable
+data class RegisterRequest(
+    val email: String,
+    val password: String,
+    val displayName: String? = null,
+    val deviceId: String,
+    val deviceName: String? = null,
+    val platform: String? = null
+)
+
+/** Body for POST /auth/login — mirrors server/src/schemas/auth.ts's loginSchema exactly. */
+@Serializable
+data class LoginRequest(
+    val email: String,
+    val password: String,
+    val deviceId: String,
+    val deviceName: String? = null,
+    val platform: String? = null
+)
+
+/** Response shape shared by /auth/register and /auth/login (see routes/auth.ts's serializeTokens + user) — a flat token pair plus the authenticated user, always present, unlike QrStatusResponse's nullable fields. */
+@Serializable
+data class AuthResultResponse(
+    val accessToken: String,
+    val accessTokenExpiresAt: String,
+    val refreshToken: String,
+    val refreshTokenExpiresAt: String,
+    val user: UserDto
 )
 
 @Serializable

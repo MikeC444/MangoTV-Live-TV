@@ -9,6 +9,7 @@ import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.ui.auth.AuthGateScreen
 import com.mangotv.app.ui.auth.AuthStartScreen
 import com.mangotv.app.ui.auth.GateDestination
+import com.mangotv.app.ui.auth.PasswordSignInScreen
 import com.mangotv.app.ui.auth.QrSignInScreen
 import com.mangotv.app.ui.browse.MoviesScreen
 import com.mangotv.app.ui.browse.TvShowsScreen
@@ -80,11 +81,17 @@ fun MangoNavHost() {
         composable(MangoRoutes.AUTH_START) {
             AuthStartScreen(
                 onSignIn = { navController.navigate(MangoRoutes.authQr("login")) },
-                onCreateAccount = { navController.navigate(MangoRoutes.authQr("register")) }
+                onCreateAccount = { navController.navigate(MangoRoutes.authQr("register")) },
+                onUsePassword = { navController.navigate(MangoRoutes.AUTH_PASSWORD) }
             )
         }
         composable(MangoRoutes.AUTH_QR_PATTERN) {
             QrSignInScreen(
+                onAuthenticated = { navigateClearingBackStack(MangoRoutes.HOME) }
+            )
+        }
+        composable(MangoRoutes.AUTH_PASSWORD) {
+            PasswordSignInScreen(
                 onAuthenticated = { navigateClearingBackStack(MangoRoutes.HOME) }
             )
         }

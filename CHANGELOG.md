@@ -2441,3 +2441,103 @@ one open item across the whole project remains Milestone 16's hardware
 pass — see `docs/TESTING.md` §3 to run it, and append the result to
 Milestone 16's entry above when it happens, per that section's own
 "Recording a hardware run" note.
+
+## Post-Milestone-17 — Direct Password Sign-In on the Fire TV Remote
+
+**Status:** Complete.
+
+**Context:** Not one of the original 18 milestones — added afterward, at
+the user's explicit request, once the QR flow was confirmed working on a
+real deployed backend and a real device: "I still want the ability to
+signup or sign in using the firestick, so the user isn't forced to use
+the QR code if they don't want to." Milestones 4/5 deliberately routed
+every TV sign-in through the QR/activation-page flow specifically because
+the Fire TV has no on-device keyboard entry point built for it at the
+time; this doesn't revisit that decision so much as add a second, fully
+independent path alongside it — the QR flow is untouched and remains the
+default first two buttons on `AuthStartScreen`.
+
+**Changes:** Entirely additive on the Android side; the backend needed no
+changes at all. `POST /auth/register` and `POST /auth/login` were built
+and fully tested back in Milestone 3, but nothing on the TV had ever
+called them — every prior sign-in path went through the QR/activation
+flow's own `POST /auth/qr/complete` instead. This feature is simply the
+first caller of those two endpoints from the Fire TV app itself.
+
+**New:**
+- `PasswordSignInViewModel.kt` — `validateCredentials()` (a small,
+  unit-tested, plain top-level function: catches a missing `@`, a missing
+  domain dot, or a too-short password before spending a network round
+  trip, without trying to out-validate the server's own zod schema,
+  which remains the real authority), plus a ViewModel that deliberately
+  duplicates, rather than shares, `QrSignInViewModel`'s post-auth
+  migration-decision handling — two real call sites isn't yet enough to
+  justify guessing at a shared abstraction's shape.
+- `PasswordSignInScreen.kt` — the on-device form: email, an optional
+  display name (register mode only), a password field with a show/hide
+  toggle, and a login/register mode switch, all wired into one D-pad
+  focus chain. The form stays on screen through a failed attempt (a typo,
+  a wrong password) rather than clearing, so the user never has to
+  re-type an email address they already got right.
+- `app/src/test/java/com/mangotv/app/ui/auth/PasswordSignInViewModelTest.kt`
+  — 11 JVM unit tests covering every `validateCredentials()` branch
+  (blank/whitespace-only email, missing `@`, missing domain dot, embedded
+  whitespace, surrounding whitespace trimmed, password below/at the
+  8-character minimum, and that email is checked before password).
+
+**Changed:**
+- `AuthDtos.kt` — added `RegisterRequest`/`LoginRequest`/
+  `AuthResultResponse`, matching `server/src/schemas/auth.ts`'s
+  `registerSchema`/`loginSchema` and the response shape assembled in
+  `routes/auth.ts` field-for-field (re-verified directly against current
+  server source, not assumed from memory).
+- `AuthApiClient.kt` — added `register()`/`login()`, reusing the existing
+  `post()`/`execute()` helpers (already handle both 200 and 201 via
+  `response.isSuccessful`).
+- `AuthRepository.kt` — added `registerWithPassword()`/
+  `loginWithPassword()`, sharing a private `authenticateWithPassword()`
+  helper. Both reuse the same `DeviceIdentity.getOrCreate()` the QR flow
+  uses, so a device recognized via one path is recognized the same way
+  via the other.
+- `AuthStartScreen.kt` — added a third, lower-emphasis, fully
+  D-pad-focusable option below the existing QR hint text ("Prefer to
+  type on your remote instead?"), wired into the existing Log In/Sign Up
+  focus chain. The original two buttons and their behavior are unchanged.
+- `MangoRoutes.kt` / `MangoNavHost.kt` — new `auth/password` route.
+- `docs/ARCHITECTURE.md` §3 — restructured to document both paths: 3.1
+  (QR flow) reworded to stop claiming the app "never collects or
+  transmits a password" *unconditionally* (now scoped to that path
+  specifically), and a new §3.2 added describing the direct-entry flow,
+  its sequence diagram, and why it's additive rather than a replacement.
+  Later subsections renumbered (old 3.2-3.5 → 3.3-3.6); checked for
+  cross-references first — none existed outside this file.
+
+**Tests performed:**
+- 11 new JVM unit tests for `validateCredentials()`, covering every
+  branch and the email-before-password ordering.
+- Manual brace/paren-balance check across all 9 touched/created Kotlin
+  files (a small script counting `{`/`}` and `(`/`)` per file) — all
+  balanced.
+- Manual import-completeness and duplicate-import check on every touched
+  file.
+- Manual field-by-field cross-check of the new DTOs and the actual
+  request/response wire shape against current server source: `email`,
+  `password`, `displayName`, `deviceId`, `deviceName`, `platform` on the
+  way in (`server/src/schemas/auth.ts`), and `accessToken`/
+  `accessTokenExpiresAt`/`refreshToken`/`refreshTokenExpiresAt`/`user`
+  (`{id, email, displayName}`) on the way back
+  (`routes/auth.ts`'s `serializeTokens`, `authService.ts`'s
+  `insertUser`/`verifyCredentials`) — confirmed to match exactly in both
+  directions.
+- **Not performed:** an actual Kotlin/Gradle compile. This sandbox has no
+  Android SDK and no pre-populated Gradle/Maven cache (confirmed by
+  checking for both directly), and fetching a full Android SDK plus AGP's
+  dependency graph from scratch isn't realistic here — the same
+  constraint noted since Milestone 0. `build-apk.yml` (manual-dispatch
+  only on this branch) is the actual compile verification and needs to be
+  triggered after this is pushed.
+
+**Issues discovered:** none in existing code — this is new, additive
+functionality, not a fix.
+
+**Issues fixed:** N/A — see above.

@@ -88,7 +88,15 @@ layer never translates between the two.
 
 ## 3. Authentication
 
-### 3.1 QR flow (Fire TV has no keyboard, no password entry on-device)
+Two independent paths reach the same backend account system: the original
+QR/phone-assisted flow (3.1), and a direct on-device email/password flow
+added later for a user who'd rather type on their remote than involve a
+second device (3.2). Both produce an identical `Session` on the TV and are
+indistinguishable to everything downstream (sync, token refresh, logout) —
+see `AuthGateViewModel`, which doesn't know or care which path a session
+came from.
+
+### 3.1 QR flow (phone-assisted, no typing on the TV)
 
 ```
 TV                          Backend                       Phone/web (public/activate.html)
@@ -143,12 +151,66 @@ Why this shape, specifically:
   2.5 seconds (`QrSignInViewModel`) — never a manual "refresh" action. A
   QR code that expires mid-wait is silently replaced with a fresh one,
   transparently to the user.
-- **The Fire TV app never collects or transmits a password.** Account
-  creation and sign-in happen exclusively on the phone/web activation
-  page, which is served by the same backend (`GET /activate`) so its own
-  calls are same-origin — no CORS configuration needed.
+- **Along this path specifically, the Fire TV app never collects or
+  transmits a password.** Account creation and sign-in happen exclusively
+  on the phone/web activation page, which is served by the same backend
+  (`GET /activate`) so its own calls are same-origin — no CORS
+  configuration needed. (A second path that *does* type a password
+  on-device exists alongside this one — see 3.2.)
 
-### 3.2 Session flow
+### 3.2 Direct sign-in (typed on the Fire TV remote)
+
+Reached from `AuthStartScreen`'s third, lower-emphasis option
+("Prefer to type on your remote instead?"), for a user who doesn't want
+to involve a phone at all. `PasswordSignInScreen`/`PasswordSignInViewModel`
+call the `/auth/register` and `/auth/login` endpoints directly — the same
+endpoints `authService.register`/`.login` expose, built on the identical
+`insertUser`/`verifyCredentials` helpers the activation page's own
+`POST /auth/qr/complete` handler (`qrAuthService.completeQrSession`) uses
+internally. Nothing new on the backend: this is a second caller of
+endpoints Milestone 3 already built and tested, never invoked from the TV
+until now.
+
+```
+TV                                Backend
+│  POST /auth/register            │
+│  {email, password,              │
+│   displayName?, deviceId,       │
+│   deviceName, platform}         │
+├──────────────────────────────────▶ creates the user (Argon2id hash),
+│                                   │ the devices row, and a real
+│                                   │ session — all in one transaction
+│ ◀── access+refresh tokens, user │
+```
+
+`POST /auth/login` is the same shape without `displayName`, verifying
+credentials instead of creating an account. Both are one direct request/
+response — no polling, no second device, no QR token in between.
+
+Why this is additive rather than a replacement:
+
+- **The QR flow stays exactly as it was.** `AuthStartScreen`'s original
+  "Log In"/"Sign Up" buttons are unchanged; this is a third option below
+  them, not a modification of the first two.
+- **Client-side validation is deliberately loose.** `validateCredentials()`
+  (a plain, unit-tested top-level function) only catches obvious typos —
+  a missing `@`, no domain dot, a too-short password — before spending a
+  network round trip. The server's own zod schema (`registerSchema`/
+  `loginSchema`) remains the actual authority on what's valid; this is
+  just to avoid an obviously-doomed request.
+- **Same device identity either way.** Both paths call the same
+  `DeviceIdentity.getOrCreate()` used by the QR flow, so a device that
+  uses one path today and the other tomorrow is still recognized
+  server-side as the same physical device (`devices` is unique on
+  `(user_id, device_identifier)` — see 3.5).
+- **Same post-auth migration handling.** Whether a session came from a QR
+  scan or a typed password, `FirstLoginMigrationCoordinator.decide()`
+  makes the identical sync-vs-start-fresh decision afterward — the two
+  ViewModels deliberately duplicate this handling rather than share it
+  (see `PasswordSignInViewModel`'s kdoc), since two call sites isn't yet
+  enough to justify guessing at a shared abstraction's shape.
+
+### 3.3 Session flow
 
 - **Access token**: 1 hour. **Refresh token**: 30 days. Both are random
   256-bit values, SHA-256-hashed before they ever touch storage — raw
@@ -175,7 +237,7 @@ Why this shape, specifically:
   as-is — a temporary outage is never a reason to sign someone out
   (Milestone 13).
 
-### 3.3 Token expiration
+### 3.4 Token expiration
 
 | Token | Lifetime | What expiration means |
 |---|---|---|
@@ -183,7 +245,7 @@ Why this shape, specifically:
 | Refresh token | 30 days | A confirmed 401 on refresh clears the local session and returns the user to the authentication screen. `AuthGateViewModel`'s own local check (`session.isRefreshTokenValid()`) also gates whether the app tries to proceed straight to Home at launch, without needing a network round trip to make that decision. |
 | QR activation token | 10 minutes | Enforced both by `expires_at` and by `status` flipping away from `pending`/`completed` once consumed or timed out — either way, a stale token reports as `expired` to any poller, indistinguishable from a used or fabricated one. |
 
-### 3.4 Device association
+### 3.5 Device association
 
 ```
 User
@@ -208,7 +270,7 @@ User
   management UI is confirmed out of scope through Milestone 12 (see
   `AccountScreen.kt`'s own notes) and remains a clean extension point.
 
-### 3.5 Logout
+### 3.6 Logout
 
 - **Local device** (`POST /auth/logout`, then `AccountSwitchCoordinator.signOut()`
   on the Fire TV app): revokes only the calling session

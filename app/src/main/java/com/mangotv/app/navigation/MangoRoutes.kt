@@ -7,6 +7,7 @@ object MangoRoutes {
     const val AUTH_GATE = "auth/gate"
     const val AUTH_START = "auth/start"
     const val AUTH_QR_PATTERN = "auth/qr/{intent}"
+    const val AUTH_PASSWORD = "auth/password"
     const val HOME = "home"
     const val SETTINGS = "settings"
     const val SETTINGS_ADDONS = "settings/addons"

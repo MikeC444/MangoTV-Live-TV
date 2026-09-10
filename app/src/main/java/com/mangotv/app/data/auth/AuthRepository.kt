@@ -5,6 +5,7 @@ import android.os.Build
 import com.mangotv.app.BuildConfig
 import com.mangotv.app.data.network.ApiException
 import com.mangotv.app.data.network.AuthApiClient
+import com.mangotv.app.data.network.AuthResultResponse
 import com.mangotv.app.util.Iso8601
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
@@ -59,6 +60,37 @@ class AuthRepository(context: Context) {
             activationUrl = response.activationUrl,
             expiresAtMillis = Iso8601.parseToEpochMillis(response.expiresAt)
         )
+    }
+
+    /**
+     * Direct email/password registration, for a user who'd rather type on
+     * their remote than scan a QR code with a phone — an alternative to,
+     * not a replacement for, [createQrSession]/[pollQrSession]. Reuses the
+     * same device identity a QR sign-in on this device would use, so a
+     * device that switches between the two paths over time is still
+     * recognized as the same physical device server-side.
+     */
+    suspend fun registerWithPassword(email: String, password: String, displayName: String?): Result<Session> = runCatching {
+        authenticateWithPassword { deviceId -> apiClient.register(email, password, displayName, deviceId, Build.MODEL, PLATFORM) }
+    }
+
+    /** Direct email/password login — see [registerWithPassword]'s kdoc. */
+    suspend fun loginWithPassword(email: String, password: String): Result<Session> = runCatching {
+        authenticateWithPassword { deviceId -> apiClient.login(email, password, deviceId, Build.MODEL, PLATFORM) }
+    }
+
+    private suspend fun authenticateWithPassword(call: suspend (deviceId: String) -> AuthResultResponse): Session {
+        val deviceId = deviceIdentity.getOrCreate()
+        val response = call(deviceId)
+        val session = Session(
+            accessToken = response.accessToken,
+            accessTokenExpiresAtMillis = Iso8601.parseToEpochMillis(response.accessTokenExpiresAt),
+            refreshToken = response.refreshToken,
+            refreshTokenExpiresAtMillis = Iso8601.parseToEpochMillis(response.refreshTokenExpiresAt),
+            user = AuthenticatedUser(response.user.id, response.user.email, response.user.displayName)
+        )
+        sessionManager.save(session)
+        return session
     }
 
     suspend fun pollQrSession(token: String): Result<QrPollOutcome> = runCatching {
