@@ -5,10 +5,8 @@ import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
-import java.util.concurrent.TimeUnit
 
 /**
  * Talks to /user/addons -- this account's cloud-synced installed addon
@@ -19,10 +17,7 @@ import java.util.concurrent.TimeUnit
  */
 class AddonSyncApiClient(private val baseUrl: String) {
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val httpClient = AccountApiHttpClient.client
 
     private val json = Json { ignoreUnknownKeys = true }
 

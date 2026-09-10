@@ -2076,3 +2076,116 @@ job was confirming the existing claims hold up and closing the one gap
 that didn't, not duplicating test coverage that already exists.
 
 **Milestone 14 is complete.**
+
+## Milestone 15 — Performance & Fire TV Optimization
+
+**Status:** Complete.
+
+**Approach:** Read the implementation specifically looking for what the
+spec's checklist names (auth screen startup speed, QR generation speed,
+unnecessary startup blocking, async sync, large-list freezing, efficient
+DB/API requests, batching, pagination, local caching, UI responsiveness
+during sync), verifying each claim against actual code rather than
+assuming. No Android emulator/device exists in this sandbox (stated since
+Milestone 5) — Fire TV Stick-specific claims below (memory pressure,
+decode cost) are verified by reading the reasoning already recorded in
+the code's own comments and confirming the implementation matches that
+reasoning, not by profiling on real hardware, which the spec itself
+correctly points out this kind of environment cannot substitute for.
+
+**Findings — already solid, verified rather than assumed:**
+- **Auth gate / startup:** `AuthGateViewModel`'s session check is local
+  DataStore-only (Milestone 5) — no network round trip gates navigation.
+  Grepped the entire `app/` tree for `runBlocking`: zero matches, so
+  nothing here can block a thread waiting on a coroutine. `SessionManager`
+  defers `TokenCipher`'s synchronous Android Keystore setup to first
+  actual use on `Dispatchers.IO` (Milestone 5), never to `AppContainer`
+  construction on the main thread. `AddonRepository`'s disk restore and
+  every other `init{}` side effect in `AppContainer` dispatch through
+  `scope.launch` on `Dispatchers.IO`, confirmed by reading each one, not
+  assumed from the class's own doc comment.
+- **QR generation:** `createQrSession()` is one network round trip with
+  no extra work before or after it.
+- **Sync stays async / UI responsive during sync:** every sync entry
+  point is fire-and-forget from its caller, hardened against ever
+  blocking or crashing the caller in Milestone 13.
+- **Large lists don't freeze the UI:** `ContentRow` (the shared component
+  behind Home, Genre Results, Search, My List, and Detail's Similar/Cast
+  rows) already uses `LazyRow` with a stable `key = { _, content ->
+  content.id }`, and `RowsBrowseScreen`'s outer list of rows is itself a
+  `LazyColumn` — confirmed by reading both files directly, not inferred
+  from the presence of an import. `AddonsScreen` is a `LazyColumn` too.
+  Grepped all 18 files under `ui/` that reference a lazy list component;
+  every screen rendering a list backed by user data or a catalog uses
+  one. Watch History has no browse screen to freeze in the first place
+  (unchanged since Milestone 8); `GET /user/history`'s existing keyset
+  pagination is there if one is ever built.
+- **Image loading:** `MangoTvApplication.newImageLoader()` is a
+  hand-tuned Coil `ImageLoader`, not the library default — a 35% memory
+  cache (deliberately raised above Coil's ~20% default, with the reasoning
+  for why recorded in the file's own comment: denser poster grids and more
+  genre-fanned rows outgrew the default), a disk cache bounded to
+  50-250MB regardless of device storage size, and `rememberOpaqueImageRequest`
+  forces `RGB_565` for photographic art specifically to halve per-pixel
+  decode/memory cost on low-RAM Fire TV Stick hardware. Already correct;
+  nothing changed here.
+- **Backend query efficiency:** grepped every file under `server/src/services`
+  for a query call inside a loop; none found — every write is the single
+  atomic statement pattern established since Milestone 6. Every FK column
+  has an explicit index (verified against real Postgres in Milestone 1).
+
+**Two real, concrete inefficiencies found and fixed:**
+1. **Five separate `OkHttpClient` instances for one backend.**
+   `AuthApiClient`, `SettingsApiClient`, `WatchlistApiClient`,
+   `PlaybackProgressApiClient`, and `AddonSyncApiClient` each built their
+   own `OkHttpClient.Builder()` with identical timeouts (confirmed
+   byte-for-byte identical across all five before touching anything) —
+   five separate connection pools and five separate dispatcher thread
+   pools all talking to the exact same `API_BASE_URL` host, pure overhead
+   with no upside. New `data/network/AccountApiHttpClient.kt` holds one
+   shared instance; all five now reference it instead of building their
+   own, with unused `OkHttpClient`/`TimeUnit` imports cleaned up from each.
+   Deliberately scoped to just these five — `StremioAddonClient` (arbitrary,
+   often slower self-hosted addon servers) and `PlayerEngine`'s
+   `OkHttpDataSource` client (streaming media) stay on their own clients,
+   since that's genuinely different traffic with different performance
+   characteristics, not the same duplication.
+2. **Backend connection pool had no `connectionTimeoutMillis`.**
+   `server/src/db/pool.ts` relied entirely on `pg`'s own defaults, and
+   `pg`'s default `connectionTimeoutMillis` is `0` — wait forever for a
+   free pool client. Under real saturation (a traffic spike, or hitting
+   Neon's own connection ceiling on a pooled/serverless plan) a request
+   would hang indefinitely instead of failing fast with a clear error the
+   client's own retry/offline handling (Milestone 13) already knows how
+   to recover from. Added explicit `max: 10` and `idleTimeoutMillis:
+   30_000` (pg's existing defaults, made explicit rather than left
+   implicit — no measured need to change them) and `connectionTimeoutMillis:
+   5_000` (the one that actually changes behavior).
+
+**Tests performed:**
+- `npm run typecheck` — clean.
+- `npm test` (backend) — **131/131 passed** against a real local
+  Postgres, confirmed *after* the pool.ts change, not just before it —
+  the test suite imports the same `pool` used in production code
+  (`tests/helpers/db.ts`), so this is a real, not just theoretical,
+  check that the new timeout values don't break normal operation.
+  `fileParallelism: false` (all test files share one database
+  sequentially) means the suite never approaches the new `max: 10`
+  connection ceiling regardless.
+- Android: no new pure-logic unit tests this milestone (the changes are
+  a shared-client wiring change with no new branching logic); verified
+  by re-reading all six touched/created network files in full, a grep
+  confirming zero stray `OkHttpClient`/`TimeUnit` references remain in
+  the five client files, and a brace-balance check across all six.
+  `build-apk.yml` CI compile — see below.
+
+**Deliberately not built:** WorkManager or any other background-job
+scheduler for prefetching/precaching (no measured stutter or slow path
+to justify it — the existing Coil cache and per-screen concurrent fetch
+already cover the cases this milestone's checklist names); reducing
+`AppContainer`'s eager-singleton list (every one already has a
+documented, load-bearing reason for its own eagerness, recorded milestone
+by milestone in that file's own kdoc — this pass confirmed each reason
+still holds rather than second-guessing settled design).
+
+**Milestone 15 is complete.**

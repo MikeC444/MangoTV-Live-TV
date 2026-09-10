@@ -12,6 +12,18 @@ import { env } from "../config/env.js";
 // instance used for Milestone 1's own rehearsal (see
 // docs/milestone-0-audit-and-plan.md, "sandbox environment constraints")
 // without needing an environment-specific branch in application code.
+// Milestone 15: explicit pool sizing/timeouts rather than pg's own
+// defaults. The one that actually matters is connectionTimeoutMillis --
+// pg's default is 0 (wait forever for a free client), which under real
+// saturation (a traffic spike, or Neon's own connection ceiling on a
+// pooled/serverless plan) would hang a request indefinitely instead of
+// failing fast with a clear error the client's own retry/offline handling
+// (Milestone 13) already knows how to recover from. max/idleTimeoutMillis
+// are pg's existing defaults, made explicit rather than left implicit —
+// this deployment has no measured need to raise or lower them yet.
 export const pool = new Pool({
   connectionString: env.databaseUrl,
+  max: 10,
+  idleTimeoutMillis: 30_000,
+  connectionTimeoutMillis: 5_000,
 });

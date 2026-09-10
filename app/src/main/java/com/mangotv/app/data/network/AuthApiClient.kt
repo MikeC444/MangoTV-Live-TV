@@ -4,11 +4,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import kotlinx.serialization.json.Json
 import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
 import okhttp3.Request
 import okhttp3.RequestBody.Companion.toRequestBody
 import java.net.URLEncoder
-import java.util.concurrent.TimeUnit
 
 /**
  * Talks to this account's backend — the Fire TV app's only network
@@ -23,10 +21,7 @@ import java.util.concurrent.TimeUnit
  */
 class AuthApiClient(private val baseUrl: String) {
 
-    private val httpClient = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .build()
+    private val httpClient = AccountApiHttpClient.client
 
     private val json = Json { ignoreUnknownKeys = true }
 
