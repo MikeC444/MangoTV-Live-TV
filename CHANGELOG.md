@@ -1302,8 +1302,12 @@ Android:
   same library that happen to export similarly-named functions. Fixed
   by correcting both imports; consistent with `kotlinx-serialization-json`
   1.7.3's own package layout (pinned in `gradle/libs.versions.toml`).
-  Pushed as a second commit and re-ran `build-apk.yml`, which came back
-  green.
+  Pushed as a second commit; `build-apk.yml` re-ran and came back green
+  ([run 34420205936](https://github.com/MikeC444/MangoTV-Live-TV/actions/runs/34420205936)).
+  `server-ci.yml` did not need to re-run for this commit — it's
+  path-filtered to `server/**`, and this fix touched only Android code;
+  it had already passed 131/131 on the commit that actually contains the
+  server changes.
 
 **Deliberately not built yet:**
 - **Reordering addons.** There is no reorder UI anywhere in the app
