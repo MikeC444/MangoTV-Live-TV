@@ -1,5 +1,6 @@
 package com.mangotv.app.ui.auth
 
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,12 +27,17 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawWithCache
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.graphics.Brush
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.SpanStyle
 import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.mangotv.app.R
 import com.mangotv.app.ui.components.MangoButton
 import com.mangotv.app.ui.components.MangoButtonStyle
 import com.mangotv.app.ui.components.MangoLogo
@@ -51,6 +57,14 @@ import com.mangotv.app.ui.theme.TextTertiary
  * lower-emphasis option hands off to ui/auth/PasswordSignInScreen.kt
  * instead, for a user who'd rather type an email/password on their
  * remote than involve a phone at all — see that screen's kdoc.
+ *
+ * The right half shows a static hero photo (res/drawable-nodpi/
+ * auth_hero_living_room.webp) that fades into MangoBackground toward the
+ * left, via one gradient-scrim draw pass rather than a second overlapping
+ * composable — see the `drawWithCache` block below. `nodpi` deliberately
+ * opts this one image out of Android's per-density resource buckets: it's
+ * a single fixed photo scaled to fill by Compose (`ContentScale.Crop`),
+ * not a density-specific icon set.
  */
 @Composable
 fun AuthStartScreen(
@@ -68,6 +82,35 @@ fun AuthStartScreen(
             .fillMaxSize()
             .background(MangoBackground)
     ) {
+        Image(
+            painter = painterResource(R.drawable.auth_hero_living_room),
+            contentDescription = null,
+            contentScale = ContentScale.Crop,
+            alignment = Alignment.CenterEnd,
+            modifier = Modifier
+                .fillMaxSize()
+                .drawWithCache {
+                    // Solid MangoBackground for the left half (matching the
+                    // rest of the screen exactly, not just approximating
+                    // it), then a linear fade to fully transparent by the
+                    // right edge -- alpha-only, RGB held constant, so the
+                    // transition doesn't muddy through black the way
+                    // fading to Color.Transparent would.
+                    val scrim = Brush.horizontalGradient(
+                        colorStops = arrayOf(
+                            0f to MangoBackground,
+                            0.5f to MangoBackground,
+                            1f to MangoBackground.copy(alpha = 0f)
+                        ),
+                        startX = 0f,
+                        endX = size.width
+                    )
+                    onDrawWithContent {
+                        drawContent()
+                        drawRect(scrim)
+                    }
+                }
+        )
         Column(
             modifier = Modifier
                 .align(Alignment.CenterStart)
