@@ -17,13 +17,13 @@
       fetches arbitrary user-supplied http:// and https:// addon manifest
       URLs by design, and this flag is what lets an http:// one work at
       all. It does NOT cover the account API traffic added in Milestones
-      2-13 -- that traffic's own safety comes from app/build.gradle.kts
-      requiring API_BASE_URL to start with https://, enforced at build
-      time (a stronger guarantee than this flag could give either way,
-      since it can't be scoped to a hostname only known at build time).
-      Do not remove this flag to "fix" the account API's transport
-      security -- that fix already lives in build.gradle.kts, and
-      removing this would break the addon ecosystem instead.
+      2 through 13; that traffic's own safety comes from
+      app/build.gradle.kts requiring API_BASE_URL to start with https://,
+      enforced at build time (a stronger guarantee than this flag could
+      give either way, since it can't be scoped to a hostname only known
+      at build time). Do not remove this flag to "fix" the account API's
+      transport security; that fix already lives in build.gradle.kts,
+      and removing this would break the addon ecosystem instead.
     -->
     <application
         android:name=".MangoTvApplication"
