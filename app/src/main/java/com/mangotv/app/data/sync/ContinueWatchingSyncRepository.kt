@@ -1,5 +1,6 @@
 package com.mangotv.app.data.sync
 
+import android.content.Context
 import com.mangotv.app.BuildConfig
 import com.mangotv.app.data.auth.AuthRepository
 import com.mangotv.app.data.history.ContinueWatchingEntry
@@ -32,15 +33,25 @@ import java.io.IOException
  * report fires -- is not a coroutine context, so this owns its own
  * long-lived scope and fires the local write + network push from there,
  * the same shape WatchlistSyncRepository.pushToServer() already uses.
+ *
+ * Milestone 10 added [retryPending]: a failed report now persists to a
+ * small durable outbox ([pendingStore]) instead of just being dropped --
+ * SyncManager drains it on login/launch and when connectivity returns.
+ * The outbox reuses WatchProgressRequest itself as its payload -- unlike
+ * Watchlist/Addons, no "pending removal" marker is needed, since
+ * WatchProgressRequest.completed already tells the single
+ * POST /user/watch-progress endpoint everything it needs either way.
  */
 class ContinueWatchingSyncRepository(
+    context: Context,
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val authRepository: AuthRepository
 ) {
     private val apiClient = PlaybackProgressApiClient(BuildConfig.API_BASE_URL)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pendingStore = PendingChangeStore(context, "mango_continue_watching_pending", WatchProgressRequest.serializer())
 
-    /** Pulls this account's active Continue Watching list and replaces the local cache with it. Same two call sites (auth gate, post-QR-sign-in) as SettingsSyncRepository/WatchlistSyncRepository's own pullFromServer(). Fire-and-forget: must never delay getting the user into the app. */
+    /** Pulls this account's active Continue Watching list and replaces the local cache with it. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
     suspend fun pullFromServer() {
         val token = freshAccessTokenOrNull() ?: return
         try {
@@ -51,6 +62,31 @@ class ContinueWatchingSyncRepository(
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
             // Transient -- local cache stays at its last-known-good state.
+        }
+    }
+
+    /** Retries every progress report this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer) and when network connectivity returns. */
+    suspend fun retryPending() {
+        val pending = pendingStore.all()
+        if (pending.isEmpty()) return
+        val token = freshAccessTokenOrNull() ?: return
+
+        for ((key, request) in pending) {
+            try {
+                val response = apiClient.postProgress(token, request)
+                reconcile(request.providerId, request.contentId, ContentType.valueOf(request.contentType), response.continueWatching)
+                pendingStore.remove(key)
+            } catch (e: ApiException) {
+                if (e.statusCode == 401) {
+                    authRepository.clearSessionOnConfirmedUnauthorized()
+                    return
+                }
+                // Left queued; try the rest of the batch.
+            } catch (e: IOException) {
+                // Still offline -- leave this and the rest of the batch
+                // queued and stop; they'd fail identically right now.
+                return
+            }
         }
     }
 
@@ -77,16 +113,31 @@ class ContinueWatchingSyncRepository(
         completed: Boolean
     ) {
         val watchedAt = Iso8601.nowString()
+        val key = "$providerId|$contentId|${contentType.name}"
+        val request = WatchProgressRequest(
+            providerId = providerId,
+            contentId = contentId,
+            contentType = contentType.name,
+            seasonNumber = seasonNumber,
+            episodeNumber = episodeNumber,
+            episodeTitle = episodeTitle,
+            title = title,
+            posterUrl = posterUrl,
+            backdropUrl = backdropUrl,
+            positionMs = positionMs,
+            durationMs = durationMs,
+            completed = completed,
+            watchedAt = watchedAt
+        )
         scope.launch {
             // Local write and network push share one try/catch: a
             // DataStore write failure surfaces as IOException just like a
             // network one (see ContinueWatchingRepository/DataStore's own
-            // documented behavior), so the same "transient, next report or
-            // next pull recovers" handling below already covers both --
-            // and either way, an uncaught exception here would otherwise
-            // propagate out of this launch{} and crash the app, which a
-            // rare disk hiccup during a routine progress report should
-            // never do.
+            // documented behavior), so the same "transient -- queue it and
+            // move on" handling below already covers both -- and either
+            // way, an uncaught exception here would otherwise propagate
+            // out of this launch{} and crash the app, which a rare disk
+            // hiccup during a routine progress report should never do.
             try {
                 if (completed) {
                     continueWatchingRepository.remove(providerId, contentId, contentType)
@@ -109,31 +160,19 @@ class ContinueWatchingSyncRepository(
                     )
                 }
 
-                val token = freshAccessTokenOrNull() ?: return@launch
-                val response = apiClient.postProgress(
-                    token,
-                    WatchProgressRequest(
-                        providerId = providerId,
-                        contentId = contentId,
-                        contentType = contentType.name,
-                        seasonNumber = seasonNumber,
-                        episodeNumber = episodeNumber,
-                        episodeTitle = episodeTitle,
-                        title = title,
-                        posterUrl = posterUrl,
-                        backdropUrl = backdropUrl,
-                        positionMs = positionMs,
-                        durationMs = durationMs,
-                        completed = completed,
-                        watchedAt = watchedAt
-                    )
-                )
+                val token = freshAccessTokenOrNull()
+                if (token == null) {
+                    pendingStore.put(key, request)
+                    return@launch
+                }
+                val response = apiClient.postProgress(token, request)
                 reconcile(providerId, contentId, contentType, response.continueWatching)
+                pendingStore.remove(key)
             } catch (e: ApiException) {
+                pendingStore.put(key, request)
                 if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
             } catch (e: IOException) {
-                // Transient -- nothing further to reconcile locally; the
-                // next report, or the next login's pull, will retry.
+                pendingStore.put(key, request)
             }
         }
     }

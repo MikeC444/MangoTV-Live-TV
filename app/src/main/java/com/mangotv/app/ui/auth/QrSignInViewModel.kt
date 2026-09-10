@@ -37,10 +37,7 @@ class QrSignInViewModel(
 
     private val container = (application as MangoTvApplication).container
     private val authRepository = container.authRepository
-    private val settingsSyncRepository = container.settingsSyncRepository
-    private val watchlistSyncRepository = container.watchlistSyncRepository
-    private val continueWatchingSyncRepository = container.continueWatchingSyncRepository
-    private val addonSyncRepository = container.addonSyncRepository
+    private val syncManager = container.syncManager
     val intent: String = savedStateHandle.get<String>("intent") ?: "login"
 
     private val _uiState = MutableStateFlow<QrUiState>(QrUiState.Loading)
@@ -99,10 +96,7 @@ class QrSignInViewModel(
                         when (outcome) {
                             is QrPollOutcome.Completed -> {
                                 _authenticated.value = true
-                                settingsSyncRepository.pullFromServer()
-                                watchlistSyncRepository.pullFromServer()
-                                continueWatchingSyncRepository.pullFromServer()
-                                addonSyncRepository.pullFromServer()
+                                syncManager.syncAll()
                                 return@launch
                             }
                             QrPollOutcome.Expired -> {

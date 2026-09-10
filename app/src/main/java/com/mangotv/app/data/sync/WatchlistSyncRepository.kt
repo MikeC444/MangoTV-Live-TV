@@ -1,5 +1,6 @@
 package com.mangotv.app.data.sync
 
+import android.content.Context
 import com.mangotv.app.BuildConfig
 import com.mangotv.app.data.auth.AuthRepository
 import com.mangotv.app.data.model.ContentType
@@ -26,10 +27,13 @@ import java.io.IOException
  * *pull* path legitimately does return the whole current list, because
  * that's just what "give me this account's watchlist" means.
  *
- * Same fire-and-forget, no-retry-queue posture as Milestone 6 (see
- * SettingsSyncRepository's own kdoc for the reasoning) — a failed push
- * isn't queued; the next local change, or the next login/launch's pull,
- * is what recovers from a transient failure.
+ * Milestone 10 added [retryPending]: a failed push now persists to a
+ * small durable outbox ([pendingStore]) instead of just being dropped —
+ * SyncManager drains it on login/launch and when connectivity returns.
+ * The outbox reuses WatchlistItemDto itself as its payload type (a
+ * pending *removal* is stored as a DTO with `deletedAt` set to the
+ * change's own updatedAt as a marker) rather than inventing a parallel
+ * serializable type just for this.
  *
  * Deliberately does not bulk-push whatever is already sitting in
  * MyListRepository the first time this runs on an existing install — that
@@ -39,17 +43,19 @@ import java.io.IOException
  * for a brand new account), and only *future* toggles get pushed.
  */
 class WatchlistSyncRepository(
+    context: Context,
     private val myListRepository: MyListRepository,
     private val authRepository: AuthRepository
 ) {
     private val apiClient = WatchlistApiClient(BuildConfig.API_BASE_URL)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pendingStore = PendingChangeStore(context, "mango_watchlist_pending", WatchlistItemDto.serializer())
 
     init {
         myListRepository.onLocalChange = { change -> pushToServer(change) }
     }
 
-    /** Pulls this account's active watchlist and replaces the local cache with it. Called once per app launch when the auth gate finds an already-usable session, and once right after a fresh QR sign-in — same two call sites as SettingsSyncRepository.pullFromServer(). Fire-and-forget: must never delay getting the user into the app. */
+    /** Pulls this account's active watchlist and replaces the local cache with it. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
     suspend fun pullFromServer() {
         val token = freshAccessTokenOrNull() ?: return
         try {
@@ -63,13 +69,50 @@ class WatchlistSyncRepository(
         }
     }
 
+    /** Retries every item this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer, so a fresh account state is established first) and when network connectivity returns. */
+    suspend fun retryPending() {
+        val pending = pendingStore.all()
+        if (pending.isEmpty()) return
+        val token = freshAccessTokenOrNull() ?: return
+
+        for ((key, dto) in pending) {
+            try {
+                if (dto.deletedAt != null) {
+                    val response = apiClient.removeItem(token, dto.providerId, dto.contentId, dto.contentType, dto.updatedAt)
+                    if (response != null) reconcile(response)
+                } else {
+                    reconcile(apiClient.addOrUpdateItem(token, dto))
+                }
+                pendingStore.remove(key)
+            } catch (e: ApiException) {
+                if (e.statusCode == 401) {
+                    authRepository.clearSessionOnConfirmedUnauthorized()
+                    return
+                }
+                // Left queued; try the rest of the batch -- a rejection
+                // for this one payload doesn't mean the others would fail
+                // the same way.
+            } catch (e: IOException) {
+                // Still offline -- leave this and the rest of the batch
+                // queued and stop; they'd fail identically right now.
+                return
+            }
+        }
+    }
+
     /** Fire-and-forget: MyListRepository calls this via onLocalChange right after a genuine local add/remove finishes persisting. */
     private fun pushToServer(change: WatchlistChange) {
         scope.launch {
-            val token = freshAccessTokenOrNull() ?: return@launch
+            val key = change.naturalKey()
+            val pendingDto = change.toPendingDto()
+            val token = freshAccessTokenOrNull()
+            if (token == null) {
+                pendingStore.put(key, pendingDto)
+                return@launch
+            }
             try {
                 when (change) {
-                    is WatchlistChange.Added -> reconcile(apiClient.addOrUpdateItem(token, change.item.toDto()))
+                    is WatchlistChange.Added -> reconcile(apiClient.addOrUpdateItem(token, pendingDto))
                     is WatchlistChange.Removed -> {
                         val response = apiClient.removeItem(
                             token,
@@ -83,11 +126,12 @@ class WatchlistSyncRepository(
                         if (response != null) reconcile(response)
                     }
                 }
+                pendingStore.remove(key)
             } catch (e: ApiException) {
+                pendingStore.put(key, pendingDto)
                 if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
             } catch (e: IOException) {
-                // Transient -- nothing to reconcile locally; the next local
-                // change or the next login's pull will retry.
+                pendingStore.put(key, pendingDto)
             }
         }
     }
@@ -118,6 +162,24 @@ class WatchlistSyncRepository(
     private suspend fun freshAccessTokenOrNull(): String? {
         if (!authRepository.ensureFreshSession()) return null
         return authRepository.getCurrentSession()?.accessToken
+    }
+
+    private fun WatchlistChange.naturalKey(): String = when (this) {
+        is WatchlistChange.Added -> "${item.providerId}|${item.id}|${item.type.name}"
+        is WatchlistChange.Removed -> "$providerId|$contentId|${contentType.name}"
+    }
+
+    /** A pending removal is stored as a DTO with only the fields a DELETE actually needs, deletedAt set to its own updatedAt as the "this is a removal, not an upsert" marker retryPending() reads. */
+    private fun WatchlistChange.toPendingDto(): WatchlistItemDto = when (this) {
+        is WatchlistChange.Added -> item.toDto()
+        is WatchlistChange.Removed -> WatchlistItemDto(
+            providerId = providerId,
+            contentId = contentId,
+            contentType = contentType.name,
+            title = "",
+            updatedAt = updatedAt,
+            deletedAt = updatedAt
+        )
     }
 
     private fun WatchlistItemDto.toSavedListItem(): SavedListItem = SavedListItem(

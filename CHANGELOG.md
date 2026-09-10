@@ -1327,3 +1327,143 @@ Android:
   pattern the other three sync repositories use.
 
 **Milestone 9 is complete.**
+
+## Milestone 10 — Complete Account Data Synchronization
+
+**Status:** Complete.
+
+**Changes:** Not a new sync domain — this milestone combines the four
+already-shipped ones (Settings, Watchlist, Continue Watching, Addons)
+into one coherent system, and builds the one piece every one of their
+changelogs had explicitly and repeatedly deferred: a durable retry
+queue for failed pushes. Milestones 6-9 each accepted "a failed push
+isn't queued — the next local change, or the next login's pull, is
+what recovers" as a stated, reasoned limitation, on the grounds that
+generalizing a shared retry mechanism from a single example would be
+guessing at its shape. With four real, shipped examples now in hand,
+that's no longer true, and this is the milestone that explicitly asks
+for the result to be combined into one system — so this is where that
+generalization belongs, not a milestone earlier or later.
+
+Pure Android-side change — no backend endpoints needed adding, since
+retrying a failed push just means replaying the exact same
+`POST`/`DELETE`/`PUT` request against the same already-built,
+already-tested endpoints.
+
+- `data/sync/PendingChangeStore.kt` (new) — a small generic, durable
+  "hasn't successfully synced yet" outbox, one instance per domain, each
+  with its own uniquely-named backing DataStore file (constructed via
+  `PreferenceDataStoreFactory.create(...)` directly rather than this
+  codebase's usual `by preferencesDataStore(name = ...)` delegate sugar,
+  since that delegate is meant for one static property per store name
+  and this class is instead instantiated once per domain with a
+  dynamic name). Keyed by each domain's own natural key, so a later
+  failure for the same key simply replaces the earlier pending entry —
+  the outbox always holds each key's *latest* intended state, never a
+  growing log of superseded attempts. `put()`/`remove()` do their
+  read-modify-write inside DataStore's own `edit{}` transform, so
+  concurrent calls for different keys can't race each other into a lost
+  update.
+- `data/sync/{Watchlist,Addon,ContinueWatching}SyncRepository.kt` — each
+  gained a `retryPending()` and now persists to its own
+  `PendingChangeStore` on push failure (cleared on success), reusing
+  each domain's own existing wire DTO as the outbox's payload type
+  rather than inventing a parallel serializable type per domain:
+  `WatchlistItemDto`/`AddonSyncDto` (a pending *removal* is stored as a
+  DTO with `deletedAt` set to its own `updatedAt` as a marker, since
+  both already carry that field) and `WatchProgressRequest`
+  (`completed` already tells the single `POST /user/watch-progress`
+  endpoint everything it needs either way — no marker required).
+  `retryPending()`'s loop treats a confirmed 401 as "stop entirely, the
+  session is dead" (every remaining item would fail identically), a
+  non-401 `ApiException` as "leave this one queued, try the rest of the
+  batch" (a rejection for one payload doesn't predict the others), and
+  an `IOException` as "leave everything queued and stop" (still
+  offline, the rest of the batch would fail identically right now).
+- `data/sync/SettingsSyncRepository.kt` — same `retryPending()`
+  addition, but simpler: a single-document domain only ever needs one
+  outbox entry under a fixed key, and since every local change already
+  re-reads current state fresh before pushing, retrying just means
+  replaying whatever's currently queued rather than needing to
+  re-read local state itself.
+- `data/sync/SyncManager.kt` (new) — the actual "coherent system": one
+  `syncAll()` that pulls all four domains in parallel, then drains all
+  four retry queues in parallel (pull first to establish fresh ground
+  truth; drain after so a not-yet-synced local change doesn't get
+  silently clobbered by a pull that runs after it) — replacing the four
+  separate `pullFromServer()` calls `AuthGateViewModel`/
+  `QrSignInViewModel` each made by hand through Milestone 9. Also
+  registers a `ConnectivityManager.NetworkCallback` for the process's
+  whole lifetime that calls `retryPendingAll()` (draining only, not a
+  full pull — unnecessary network traffic otherwise) the moment the
+  network transitions from unavailable to available, so an offline
+  change doesn't sit queued until the user happens to relaunch the app
+  or make another change of the same kind. A failed callback
+  registration (some OEM/OS variants restrict this) degrades silently
+  to "no proactive reconnect retry" rather than crashing — `syncAll()`
+  on the next login/launch still recovers a queued change either way.
+- `AppContainer.kt` — every sync repository now takes a `Context`
+  (needed to construct its own `PendingChangeStore`); `syncManager`
+  added as an eager singleton constructed last, once every repository
+  it orchestrates already exists.
+- `AuthGateViewModel.kt` / `QrSignInViewModel.kt` — both call
+  `syncManager.syncAll()` once, replacing four individual
+  `pullFromServer()` calls each. At the QR sign-in call site this is a
+  genuine improvement, not just a refactor: the four pulls used to run
+  *sequentially* there (unlike the auth gate's own four parallel
+  `launch{}` calls) — `syncAll()`'s internal `coroutineScope{}` now
+  parallelizes them everywhere.
+
+**Tests performed:**
+- `npm run typecheck` / `npm test` (backend) — clean, 131/131 (sanity
+  check only; no backend files changed this milestone).
+- Android: no new pure-logic unit tests this milestone (same rationale
+  as Milestones 6-9); verified instead by a full manual re-read of
+  every new/changed file, cross-checking constructor argument order at
+  every `AppContainer` call site against each class's actual updated
+  signature, and the `build-apk.yml` CI compile below.
+
+**Issues discovered (self-review before marking complete):**
+- **`PendingChangeStore.kt` itself didn't compile** — it called
+  `json.decodeFromString(mapSerializer, raw)` /
+  `json.encodeToString(mapSerializer, map)` without importing either
+  function. This is the exact same class of mistake CI caught in
+  Milestone 9 (a kotlinx.serialization extension living in a
+  different package than expected — here, the *core*
+  `kotlinx.serialization.decodeFromString`/`encodeToString`, not the
+  JSON-specific ones), except this time it was caught by deliberately
+  re-reading every new file's imports line-by-line against its actual
+  usage *before* pushing, specifically because Milestone 9 had just
+  demonstrated this sandbox's manual-review blind spot for this exact
+  category of error. Fixed before the first push, not after a red CI
+  run.
+
+**Issues fixed:** the missing imports above.
+
+**Deliberately not built yet:**
+- **A download queue**, in the literal sense the milestone's
+  "Initial sync / Incremental sync / Upload queue / Download queue"
+  list names it. Every domain's pull is already a single, complete,
+  on-demand fetch of "this account's current state for this domain" —
+  there's nothing to *queue* on the download side the way there is on
+  the upload side (a queue implies work waiting to be dispatched in
+  order; a pull is just "ask the server, right now, what's true").
+  `GET /user/history`'s existing keyset pagination (Milestone 8) is the
+  closest thing to a "download queue" concept this system actually
+  needs, and it already exists.
+- **Exponential backoff / scheduled periodic retry.** Retry currently
+  fires at three points: login/launch, network reconnect, and (per
+  domain) the next unrelated local change. This covers the realistic
+  offline scenarios (a device with no network at all, later regaining
+  it) without adding a background job scheduler (WorkManager or
+  similar) this project doesn't otherwise need yet. A device that's
+  online but the API is unreachable for an extended stretch has no
+  proactive retry between those three triggers — flagged, not fixed,
+  since building a scheduled background sync job is real
+  infrastructure a milestone that's explicitly about *combining
+  existing pieces* shouldn't introduce on its own initiative.
+- **Clearing pending queues / local caches on logout** — still
+  Milestone 12's job, unchanged from every prior milestone's own note
+  on this.
+
+**Milestone 10 is complete.**

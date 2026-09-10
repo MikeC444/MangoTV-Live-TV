@@ -1,5 +1,6 @@
 package com.mangotv.app.data.sync
 
+import android.content.Context
 import com.mangotv.app.BuildConfig
 import com.mangotv.app.data.addon.AddonChange
 import com.mangotv.app.data.addon.AddonRepository
@@ -15,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import kotlinx.serialization.json.jsonObject
@@ -46,20 +48,26 @@ import java.io.IOException
  * pre-existing local data across every domain, with an explicit user
  * choice" design, which stays exactly as out of scope here as it is for
  * every other sync repository.
+ *
+ * Milestone 10 added [retryPending]: a failed push now persists to a
+ * small durable outbox ([pendingStore]) instead of just being dropped --
+ * SyncManager drains it on login/launch and when connectivity returns.
  */
 class AddonSyncRepository(
+    context: Context,
     private val addonRepository: AddonRepository,
     private val authRepository: AuthRepository
 ) {
     private val apiClient = AddonSyncApiClient(BuildConfig.API_BASE_URL)
     private val json = Json { ignoreUnknownKeys = true }
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+    private val pendingStore = PendingChangeStore(context, "mango_addons_pending", AddonSyncDto.serializer())
 
     init {
         addonRepository.onLocalChange = { change -> pushToServer(change) }
     }
 
-    /** Pulls this account's active addon list and replaces the local cache with it -- except when the cloud has nothing yet, see the class kdoc. Same two call sites (auth gate, post-QR-sign-in) as the other sync repositories. Fire-and-forget: must never delay getting the user into the app. */
+    /** Pulls this account's active addon list and replaces the local cache with it -- except when the cloud has nothing yet, see the class kdoc. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
     suspend fun pullFromServer() {
         val token = freshAccessTokenOrNull() ?: return
         try {
@@ -77,19 +85,50 @@ class AddonSyncRepository(
         }
     }
 
-    /** This account has never synced an addon from any device -- push whatever this device already has (e.g. the auto-installed Cinemeta default) up as the seed, rather than pulling the empty cloud state down over it. Each addon is pushed independently; one failing doesn't block the rest. */
-    private suspend fun pushAllLocalAsInitialSeed(token: String) {
-        val localAddons = addonRepository.installedAddons.value
-        localAddons.forEachIndexed { index, addon ->
+    /** Retries every addon this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer) and when network connectivity returns. */
+    suspend fun retryPending() {
+        val pending = pendingStore.all()
+        if (pending.isEmpty()) return
+        val token = freshAccessTokenOrNull() ?: return
+
+        for ((key, dto) in pending) {
             try {
-                apiClient.upsertAddon(token, addon.toDto(sortOrder = index, updatedAt = Iso8601.nowString()))
+                if (dto.deletedAt != null) {
+                    val response = apiClient.removeAddon(token, dto.manifestUrl, dto.updatedAt)
+                    if (response != null) reconcile(response)
+                } else {
+                    reconcile(apiClient.upsertAddon(token, dto))
+                }
+                pendingStore.remove(key)
             } catch (e: ApiException) {
                 if (e.statusCode == 401) {
                     authRepository.clearSessionOnConfirmedUnauthorized()
                     return
                 }
+                // Left queued; try the rest of the batch.
             } catch (e: IOException) {
-                // Transient -- this one addon didn't make it up this time; the next pull or local change will retry.
+                // Still offline -- leave this and the rest of the batch
+                // queued and stop; they'd fail identically right now.
+                return
+            }
+        }
+    }
+
+    /** This account has never synced an addon from any device -- push whatever this device already has (e.g. the auto-installed Cinemeta default) up as the seed, rather than pulling the empty cloud state down over it. Each addon is pushed independently; one failing doesn't block the rest, and is queued for retry like any other failed push. */
+    private suspend fun pushAllLocalAsInitialSeed(token: String) {
+        val localAddons = addonRepository.installedAddons.value
+        localAddons.forEachIndexed { index, addon ->
+            val dto = addon.toDto(sortOrder = index, updatedAt = Iso8601.nowString())
+            try {
+                apiClient.upsertAddon(token, dto)
+            } catch (e: ApiException) {
+                pendingStore.put(addon.manifestUrl, dto)
+                if (e.statusCode == 401) {
+                    authRepository.clearSessionOnConfirmedUnauthorized()
+                    return
+                }
+            } catch (e: IOException) {
+                pendingStore.put(addon.manifestUrl, dto)
             }
         }
     }
@@ -97,28 +136,29 @@ class AddonSyncRepository(
     /** Fire-and-forget: AddonRepository calls this via onLocalChange right after a genuine local install/remove/enable-toggle finishes persisting. */
     private fun pushToServer(change: AddonChange) {
         scope.launch {
-            val token = freshAccessTokenOrNull() ?: return@launch
+            val key = change.naturalKey()
+            val pendingDto = change.toPendingDto()
+            val token = freshAccessTokenOrNull()
+            if (token == null) {
+                pendingStore.put(key, pendingDto)
+                return@launch
+            }
             try {
                 when (change) {
-                    is AddonChange.Upserted -> {
-                        val response = apiClient.upsertAddon(
-                            token,
-                            change.addon.toDto(sortOrder = change.sortOrder, updatedAt = Iso8601.nowString())
-                        )
-                        reconcile(response)
-                    }
+                    is AddonChange.Upserted -> reconcile(apiClient.upsertAddon(token, pendingDto))
                     is AddonChange.Removed -> {
-                        val response = apiClient.removeAddon(token, change.manifestUrl, Iso8601.nowString())
+                        val response = apiClient.removeAddon(token, change.manifestUrl, pendingDto.updatedAt)
                         // null means this addon was never synced from any
                         // device -- nothing server-side to reconcile against.
                         if (response != null) reconcile(response)
                     }
                 }
+                pendingStore.remove(key)
             } catch (e: ApiException) {
+                pendingStore.put(key, pendingDto)
                 if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
             } catch (e: IOException) {
-                // Transient -- nothing to reconcile locally; the next
-                // change, or the next login's pull, will retry.
+                pendingStore.put(key, pendingDto)
             }
         }
     }
@@ -146,6 +186,29 @@ class AddonSyncRepository(
     private suspend fun freshAccessTokenOrNull(): String? {
         if (!authRepository.ensureFreshSession()) return null
         return authRepository.getCurrentSession()?.accessToken
+    }
+
+    private fun AddonChange.naturalKey(): String = when (this) {
+        is AddonChange.Upserted -> addon.manifestUrl
+        is AddonChange.Removed -> manifestUrl
+    }
+
+    /** A pending removal is stored as a DTO with only the fields a DELETE actually needs (an empty manifestJson placeholder -- irrelevant for a removal), deletedAt set to its own updatedAt as the "this is a removal, not an upsert" marker retryPending() reads. */
+    private fun AddonChange.toPendingDto(): AddonSyncDto = when (this) {
+        is AddonChange.Upserted -> addon.toDto(sortOrder = sortOrder, updatedAt = Iso8601.nowString())
+        is AddonChange.Removed -> {
+            val now = Iso8601.nowString()
+            AddonSyncDto(
+                manifestUrl = manifestUrl,
+                addonId = "",
+                name = "",
+                manifestJson = JsonObject(emptyMap()),
+                enabled = false,
+                sortOrder = 0,
+                updatedAt = now,
+                deletedAt = now
+            )
+        }
     }
 
     private fun AddonSyncDto.toInstalledAddon(): InstalledAddon = InstalledAddon(

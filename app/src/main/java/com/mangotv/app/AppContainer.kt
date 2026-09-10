@@ -10,6 +10,7 @@ import com.mangotv.app.data.provider.MyListRepository
 import com.mangotv.app.data.sync.AddonSyncRepository
 import com.mangotv.app.data.sync.ContinueWatchingSyncRepository
 import com.mangotv.app.data.sync.SettingsSyncRepository
+import com.mangotv.app.data.sync.SyncManager
 import com.mangotv.app.data.sync.WatchlistSyncRepository
 
 /**
@@ -49,13 +50,12 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * playerPreferencesRepository and homeRowPreferencesRepository were lazy
  * before Milestone 6 (only constructed the first time playback started, or
  * Home/Settings > Home Rows was visited) — now eager, because cloud
- * settings sync means both need to be ready the moment the auth gate pulls
- * this account's settings from the server on every launch
- * (settingsSyncRepository.pullFromServer(), see AuthGateViewModel): a pull
- * has to write into both local caches regardless of whether the user has
- * touched either screen yet this session, so the previous "only construct
- * when that specific screen is first visited" laziness no longer reflects
- * how these are actually used.
+ * settings sync means both need to be ready the moment syncManager.syncAll()
+ * pulls this account's settings from the server on every launch (see
+ * AuthGateViewModel): a pull has to write into both local caches
+ * regardless of whether the user has touched either screen yet this
+ * session, so the previous "only construct when that specific screen is
+ * first visited" laziness no longer reflects how these are actually used.
  *
  * settingsSyncRepository and watchlistSyncRepository are both eager so
  * their constructors can wire each domain's onLocalChange push hook before
@@ -79,20 +79,31 @@ import com.mangotv.app.data.sync.WatchlistSyncRepository
  * unrelated reason (see its own paragraph above), so this milestone
  * didn't need to change addonRepository's own laziness, only add its
  * sync counterpart alongside it.
+ *
+ * syncManager (Milestone 10) is eager and constructed last, once every
+ * sync repository it orchestrates already exists — its own init{} block
+ * registers a device-wide network-connectivity callback that needs to be
+ * armed for the whole process lifetime, the same "start this the moment
+ * the process starts, not the moment some screen first needs it" reasoning
+ * as addonRepository/authRepository above, just for a different kind of
+ * side effect (a registered OS callback instead of a disk read).
  */
 class AppContainer(context: Context) {
     val addonRepository: AddonRepository = AddonRepository(context)
     val authRepository: AuthRepository = AuthRepository(context)
-    val addonSyncRepository: AddonSyncRepository = AddonSyncRepository(addonRepository, authRepository)
+    val addonSyncRepository: AddonSyncRepository = AddonSyncRepository(context, addonRepository, authRepository)
     val playerPreferencesRepository: PlayerPreferencesRepository = PlayerPreferencesRepository(context)
     val homeRowPreferencesRepository: HomeRowPreferencesRepository = HomeRowPreferencesRepository(context)
     val settingsSyncRepository: SettingsSyncRepository = SettingsSyncRepository(
-        homeRowPreferencesRepository, playerPreferencesRepository, authRepository
+        context, homeRowPreferencesRepository, playerPreferencesRepository, authRepository
     )
     val myListRepository: MyListRepository = MyListRepository(context)
-    val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(myListRepository, authRepository)
+    val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(context, myListRepository, authRepository)
     val continueWatchingRepository: ContinueWatchingRepository = ContinueWatchingRepository(context)
     val continueWatchingSyncRepository: ContinueWatchingSyncRepository = ContinueWatchingSyncRepository(
-        continueWatchingRepository, authRepository
+        context, continueWatchingRepository, authRepository
+    )
+    val syncManager: SyncManager = SyncManager(
+        context, settingsSyncRepository, watchlistSyncRepository, continueWatchingSyncRepository, addonSyncRepository
     )
 }

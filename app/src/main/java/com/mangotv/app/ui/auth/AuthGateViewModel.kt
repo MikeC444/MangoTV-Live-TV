@@ -29,10 +29,7 @@ sealed interface GateDestination {
 class AuthGateViewModel(application: Application) : AndroidViewModel(application) {
     private val container = (application as MangoTvApplication).container
     private val authRepository = container.authRepository
-    private val settingsSyncRepository = container.settingsSyncRepository
-    private val watchlistSyncRepository = container.watchlistSyncRepository
-    private val continueWatchingSyncRepository = container.continueWatchingSyncRepository
-    private val addonSyncRepository = container.addonSyncRepository
+    private val syncManager = container.syncManager
 
     private val _destination = MutableStateFlow<GateDestination?>(null)
     val destination: StateFlow<GateDestination?> = _destination.asStateFlow()
@@ -44,16 +41,15 @@ class AuthGateViewModel(application: Application) : AndroidViewModel(application
             _destination.value = if (hasUsableSession) GateDestination.Home else GateDestination.AuthStart
 
             if (hasUsableSession) {
-                // All five fire after the navigation decision, not before
-                // — this is purely about keeping the access token fresh
-                // and this account's settings/watchlist/continue-watching/
-                // addons current for whenever they're next needed; none of
-                // them must ever delay getting the user into the app.
+                // Both fire after the navigation decision, not before —
+                // this is purely about keeping the access token fresh and
+                // every synced domain (settings/watchlist/continue-watching/
+                // addons, plus retrying anything queued from a previous
+                // offline change — see SyncManager) current for whenever
+                // they're next needed; neither must ever delay getting the
+                // user into the app.
                 launch { authRepository.ensureFreshSession() }
-                launch { settingsSyncRepository.pullFromServer() }
-                launch { watchlistSyncRepository.pullFromServer() }
-                launch { continueWatchingSyncRepository.pullFromServer() }
-                launch { addonSyncRepository.pullFromServer() }
+                launch { syncManager.syncAll() }
             }
         }
     }
