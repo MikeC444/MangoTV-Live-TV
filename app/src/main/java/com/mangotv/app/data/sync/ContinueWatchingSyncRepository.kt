@@ -11,6 +11,7 @@ import com.mangotv.app.data.network.ContinueWatchingItemDto
 import com.mangotv.app.data.network.PlaybackProgressApiClient
 import com.mangotv.app.data.network.WatchProgressRequest
 import com.mangotv.app.util.Iso8601
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -53,8 +54,8 @@ class ContinueWatchingSyncRepository(
 
     /** Pulls this account's active Continue Watching list and replaces the local cache with it. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
     suspend fun pullFromServer() {
-        val token = freshAccessTokenOrNull() ?: return
         try {
+            val token = freshAccessTokenOrNull() ?: return
             val response = apiClient.getContinueWatching(token)
             val items = response.items.mapNotNull { dto -> runCatching { dto.toEntry() }.getOrNull() }
             continueWatchingRepository.applyRemote(items)
@@ -62,6 +63,12 @@ class ContinueWatchingSyncRepository(
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
             // Transient -- local cache stays at its last-known-good state.
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unexpected (Milestone 13 -- e.g. a malformed response from a
+            // degraded backend/database) -- degrade the same way a network
+            // failure does rather than crashing the caller.
         }
     }
 
@@ -78,6 +85,10 @@ class ContinueWatchingSyncRepository(
         } catch (e: ApiException) {
             null
         } catch (e: IOException) {
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             null
         }
     }
@@ -113,6 +124,11 @@ class ContinueWatchingSyncRepository(
                 }
             } catch (e: IOException) {
                 pendingStore.put(key, request)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- queue for retry, try the rest of the batch.
+                pendingStore.put(key, request)
             }
         }
     }
@@ -122,7 +138,13 @@ class ContinueWatchingSyncRepository(
 
     /** Retries every progress report this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer) and when network connectivity returns. */
     suspend fun retryPending() {
-        val pending = pendingStore.all()
+        val pending = try {
+            pendingStore.all()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return
+        }
         if (pending.isEmpty()) return
         val token = freshAccessTokenOrNull() ?: return
 
@@ -141,6 +163,10 @@ class ContinueWatchingSyncRepository(
                 // Still offline -- leave this and the rest of the batch
                 // queued and stop; they'd fail identically right now.
                 return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- leave this item queued, try the rest of the batch.
             }
         }
     }
@@ -227,6 +253,11 @@ class ContinueWatchingSyncRepository(
                 pendingStore.put(key, request)
                 if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
             } catch (e: IOException) {
+                pendingStore.put(key, request)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- queue for retry, same as a network failure.
                 pendingStore.put(key, request)
             }
         }

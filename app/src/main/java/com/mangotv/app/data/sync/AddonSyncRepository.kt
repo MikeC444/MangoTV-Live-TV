@@ -11,6 +11,7 @@ import com.mangotv.app.data.network.AddonSyncApiClient
 import com.mangotv.app.data.network.AddonSyncDto
 import com.mangotv.app.data.network.ApiException
 import com.mangotv.app.util.Iso8601
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -63,8 +64,8 @@ class AddonSyncRepository(
 
     /** Pulls this account's active addon list and replaces the local cache with it. Called by SyncManager on login/launch. Fire-and-forget: must never delay getting the user into the app. */
     suspend fun pullFromServer() {
-        val token = freshAccessTokenOrNull() ?: return
         try {
+            val token = freshAccessTokenOrNull() ?: return
             val response = apiClient.getAddons(token)
             val items = response.items.mapNotNull { dto -> runCatching { dto.toInstalledAddon() }.getOrNull() }
             addonRepository.applyRemote(items)
@@ -72,6 +73,12 @@ class AddonSyncRepository(
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
             // Transient -- local cache stays at its last-known-good state.
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unexpected (Milestone 13 -- e.g. a malformed response from a
+            // degraded backend/database) -- degrade the same way a network
+            // failure does rather than crashing the caller.
         }
     }
 
@@ -88,6 +95,10 @@ class AddonSyncRepository(
         } catch (e: ApiException) {
             null
         } catch (e: IOException) {
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             null
         }
     }
@@ -108,6 +119,11 @@ class AddonSyncRepository(
                 }
             } catch (e: IOException) {
                 pendingStore.put(addon.manifestUrl, dto)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- queue for retry, try the rest of the batch.
+                pendingStore.put(addon.manifestUrl, dto)
             }
         }
     }
@@ -117,7 +133,13 @@ class AddonSyncRepository(
 
     /** Retries every addon this device has failed to push so far. Called by SyncManager on login/launch (after pullFromServer) and when network connectivity returns. */
     suspend fun retryPending() {
-        val pending = pendingStore.all()
+        val pending = try {
+            pendingStore.all()
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            return
+        }
         if (pending.isEmpty()) return
         val token = freshAccessTokenOrNull() ?: return
 
@@ -140,6 +162,10 @@ class AddonSyncRepository(
                 // Still offline -- leave this and the rest of the batch
                 // queued and stop; they'd fail identically right now.
                 return
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- leave this item queued, try the rest of the batch.
             }
         }
     }
@@ -149,12 +175,12 @@ class AddonSyncRepository(
         scope.launch {
             val key = change.naturalKey()
             val pendingDto = change.toPendingDto()
-            val token = freshAccessTokenOrNull()
-            if (token == null) {
-                pendingStore.put(key, pendingDto)
-                return@launch
-            }
             try {
+                val token = freshAccessTokenOrNull()
+                if (token == null) {
+                    pendingStore.put(key, pendingDto)
+                    return@launch
+                }
                 when (change) {
                     is AddonChange.Upserted -> reconcile(apiClient.upsertAddon(token, pendingDto))
                     is AddonChange.Removed -> {
@@ -169,6 +195,13 @@ class AddonSyncRepository(
                 pendingStore.put(key, pendingDto)
                 if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
             } catch (e: IOException) {
+                pendingStore.put(key, pendingDto)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- queue for retry, same as a network failure.
+                // An uncaught exception here would otherwise propagate out
+                // of this launch{} and crash the app (Milestone 13).
                 pendingStore.put(key, pendingDto)
             }
         }

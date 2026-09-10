@@ -6,6 +6,7 @@ import com.mangotv.app.BuildConfig
 import com.mangotv.app.data.network.ApiException
 import com.mangotv.app.data.network.AuthApiClient
 import com.mangotv.app.util.Iso8601
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -84,9 +85,12 @@ class AuthRepository(context: Context) {
      * Attempts to refresh the access token if the current session looks
      * like it needs it. Returns true if the session is (now) usable.
      * Only a *confirmed* server rejection (HTTP 401 — see ApiException)
-     * clears the local session; a network-level failure (IOException)
-     * leaves everything as-is and reports the session still usable,
-     * since a transient outage is never a reason to sign someone out.
+     * clears the local session; a network-level failure (IOException) or
+     * any other unexpected failure (Milestone 13 — e.g. a malformed
+     * response body from a degraded backend/database, which surfaces as a
+     * SerializationException, not an IOException) leaves everything as-is
+     * and reports the session still usable, since a temporary outage of
+     * any kind is never a reason to sign someone out.
      */
     suspend fun ensureFreshSession(): Boolean = refreshMutex.withLock {
         val current = sessionManager.current() ?: return@withLock false
@@ -114,6 +118,12 @@ class AuthRepository(context: Context) {
                 true
             }
         } catch (e: IOException) {
+            true
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unexpected -- never let this be mistaken for a confirmed
+            // rejection. See kdoc above.
             true
         }
     }

@@ -11,6 +11,7 @@ import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferences
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.util.Iso8601
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -60,22 +61,28 @@ class SettingsSyncRepository(
      * exactly as they already were until the next successful pull.
      */
     suspend fun pullFromServer() {
-        val token = freshAccessTokenOrNull() ?: return
         try {
+            val token = freshAccessTokenOrNull() ?: return
             val response = apiClient.getSettings(token)
             applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
         } catch (e: ApiException) {
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
             // Transient -- local caches stay at their last-known-good state.
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unexpected (Milestone 13 -- e.g. a malformed response from a
+            // degraded backend/database) -- degrade the same way a network
+            // failure does rather than crashing the caller.
         }
     }
 
     /** Retries the last settings push this device failed to complete, if any. Called by SyncManager on login/launch (after pullFromServer) and when network connectivity returns. */
     suspend fun retryPending() {
-        val body = pendingStore.all()[PENDING_KEY] ?: return
-        val token = freshAccessTokenOrNull() ?: return
         try {
+            val body = pendingStore.all()[PENDING_KEY] ?: return
+            val token = freshAccessTokenOrNull() ?: return
             val response = apiClient.putSettings(token, body)
             applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
             pendingStore.remove(PENDING_KEY)
@@ -85,6 +92,10 @@ class SettingsSyncRepository(
             // there's no "rest of the batch" to fall through to.
         } catch (e: IOException) {
             // Still offline -- leave queued.
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unexpected -- leave queued, same as a network failure.
         }
     }
 
@@ -103,6 +114,10 @@ class SettingsSyncRepository(
         } catch (e: ApiException) {
             null
         } catch (e: IOException) {
+            null
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
             null
         }
     }
@@ -128,12 +143,12 @@ class SettingsSyncRepository(
             skipIntroEnabled = player.skipIntroEnabled,
             updatedAt = Iso8601.nowString()
         )
-        val token = freshAccessTokenOrNull()
-        if (token == null) {
-            pendingStore.put(PENDING_KEY, body)
-            return
-        }
         try {
+            val token = freshAccessTokenOrNull()
+            if (token == null) {
+                pendingStore.put(PENDING_KEY, body)
+                return
+            }
             val response = apiClient.putSettings(token, body)
             // Reconciles the rare case this write lost a last-write-wins
             // race (e.g. a near-simultaneous change from another
@@ -146,6 +161,11 @@ class SettingsSyncRepository(
             pendingStore.put(PENDING_KEY, body)
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
+            pendingStore.put(PENDING_KEY, body)
+        } catch (e: CancellationException) {
+            throw e
+        } catch (e: Exception) {
+            // Unexpected -- queue for retry, same as a network failure.
             pendingStore.put(PENDING_KEY, body)
         }
     }

@@ -9,6 +9,7 @@ import com.mangotv.app.data.provider.MyListRepository
 import kotlinx.coroutines.async
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.supervisorScope
 
 /** What [FirstLoginMigrationCoordinator.decide] concludes -- see its own kdoc for what each outcome means and when it applies. */
 sealed interface MigrationDecision {
@@ -87,9 +88,18 @@ class FirstLoginMigrationCoordinator(
         return if (peeks.all { it == true }) MigrationDecision.AutoSyncEmptyCloud else MigrationDecision.NeedsUserChoice
     }
 
-    /** Carries out the SYNC choice (explicit or auto-resolved via [MigrationDecision.AutoSyncEmptyCloud]): pushes this device's local data up across all four domains in parallel, then marks first-sync done. */
+    /**
+     * Carries out the SYNC choice (explicit or auto-resolved via
+     * [MigrationDecision.AutoSyncEmptyCloud]): pushes this device's local
+     * data up across all four domains in parallel, then marks first-sync
+     * done. supervisorScope, not coroutineScope (Milestone 13): one
+     * domain's push failing (already handled internally by queuing it for
+     * retry -- see each pushAllLocalUp()'s own kdoc) must never cancel the
+     * other three mid-migration, which is exactly the moment losing three
+     * domains' worth of local data to one domain's hiccup would hurt most.
+     */
     suspend fun resolveSync() {
-        coroutineScope {
+        supervisorScope {
             launch { settingsSyncRepository.pushAllLocalUp() }
             launch { watchlistSyncRepository.pushAllLocalUp() }
             launch { continueWatchingSyncRepository.pushAllLocalUp() }

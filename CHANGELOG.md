@@ -1759,3 +1759,157 @@ that once accounted for:
   onboarding polish this milestone wasn't asked to build.
 
 **Milestone 12 is complete.**
+
+## Milestone 13 — Offline Mode & Recovery
+
+**Status:** Complete.
+
+**Scope note:** this milestone's spec text ("app continues using cached
+account data", "local change -> pending sync queue -> network returns ->
+backend synchronization", "handle network/API/database outage, partial
+sync, failed requests, retry, session expiration", "don't unnecessarily
+log out on a temporary network failure") describes behavior Milestones
+5-10 already built most of: `AuthGateViewModel`'s session check is
+local-only, `ensureFreshSession()` already distinguished a confirmed 401
+from a network failure, and Milestone 10 already built a durable
+per-domain retry outbox plus a `ConnectivityManager` reconnect trigger. A
+pre-implementation audit (done before writing any code, at the user's
+request, to establish how far Milestones 0-12 actually held up under
+adversarial reading rather than at face value) is what this milestone
+actually acted on, not a rebuild of that machinery.
+
+**Changes:** No backend changes — confirmed via `git status` before
+starting; every issue found was a client-side gap in how failures already
+flow through the existing sync layer, not a missing server capability.
+
+The audit found two real, concrete gaps, both traced to actual code, not
+hypothetical:
+
+1. **A crash risk, not just a missed retry.** Every sync repository's
+   `pullFromServer()`/`retryPending()`/`pushToServer()` already caught
+   `ApiException` and `IOException` — but several call sites left a
+   preamble (`pendingStore.all()`, or the `token == null` branch's
+   `pendingStore.put()`) *outside* that try block, and none of them
+   caught anything else. A malformed/unexpected response body from a
+   degraded backend or database — which surfaces as a
+   `SerializationException`, not an `IOException` — or a `DataStore` read
+   failure at exactly the wrong moment, would have propagated uncaught
+   out of a fire-and-forget `scope.launch { }` and crashed the app. This
+   is precisely an "API outage"/"database outage" scenario, not an
+   exotic one: a degraded backend is at least as likely to return a
+   malformed body as a clean connection-refused.
+2. **Partial sync wasn't actually isolated.** `SyncManager.syncAll()`/
+   `retryPendingAll()` and `FirstLoginMigrationCoordinator.resolveSync()`
+   ran their four domains' calls inside `coroutineScope { launch { } }` —
+   structured concurrency means one child's uncaught exception cancels
+   every sibling and rethrows. Combined with gap 1, one domain's
+   hiccup could have silently killed the other three domains' pulls too,
+   the opposite of the milestone's explicit "partial sync" requirement.
+
+Fixes:
+
+- `data/auth/AuthRepository.kt` — `ensureFreshSession()` gained a
+  `CancellationException`-safe catch-all after its existing
+  `ApiException`/`IOException` handling, treating any other unexpected
+  failure the same permissive way: session stays usable, never
+  conflated with a confirmed rejection. This matters more than it looks
+  — `freshAccessTokenOrNull()` (every sync repository's own entry point)
+  calls this *before* entering its own try block, so this was the one
+  place a fix here closes the gap for every domain at once.
+- `data/sync/{Settings,Watchlist,ContinueWatching,Addon}SyncRepository.kt`
+  — every `pullFromServer()`, `retryPending()`, `isCloudEmpty()`,
+  `pushAllLocalUp()`, and `pushToServer()`/`doPush()` now has its entire
+  body (not just the network-call subset) inside one try block, with the
+  existing `ApiException`/`IOException` handling preserved and two new
+  catches appended: `CancellationException` is rethrown (never swallow
+  coroutine cancellation), everything else degrades exactly like the
+  existing `IOException` case (leave local state as last-known-good, or
+  queue the item for retry, depending on the method).
+- `data/sync/SyncManager.kt` — `syncAll()`/`retryPendingAll()` switched
+  from `coroutineScope` to `supervisorScope`: one domain's pull or retry
+  can no longer cancel the other three. Combined with the leaf-level
+  fixes above (which mean nothing should actually reach this level
+  uncaught in practice), this is deliberate defense in depth for
+  whatever a future fifth sync domain's author forgets to handle as
+  exhaustively — not a workaround for a gap proven to exist here today.
+  Also added a periodic `retryPendingAll()` timer (every 5 minutes, for
+  the process's lifetime, alongside the existing `NetworkCallback`),
+  closing the gap Milestone 10 explicitly flagged and deferred: the
+  `NetworkCallback` only fires on an unavailable-to-available
+  *transition*, never for a device that stayed online the whole time
+  while the backend/database itself was down for an extended stretch.
+  Each domain's own `retryPending()` already no-ops on a fast local
+  DataStore read when its outbox is empty, so this timer costs nothing
+  in the common case.
+- `data/sync/FirstLoginMigrationCoordinator.kt` — `resolveSync()` (the
+  four parallel `pushAllLocalUp()` calls) got the same
+  `coroutineScope` -> `supervisorScope` fix, for the same reason: one
+  domain's push failing during a first-login migration (already handled
+  internally — queued for retry) must never cancel the other three
+  mid-migration, which is exactly the moment losing three domains' worth
+  of local data to one domain's hiccup would hurt most. `decide()`'s own
+  four parallel `isCloudEmpty()` peeks were left on `coroutineScope`
+  (unchanged) — safe by construction now that `isCloudEmpty()` itself
+  can no longer throw.
+
+**Verifying "temporary backend outage -> app continues using cached
+data" holds:** confirmed by re-reading `HomeViewModel` — Home, My List,
+and Continue Watching all read from each repository's local `StateFlow`
+(populated from on-disk DataStore caches), never from a live network
+call, so this was already structurally true since Milestones 6-9
+established "local storage is a cache, the backend is the source of
+truth, UI reads local" as the standing rule. Nothing needed to change
+there; this milestone's audit confirmed it rather than assumed it.
+
+**Tests performed:**
+- `npm run typecheck` / `npm test` (backend) — clean, 131/131 (sanity
+  check only; confirmed via `git status` before starting that no backend
+  files changed this milestone — every fix is client-side exception
+  handling).
+- Android: no new pure-logic unit tests this milestone (the change is
+  exception-handling structure, not new branching logic distinct from
+  what Milestones 6-12's own tests already exercise); verified instead
+  by a full manual re-read of all seven changed files after editing
+  (confirming every new catch clause is reachable, correctly ordered —
+  `CancellationException` before the generic `Exception` catch, never
+  after, so cancellation is never accidentally swallowed — and that
+  moving each preamble inside its try block didn't change any
+  successful-path behavior), a brace-balance check across all seven
+  files, and the `build-apk.yml` CI compile (this sandbox still has no
+  Android SDK to compile locally, the same limitation stated since
+  Milestone 5).
+
+**Issues discovered:** both described in detail above (uncaught
+exceptions from unexpected failure types; structured-concurrency
+cancellation defeating partial-sync isolation). Found via a
+pre-implementation adversarial audit at the user's explicit request,
+not via a test failure or a crash report.
+
+**Issues fixed:** both, as described above.
+
+**Deliberately not built yet:**
+- **A `CoroutineExceptionHandler` or logging on the new catch-all
+  branches.** This codebase has no `android.util.Log` usage anywhere
+  today (confirmed by grep) — every existing catch block in this file
+  set silently degrades with a comment, no logging. Adding a new
+  logging convention just for this milestone's catch-all branches would
+  be inventing infrastructure the rest of the codebase doesn't use,
+  rather than matching its existing style.
+- **WorkManager or another background-job scheduler** for the periodic
+  retry. A plain coroutine loop on `SyncManager`'s own
+  process-lifetime scope is consistent with how the existing
+  `NetworkCallback` is already registered (same class, same lifetime,
+  same "best-effort, never crashes if it can't set up" posture) and
+  needs no new dependency; a Fire TV app that isn't killed by app-standby
+  the way a phone's Doze mode would kill a phone app has no strong
+  reason to need `WorkManager`'s guarantees for a same-process timer.
+- **A user-visible "you're offline" indicator.** The milestone's own
+  spec text doesn't ask for one (it asks for correct behavior — cached
+  data keeps working, changes queue silently, no spurious logout — not a
+  new UI surface), and every prior milestone since 7 has held the line
+  on not inventing UI beyond what's asked; `QrSignInViewModel`'s existing
+  `pollingDegraded` flag remains the only precedent for this kind of
+  indicator, scoped to the one screen (QR sign-in) that already had it
+  before this milestone.
+
+**Milestone 13 is complete.**
