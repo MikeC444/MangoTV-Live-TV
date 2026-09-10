@@ -6,8 +6,9 @@ import java.net.URLEncoder
 object MangoRoutes {
     const val AUTH_GATE = "auth/gate"
     const val AUTH_START = "auth/start"
+    const val AUTH_METHOD_PATTERN = "auth/method/{intent}"
     const val AUTH_QR_PATTERN = "auth/qr/{intent}"
-    const val AUTH_PASSWORD = "auth/password"
+    const val AUTH_PASSWORD_PATTERN = "auth/password/{intent}"
     const val HOME = "home"
     const val SETTINGS = "settings"
     const val SETTINGS_ADDONS = "settings/addons"
@@ -24,8 +25,14 @@ object MangoRoutes {
     const val SOURCES_PATTERN = "sources/{providerId}/{type}/{id}/{season}/{episode}"
     const val PLAYER_PATTERN = "player/{providerId}/{type}/{id}/{season}/{episode}/{streamId}"
 
-    /** [intent] is display-only ("login" or "register" — which button on AuthStartScreen was pressed); the QR flow itself is identical either way, since the activation page lets the user pick regardless. */
+    /** [intent] is display-only ("login" or "register" — which button on AuthStartScreen was pressed), carried through AuthMethodScreen unchanged; see [authMethod]'s own kdoc for why it stays display-only here too. */
     fun authQr(intent: String): String = "auth/qr/$intent"
+
+    /** Reached from AuthStartScreen's Log In/Sign Up buttons. [intent] ("login" or "register") only picks which headline AuthMethodScreen shows -- both its options (QR or typed password) remain available regardless, and each downstream screen lets the user override it anyway (the QR activation page's own login/register picker; PasswordSignInScreen's in-screen mode toggle). */
+    fun authMethod(intent: String): String = "auth/method/$intent"
+
+    /** See [authQr]'s kdoc -- same display-only [intent] contract, carried through AuthMethodScreen. */
+    fun authPassword(intent: String): String = "auth/password/$intent"
 
     fun genreResults(genre: String): String = "genres/${URLEncoder.encode(genre, "UTF-8")}"
 

@@ -7,6 +7,7 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.ui.auth.AuthGateScreen
+import com.mangotv.app.ui.auth.AuthMethodScreen
 import com.mangotv.app.ui.auth.AuthStartScreen
 import com.mangotv.app.ui.auth.GateDestination
 import com.mangotv.app.ui.auth.PasswordSignInScreen
@@ -80,9 +81,16 @@ fun MangoNavHost() {
         }
         composable(MangoRoutes.AUTH_START) {
             AuthStartScreen(
-                onSignIn = { navController.navigate(MangoRoutes.authQr("login")) },
-                onCreateAccount = { navController.navigate(MangoRoutes.authQr("register")) },
-                onUsePassword = { navController.navigate(MangoRoutes.AUTH_PASSWORD) }
+                onSignIn = { navController.navigate(MangoRoutes.authMethod("login")) },
+                onCreateAccount = { navController.navigate(MangoRoutes.authMethod("register")) }
+            )
+        }
+        composable(MangoRoutes.AUTH_METHOD_PATTERN) { backStackEntry ->
+            val intent = backStackEntry.arguments?.getString("intent") ?: "login"
+            AuthMethodScreen(
+                intent = intent,
+                onScanQr = { navController.navigate(MangoRoutes.authQr(intent)) },
+                onUseRemote = { navController.navigate(MangoRoutes.authPassword(intent)) }
             )
         }
         composable(MangoRoutes.AUTH_QR_PATTERN) {
@@ -90,7 +98,7 @@ fun MangoNavHost() {
                 onAuthenticated = { navigateClearingBackStack(MangoRoutes.HOME) }
             )
         }
-        composable(MangoRoutes.AUTH_PASSWORD) {
+        composable(MangoRoutes.AUTH_PASSWORD_PATTERN) {
             PasswordSignInScreen(
                 onAuthenticated = { navigateClearingBackStack(MangoRoutes.HOME) }
             )

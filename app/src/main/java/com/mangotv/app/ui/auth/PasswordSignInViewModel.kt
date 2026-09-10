@@ -2,6 +2,7 @@ package com.mangotv.app.ui.auth
 
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.mangotv.app.MangoTvApplication
 import com.mangotv.app.data.sync.MigrationDecision
@@ -51,9 +52,16 @@ internal fun validateCredentials(email: String, password: String): String? = whe
  * /auth/login endpoints Milestone 3 built and tested; nothing on the TV
  * had ever called them before this, since Milestones 4/5 deliberately
  * routed every TV sign-in through the QR/activation-page flow instead
- * (see docs/ARCHITECTURE.md's authentication section). This screen is
- * purely additive — the QR flow is untouched and reachable exactly as
- * before, from the same AuthStartScreen.
+ * (see docs/ARCHITECTURE.md's authentication section). Reached via
+ * ui/auth/AuthMethodScreen.kt, itself reached from AuthStartScreen — the
+ * QR flow remains fully intact as the other option there.
+ *
+ * [PasswordAuthMode] starts as whichever of Login/Register matches the
+ * "intent" nav argument ("login" or "register" — see MangoRoutes.authMethod's
+ * kdoc for why this is display-only, same as QrSignInViewModel's own
+ * [intent][QrSignInViewModel.intent]): a user who pressed Sign Up upstream
+ * shouldn't land on a Log In form by default. The in-screen mode toggle
+ * still lets them switch either way, exactly as before.
  *
  * Deliberately duplicates, rather than shares, QrSignInViewModel's own
  * post-auth migration-decision handling and its exact fire-and-forget-
@@ -61,13 +69,19 @@ internal fun validateCredentials(email: String, password: String): String? = whe
  * yet enough to justify guessing at a shared abstraction's shape; worth
  * revisiting if a third ever appears.
  */
-class PasswordSignInViewModel(application: Application) : AndroidViewModel(application) {
+class PasswordSignInViewModel(
+    application: Application,
+    savedStateHandle: SavedStateHandle
+) : AndroidViewModel(application) {
     private val container = (application as MangoTvApplication).container
     private val authRepository = container.authRepository
     private val syncManager = container.syncManager
     private val migrationCoordinator = container.firstLoginMigrationCoordinator
 
-    private val _mode = MutableStateFlow<PasswordAuthMode>(PasswordAuthMode.Login)
+    private val initialMode: PasswordAuthMode =
+        if (savedStateHandle.get<String>("intent") == "register") PasswordAuthMode.Register else PasswordAuthMode.Login
+
+    private val _mode = MutableStateFlow(initialMode)
     val mode: StateFlow<PasswordAuthMode> = _mode.asStateFlow()
 
     private val _uiState = MutableStateFlow<PasswordAuthUiState>(PasswordAuthUiState.Idle)

@@ -2541,3 +2541,57 @@ first caller of those two endpoints from the Fire TV app itself.
 functionality, not a fix.
 
 **Issues fixed:** N/A — see above.
+
+**Update — hero image + reworked into a method-choice screen:** two rounds
+of direct user feedback on the shipped UI, both addressed in the same
+working session before any of this had been reviewed elsewhere:
+
+1. **Living room hero image.** The user supplied a template mockup and a
+   background photo (a TV in a living room, extracted directly from the
+   conversation's own image attachments and added as
+   `res/drawable-nodpi/auth_hero_living_room.webp`). `AuthStartScreen` now
+   draws it full-bleed on the right, with a `drawWithCache` gradient scrim
+   that's solid `MangoBackground` for the left half and fades linearly to
+   fully transparent by the right edge — alpha-only, so the RGB channel
+   stays constant through the fade instead of muddying through black the
+   way interpolating to `Color.Transparent` would.
+2. **Layout/copy fixes once that image was in place:** the left column's
+   `widthIn` was 620dp — comfortably past the fade's start at the screen's
+   own horizontal midpoint (~480dp on this app's 960dp reference width;
+   see `ui/theme/Dimens.kt`'s "1080p/4K screens" convention) — so the
+   Log In/Sign Up buttons and the body paragraph could visibly
+   run into the image. Reduced to 400dp, which clears the fade with margin
+   to spare. Also dropped "live TV" from the body copy per the user's
+   request ("Stream the latest movies, TV shows and more.").
+3. **The third "Prefer to type on your remote instead?" button is gone.**
+   Not because direct password entry was removed — because where the
+   choice lives moved. `AuthStartScreen` is back to exactly two buttons;
+   both now lead to a new `AuthMethodScreen` (`auth/method/{intent}`) that
+   asks "Scan a QR Code" or "Type on My Remote" before committing to
+   either path. This is a UX reshuffle, not a functional one:
+   `QrSignInScreen` and `PasswordSignInScreen` are otherwise unchanged,
+   and the `intent` ("login"/"register") argument threads through
+   `AuthMethodScreen` to whichever one is chosen exactly as it did before
+   — still display-only, still never sent to the backend.
+4. **`PasswordSignInViewModel` now takes a `SavedStateHandle`**, mirroring
+   `QrSignInViewModel`'s existing pattern exactly, so its initial
+   Login/Register mode matches whichever button the user pressed on
+   `AuthStartScreen` two screens back, instead of always defaulting to
+   Login. The in-screen mode toggle still overrides it either way.
+
+**Tests performed (this update):** re-ran the same manual verification as
+the original entry on every newly touched/created file (`AuthStartScreen.kt`,
+the new `AuthMethodScreen.kt`, `PasswordSignInViewModel.kt`,
+`MangoRoutes.kt`, `MangoNavHost.kt`) — brace/paren balance, duplicate-import
+check, and a full-codebase grep for stale references to the removed
+`MangoRoutes.AUTH_PASSWORD` constant and `onUsePassword`/
+`usePasswordFocusRequester` (none found). Same Kotlin-compile caveat as
+before: `build-apk.yml` triggered fresh after pushing, not verified locally.
+
+**Issues discovered (this update):** `QrSignInScreen`'s own kdoc still said
+"Reached from either AuthStartScreen button," which stopped being exactly
+true once `AuthMethodScreen` was inserted in between. Corrected it while
+in the area.
+
+**Issues fixed (this update):** see above (kdoc correction) — nothing
+functional.

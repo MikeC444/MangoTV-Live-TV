@@ -42,9 +42,10 @@ import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
 
 /**
- * Reached from either AuthStartScreen button. Pressing Back here is left
+ * Reached by way of AuthMethodScreen's "Scan a QR Code" option (itself
+ * reached from either AuthStartScreen button). Pressing Back here is left
  * to Navigation-Compose's own default behavior (pop back to
- * AuthStartScreen) — nothing here needs to intercept it; the abandoned QR
+ * AuthMethodScreen) — nothing here needs to intercept it; the abandoned QR
  * session simply expires on the backend on its own.
  */
 @Composable

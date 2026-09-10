@@ -160,9 +160,11 @@ Why this shape, specifically:
 
 ### 3.2 Direct sign-in (typed on the Fire TV remote)
 
-Reached from `AuthStartScreen`'s third, lower-emphasis option
-("Prefer to type on your remote instead?"), for a user who doesn't want
-to involve a phone at all. `PasswordSignInScreen`/`PasswordSignInViewModel`
+Reached by way of `AuthMethodScreen` (`auth/method/{intent}`) — the screen
+`AuthStartScreen`'s Log In/Sign Up buttons both lead to now, asking
+"Scan a QR Code" or "Type on My Remote" before committing to either path.
+Choosing the latter takes a user who doesn't want to involve a phone at
+all to `PasswordSignInScreen`/`PasswordSignInViewModel`, which
 call the `/auth/register` and `/auth/login` endpoints directly — the same
 endpoints `authService.register`/`.login` expose, built on the identical
 `insertUser`/`verifyCredentials` helpers the activation page's own
@@ -189,9 +191,16 @@ response — no polling, no second device, no QR token in between.
 
 Why this is additive rather than a replacement:
 
-- **The QR flow stays exactly as it was.** `AuthStartScreen`'s original
-  "Log In"/"Sign Up" buttons are unchanged; this is a third option below
-  them, not a modification of the first two.
+- **The QR flow stays exactly as it was.** `AuthStartScreen`'s "Log In"/
+  "Sign Up" buttons still exist and still ultimately reach the exact same
+  `QrSignInScreen`; `AuthMethodScreen` sits in front of both paths as a
+  chooser, not a modification of either one.
+- **The `intent` argument threads through unchanged.** `AuthMethodScreen`
+  passes the same "login"/"register" string it received straight through
+  to whichever path is chosen (`auth/qr/{intent}` or
+  `auth/password/{intent}`) — it only ever decides which headline that
+  next screen shows, never any actual behavior; see
+  `MangoRoutes.authMethod`'s kdoc.
 - **Client-side validation is deliberately loose.** `validateCredentials()`
   (a plain, unit-tested top-level function) only catches obvious typos —
   a missing `@`, no domain dot, a too-short password — before spending a
