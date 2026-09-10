@@ -1,3 +1,4 @@
+import fs from "node:fs";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type Express } from "express";
@@ -14,9 +15,21 @@ import { historyRouter } from "./routes/history.js";
 import { settingsRouter } from "./routes/settings.js";
 import { watchlistRouter } from "./routes/watchlist.js";
 
-// Resolves correctly whether running from src/ (tsx, dev) or dist/ (built,
-// prod) — public/ is a sibling of both, one level up from either.
-const publicDir = path.join(path.dirname(fileURLToPath(import.meta.url)), "..", "public");
+// Walks up from this file's own directory to find the package root (marked
+// by package.json) rather than assuming a fixed number of levels — tsc's
+// rootDir mirrors src/'s directory structure into dist/ (dist/src/app.js,
+// not dist/app.js), so a hardcoded "one level up" pointed at dist/public,
+// which doesn't exist, instead of the real server/public.
+function findPackageRoot(dir: string): string {
+  if (fs.existsSync(path.join(dir, "package.json"))) return dir;
+  const parent = path.dirname(dir);
+  if (parent === dir) {
+    throw new Error("Could not locate package root (no package.json found)");
+  }
+  return findPackageRoot(parent);
+}
+
+const publicDir = path.join(findPackageRoot(path.dirname(fileURLToPath(import.meta.url))), "public");
 
 /**
  * Builds the Express app without binding a port — index.ts (the real
