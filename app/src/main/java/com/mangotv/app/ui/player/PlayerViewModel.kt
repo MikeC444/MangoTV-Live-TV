@@ -173,11 +173,14 @@ class PlayerViewModel(
         // straight back to it next time instead of asking the user to pick
         // again. See LastSourceRepository's own doc for why this is a
         // separate, local-only store rather than a field synced with the
-        // rest of this report.
+        // rest of this report -- and, importantly, why this call is NOT
+        // wrapped in viewModelScope.launch{}: this method is called from
+        // the player's dispose-time "final report" (see PlayerScreen's own
+        // comment on that call site), where viewModelScope may already be
+        // cancelling. setLastStreamId dispatches onto its own repository-
+        // owned scope instead, so the write survives that regardless.
         if (!completed) {
-            viewModelScope.launch {
-                lastSourceRepository.setLastStreamId(providerId, contentId, contentType, season, episodeNumber, streamId)
-            }
+            lastSourceRepository.setLastStreamId(providerId, contentId, contentType, season, episodeNumber, streamId)
         }
 
         continueWatchingSyncRepository.reportProgress(

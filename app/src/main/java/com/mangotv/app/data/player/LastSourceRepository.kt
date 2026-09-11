@@ -52,17 +52,33 @@ class LastSourceRepository(context: Context) {
     fun findLastStreamId(providerId: String, contentId: String, contentType: ContentType, season: Int?, episode: Int?): String? =
         _entries.value[key(providerId, contentId, contentType, season, episode)]
 
-    suspend fun setLastStreamId(
+    /**
+     * Deliberately NOT suspend, unlike every other write here -- the same
+     * reason ContinueWatchingSyncRepository.reportProgress documents for
+     * its own non-suspend signature. PlayerViewModel.reportProgress calls
+     * this from the player's dispose-time "final report" (PlayerScreen's
+     * DisposableEffect.onDispose{}), which isn't a coroutine context and
+     * fires right as that ViewModel's own viewModelScope may already be
+     * cancelling -- a call site that used to wrap this in
+     * viewModelScope.launch{} silently lost exactly this write, the one
+     * report that matters most for "the source the user was actually on
+     * when they left". Dispatching onto this repository's own long-lived
+     * [scope] instead of relying on the caller's means the write survives
+     * regardless of what's happening to the caller's own coroutine scope.
+     */
+    fun setLastStreamId(
         providerId: String,
         contentId: String,
         contentType: ContentType,
         season: Int?,
         episode: Int?,
         streamId: String
-    ) = withContext(Dispatchers.IO) {
-        val updated = _entries.value + (key(providerId, contentId, contentType, season, episode) to streamId)
-        _entries.value = updated
-        persist(updated)
+    ) {
+        scope.launch {
+            val updated = _entries.value + (key(providerId, contentId, contentType, season, episode) to streamId)
+            _entries.value = updated
+            persist(updated)
+        }
     }
 
     /** Wipes the locally-cached map (Milestone 12's account switching) -- same reasoning as ContinueWatchingRepository.clear(): this device is only forgetting its own local copy. */
