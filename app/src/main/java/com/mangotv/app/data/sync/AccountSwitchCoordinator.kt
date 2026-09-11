@@ -8,6 +8,7 @@ import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * Milestone 12 — Account Switching. The one thing FirstSyncState's own
@@ -63,18 +64,49 @@ class AccountSwitchCoordinator(
      * cache and outbox in parallel, so the device is genuinely blank the
      * moment this returns -- ready for any account, the same one
      * signing back in or a different one, to start from a clean slate.
+     *
+     * Runs a bounded best-effort [retryPending][SettingsSyncRepository.retryPending]
+     * sweep first, before any of that, while this session is still valid.
+     * Without it, a change made moments before signing out (e.g. an addon
+     * just added) that hadn't reached the server yet -- still genuinely
+     * pending, not stale -- would be deleted by the outbox clear below
+     * before ever getting a chance to send, then be gone for good: the
+     * account being signed out of never actually received it server-side,
+     * so the very next pullFromServer() (on this device or any other)
+     * would never see it either. The outbox clear afterward is still
+     * correct and still needed for its own documented reason (never
+     * replay a queued push against whichever account signs in next) --
+     * this only makes sure a push gets its one real chance to land under
+     * the account that actually made it first. Bounded so a dead network
+     * can't hang the sign-out action itself; whatever's still unsent when
+     * the timeout hits is dropped exactly as it always was.
      */
-    suspend fun signOut() = coroutineScope {
-        launch { authRepository.logout() }
-        launch { myListRepository.clear() }
-        launch { continueWatchingRepository.clear() }
-        launch { addonRepository.clear() }
-        launch { homeRowPreferencesRepository.clear() }
-        launch { playerPreferencesRepository.clear() }
-        launch { settingsSyncRepository.clearPending() }
-        launch { watchlistSyncRepository.clearPending() }
-        launch { continueWatchingSyncRepository.clearPending() }
-        launch { addonSyncRepository.clearPending() }
-        launch { firstSyncState.reset() }
+    suspend fun signOut() {
+        withTimeoutOrNull(PRE_SIGN_OUT_FLUSH_TIMEOUT_MS) {
+            coroutineScope {
+                launch { settingsSyncRepository.retryPending() }
+                launch { watchlistSyncRepository.retryPending() }
+                launch { continueWatchingSyncRepository.retryPending() }
+                launch { addonSyncRepository.retryPending() }
+            }
+        }
+
+        coroutineScope {
+            launch { authRepository.logout() }
+            launch { myListRepository.clear() }
+            launch { continueWatchingRepository.clear() }
+            launch { addonRepository.clear() }
+            launch { homeRowPreferencesRepository.clear() }
+            launch { playerPreferencesRepository.clear() }
+            launch { settingsSyncRepository.clearPending() }
+            launch { watchlistSyncRepository.clearPending() }
+            launch { continueWatchingSyncRepository.clearPending() }
+            launch { addonSyncRepository.clearPending() }
+            launch { firstSyncState.reset() }
+        }
+    }
+
+    private companion object {
+        const val PRE_SIGN_OUT_FLUSH_TIMEOUT_MS = 5_000L
     }
 }
