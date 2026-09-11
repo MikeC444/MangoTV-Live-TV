@@ -28,6 +28,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangotv.app.MangoTvApplication
 import com.mangotv.app.data.audio.BootSoundPlayer
 import com.mangotv.app.data.audio.LocalUiSoundPlayer
+import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.ui.auth.AuthGateScreen
 import com.mangotv.app.ui.auth.AuthMethodScreen
@@ -53,6 +54,9 @@ import com.mangotv.app.ui.settings.HomeRowsScreen
 import com.mangotv.app.ui.settings.SettingsScreen
 import com.mangotv.app.ui.settings.SoundSettingsScreen
 import com.mangotv.app.ui.sources.SourcesScreen
+import com.mangotv.app.ui.components.CardActionsMenuOverlay
+import com.mangotv.app.ui.components.CardActionsMenuState
+import com.mangotv.app.ui.components.LocalCardActionsMenu
 import java.net.URLDecoder
 import kotlinx.coroutines.delay
 
@@ -83,6 +87,12 @@ fun MangoNavHost() {
     // (and preload images for) the SAME fetch Home itself ends up showing,
     // rather than duplicating that fetch a second time once Home mounts.
     val homeViewModel: HomeViewModel = viewModel()
+
+    // One instance for the whole app, provided below so any ContentCard
+    // (however deeply nested in Home's rows or a browse grid) can open its
+    // long-press quick-actions menu with zero prop-threading -- see
+    // CardActionsMenu.kt's own doc.
+    val cardActionsMenuState = remember { CardActionsMenuState() }
 
     // Shown once, in place of the real nav graph, on cold boot -- see
     // LoadingScreen's own doc. dataReady mirrors what used to be the whole
@@ -127,7 +137,10 @@ fun MangoNavHost() {
     // so every TvFocusSurface anywhere in the app (cards, buttons, nav
     // items) can play the nav/click sounds without each screen having to
     // thread UiSoundPlayer through its own parameters.
-    CompositionLocalProvider(LocalUiSoundPlayer provides container.uiSoundPlayer) {
+    CompositionLocalProvider(
+        LocalUiSoundPlayer provides container.uiSoundPlayer,
+        LocalCardActionsMenu provides cardActionsMenuState
+    ) {
         if (!isAppReady) {
             LoadingScreen(homeViewModel = homeViewModel, onReady = { dataReady = true })
             return@CompositionLocalProvider
@@ -194,6 +207,23 @@ fun MangoNavHost() {
         fun navigateClearingBackStack(route: String) {
             navController.navigate(route) {
                 popUpTo(navController.graph.id) { inclusive = true }
+            }
+        }
+
+        // Same "skip the picker if a source is already remembered for this
+        // exact title/season/episode" logic DetailScreen's own
+        // navigateToPlayback uses (see its own doc for why) -- shared here
+        // so the card actions menu's Play/Resume item behaves identically
+        // no matter where the long-pressed card came from.
+        fun resolvePlayRoute(content: Content): String {
+            val providerId = content.providerId ?: return MangoRoutes.HOME
+            val season = content.watchProgress?.seasonNumber
+            val episode = content.watchProgress?.episodeNumber
+            val streamId = container.lastSourceRepository.findLastStreamId(providerId, content.id, content.type, season, episode)
+            return if (streamId != null) {
+                MangoRoutes.player(providerId, content.type, content.id, season, episode, streamId)
+            } else {
+                MangoRoutes.sources(providerId, content.type, content.id, season, episode)
             }
         }
 
@@ -408,5 +438,18 @@ fun MangoNavHost() {
                 (context as? Activity)?.finish()
             }
         }
+
+        // Composed last (see the ordering note above the BackHandler right
+        // above this) so its own internal BackHandler -- enabled only while
+        // a card's menu is actually open -- registers most recently and
+        // takes priority: BACK closes the menu instead of leaving the
+        // screen behind it.
+        CardActionsMenuOverlay(
+            state = cardActionsMenuState,
+            myListRepository = container.myListRepository,
+            continueWatchingSyncRepository = container.continueWatchingSyncRepository,
+            onNavigate = ::navigateTo,
+            resolvePlayRoute = ::resolvePlayRoute
+        )
     }
 }

@@ -238,7 +238,19 @@ private fun DetailContent(
                     isInMyList = isInMyList,
                     onMore = {},
                     navUpFocusRequester = navFocusRequester,
-                    onNavigateUpPastHero = { returnToHero() },
+                    // Deliberately NOT returnToHero() -- that re-focuses the
+                    // hero's OWN Play/Resume button, which is already
+                    // focused when this fires (UP is pressed FROM there),
+                    // making the nav bar completely unreachable by D-pad.
+                    // This mirrors HomeContent's own onNavigateUpPastHero:
+                    // focus the nav bar itself, one level further up.
+                    onNavigateUpPastHero = {
+                        heroRegionFocused = true
+                        coroutineScope.launch {
+                            listState.scrollToItem(0, 0)
+                            runCatching { navFocusRequester.requestFocus() }
+                        }
+                    },
                     onNavigateDownFromHero = { heroRegionFocused = false },
                     compact = compact,
                     resumeEntry = resumeEntry

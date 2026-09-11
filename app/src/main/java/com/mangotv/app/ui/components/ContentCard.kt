@@ -74,9 +74,18 @@ fun ContentCard(
         androidx.compose.material3.MaterialTheme.typography.titleMedium
     }
 
+    // Reads the app-wide menu state directly rather than taking an
+    // onLongClick param from the caller -- every ContentCard everywhere
+    // (Home's rows, My List, Movies/TV Shows/Genre grids, Detail's Similar
+    // row) should offer the same quick-actions menu with zero extra
+    // plumbing at each of those call sites. See CardActionsMenu.kt's own
+    // doc for why this lives on a CompositionLocal.
+    val cardActionsMenu = LocalCardActionsMenu.current
+
     Column(modifier = modifier.width(width)) {
         TvFocusSurface(
             onClick = onClick,
+            onLongClick = { cardActionsMenu.open(content) },
             modifier = Modifier.width(width).height(height),
             shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
             backgroundColor = MangoSurface,
