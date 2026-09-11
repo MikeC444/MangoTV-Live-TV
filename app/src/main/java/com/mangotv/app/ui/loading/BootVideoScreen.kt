@@ -61,13 +61,13 @@ private const val READY_TIMEOUT_MS = 10_000L
 // inside this.
 private const val VIDEO_TIMEOUT_MS = 20_000L
 
-// Where a boot video is expected -- checked for existence at runtime rather
-// than referenced as a compiled raw resource, so a build with no video
-// dropped in yet still compiles and boots normally (see hasVideoAsset
-// below) instead of failing outright. Drop an mp4 at exactly this path
-// (app/src/main/assets/boot_video.mp4) and it's picked up automatically on
-// the next build -- no code change needed.
-private const val BOOT_VIDEO_ASSET = "boot_video.mp4"
+// Where the boot video is expected -- checked for existence at runtime
+// rather than referenced as a compiled raw resource, so a build with no
+// video dropped in yet still compiles and boots normally (see
+// hasVideoAsset below) instead of failing outright. Points at whatever's
+// actually been dropped into app/src/main/assets/ -- update this if that
+// file is ever renamed or replaced.
+private const val BOOT_VIDEO_ASSET = "newboot1.mp4"
 
 /**
  * Branded cold-boot gate: an opaque overlay on top of the real UI (see
