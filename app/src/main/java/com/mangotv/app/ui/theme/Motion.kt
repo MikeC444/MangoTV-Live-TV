@@ -51,4 +51,40 @@ object MangoMotion {
     val DisabledBringIntoViewSpec: BringIntoViewSpec = object : BringIntoViewSpec {
         override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float = 0f
     }
+
+    // Extra slack (dp, each side) reserved on top of Compose's default
+    // "scroll the minimum amount needed to reveal the item" positioning --
+    // see edgeSafeBringIntoViewSpec's own doc for why the default alone
+    // still lets a focused card's scale-up get clipped a few dp at a time.
+    // Sized for the widest card a catalogue row shows (the 300dp Continue
+    // Watching card growing 8% via TvFocusSurface's focusedScale), with a
+    // little extra for its focus shadow's blur.
+    const val CardEdgeSafeBufferDp = 20
+
+    // Wraps the default "minimum scroll to reveal" positioning with a fixed
+    // margin on both edges of the scroll axis. Default positioning scrolls
+    // a card exactly flush against the LazyRow's own clip bounds once any
+    // part of it is out of view -- fine for a card at rest, but
+    // TvFocusSurface's focus scale-up (1.08x) animates in right after that
+    // scroll settles, growing the now-focused card a few dp past whichever
+    // edge it just landed flush against and getting clipped there. This
+    // pads the "already visible" check so the settle position always
+    // leaves [bufferPx] of room for that growth, on every card a row
+    // scrolls to -- not just the row's first/last item, which is all
+    // contentPadding alone protects (see TopNavBar's own doc for that
+    // narrower fix).
+    @OptIn(ExperimentalFoundationApi::class)
+    fun edgeSafeBringIntoViewSpec(bufferPx: Float): BringIntoViewSpec = object : BringIntoViewSpec {
+        override val scrollAnimationSpec: AnimationSpec<Float> = focusTween
+        override fun calculateScrollDistance(offset: Float, size: Float, containerSize: Float): Float {
+            val leadingEdge = offset - bufferPx
+            val trailingEdge = offset + size + bufferPx
+            return when {
+                trailingEdge - leadingEdge > containerSize -> 0f
+                trailingEdge > containerSize -> trailingEdge - containerSize
+                leadingEdge < 0f -> leadingEdge
+                else -> 0f
+            }
+        }
+    }
 }

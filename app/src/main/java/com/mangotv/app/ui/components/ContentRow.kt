@@ -14,6 +14,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.input.key.Key
@@ -22,6 +23,7 @@ import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.HomeSection
@@ -91,11 +93,18 @@ fun ContentRow(
                 vertical = if (compact) 6.dp else 12.dp
             )
         )
-        // Fast animation for horizontal card-to-card scroll-into-view;
+        // Fast animation for horizontal card-to-card scroll-into-view, plus
+        // a fixed edge margin so a card's focus scale-up always has room to
+        // grow into instead of getting clipped by the LazyRow's own bounds
+        // a few dp at a time (see edgeSafeBringIntoViewSpec's own doc).
         // Home's own vertical row centering is driven explicitly instead
         // (see HomeScreen.kt) rather than through this composition local,
         // so this only ever affects this row's own horizontal LazyRow.
-        CompositionLocalProvider(LocalBringIntoViewSpec provides MangoMotion.FastBringIntoViewSpec) {
+        val density = LocalDensity.current
+        val bringIntoViewSpec = remember(density) {
+            with(density) { MangoMotion.edgeSafeBringIntoViewSpec(MangoMotion.CardEdgeSafeBufferDp.dp.toPx()) }
+        }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoViewSpec) {
             LazyRow(
                 state = listState,
                 modifier = if (onNavigateUpPastRow != null) {

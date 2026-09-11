@@ -23,7 +23,7 @@ object MangoRoutes {
     const val SEARCH = "search"
     const val MY_LIST = "my_list"
     const val DETAIL_PATTERN = "detail/{providerId}/{type}/{id}"
-    const val SOURCES_PATTERN = "sources/{providerId}/{type}/{id}/{season}/{episode}"
+    const val SOURCES_PATTERN = "sources/{providerId}/{type}/{id}/{season}/{episode}/{skipAutoSelect}"
     const val PLAYER_PATTERN = "player/{providerId}/{type}/{id}/{season}/{episode}/{streamId}"
 
     /** [intent] is display-only ("login" or "register" — which button on AuthStartScreen was pressed), carried through AuthMethodScreen unchanged; see [authMethod]'s own kdoc for why it stays display-only here too. */
@@ -43,10 +43,25 @@ object MangoRoutes {
         return "detail/$encodedProviderId/${type.name}/$encodedId"
     }
 
-    fun sources(providerId: String, type: ContentType, id: String, season: Int? = null, episode: Int? = null): String {
+    fun sources(
+        providerId: String,
+        type: ContentType,
+        id: String,
+        season: Int? = null,
+        episode: Int? = null,
+        // True only for the explicit "change source" flow (see
+        // MangoNavHost's onChangeSource) -- every other call site leaves
+        // this at its default so re-opening a title that's already
+        // resumable can skip straight back to the same source (see
+        // SourcesViewModel). A user who deliberately asked to change
+        // source must always see the picker, even if the source they're
+        // switching away from is the exact one that would otherwise be
+        // auto-selected.
+        skipAutoSelect: Boolean = false
+    ): String {
         val encodedProviderId = URLEncoder.encode(providerId, "UTF-8")
         val encodedId = URLEncoder.encode(id, "UTF-8")
-        return "sources/$encodedProviderId/${type.name}/$encodedId/${season ?: -1}/${episode ?: -1}"
+        return "sources/$encodedProviderId/${type.name}/$encodedId/${season ?: -1}/${episode ?: -1}/$skipAutoSelect"
     }
 
     fun player(

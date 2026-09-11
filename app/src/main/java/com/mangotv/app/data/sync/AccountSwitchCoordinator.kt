@@ -3,6 +3,7 @@ package com.mangotv.app.data.sync
 import com.mangotv.app.data.addon.AddonRepository
 import com.mangotv.app.data.auth.AuthRepository
 import com.mangotv.app.data.history.ContinueWatchingRepository
+import com.mangotv.app.data.player.LastSourceRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
 import com.mangotv.app.data.provider.MyListRepository
@@ -49,6 +50,7 @@ class AccountSwitchCoordinator(
     private val firstSyncState: FirstSyncState,
     private val myListRepository: MyListRepository,
     private val continueWatchingRepository: ContinueWatchingRepository,
+    private val lastSourceRepository: LastSourceRepository,
     private val addonRepository: AddonRepository,
     private val homeRowPreferencesRepository: HomeRowPreferencesRepository,
     private val playerPreferencesRepository: PlayerPreferencesRepository,
@@ -95,6 +97,7 @@ class AccountSwitchCoordinator(
             launch { authRepository.logout() }
             launch { myListRepository.clear() }
             launch { continueWatchingRepository.clear() }
+            launch { lastSourceRepository.clear() }
             launch { addonRepository.clear() }
             launch { homeRowPreferencesRepository.clear() }
             launch { playerPreferencesRepository.clear() }

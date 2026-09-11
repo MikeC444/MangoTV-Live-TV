@@ -77,18 +77,39 @@ fun SourcesScreen(
                 message = state.message,
                 onRetry = viewModel::load
             )
-            is SourcesUiState.Loaded -> SourcesContent(
-                state = state,
-                onBack = onBack,
-                onManageAddons = { onNavigate(MangoRoutes.SETTINGS_ADDONS) },
-                onSelectSource = { stream ->
-                    state.content.providerId?.let { pid ->
-                        onNavigate(
-                            MangoRoutes.player(pid, state.content.type, state.content.id, state.season, state.episode, stream.id)
-                        )
+            is SourcesUiState.Loaded -> {
+                val autoSelectStream = state.autoSelectStream
+                if (autoSelectStream != null) {
+                    // Resuming a title whose last-used source is still
+                    // available -- skip the picker entirely and continue
+                    // straight into Player, exactly as if the user had
+                    // re-selected it themselves. Reuses the loading
+                    // skeleton as the transitional frame while this fires,
+                    // rather than flashing the interactive source list the
+                    // user doesn't need to see.
+                    LaunchedEffect(autoSelectStream.id) {
+                        state.content.providerId?.let { pid ->
+                            onNavigate(
+                                MangoRoutes.player(pid, state.content.type, state.content.id, state.season, state.episode, autoSelectStream.id)
+                            )
+                        }
                     }
+                    SourcesLoadingSkeleton(onBack = onBack)
+                } else {
+                    SourcesContent(
+                        state = state,
+                        onBack = onBack,
+                        onManageAddons = { onNavigate(MangoRoutes.SETTINGS_ADDONS) },
+                        onSelectSource = { stream ->
+                            state.content.providerId?.let { pid ->
+                                onNavigate(
+                                    MangoRoutes.player(pid, state.content.type, state.content.id, state.season, state.episode, stream.id)
+                                )
+                            }
+                        }
+                    )
                 }
-            )
+            }
         }
     }
 }

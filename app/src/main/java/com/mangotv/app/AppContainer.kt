@@ -6,6 +6,7 @@ import com.mangotv.app.data.audio.SoundPreferencesRepository
 import com.mangotv.app.data.audio.UiSoundPlayer
 import com.mangotv.app.data.auth.AuthRepository
 import com.mangotv.app.data.history.ContinueWatchingRepository
+import com.mangotv.app.data.player.LastSourceRepository
 import com.mangotv.app.data.player.PlayerPreferencesRepository
 import com.mangotv.app.data.provider.HomeCacheRepository
 import com.mangotv.app.data.provider.HomeRowPreferencesRepository
@@ -143,6 +144,7 @@ class AppContainer(context: Context) {
     val homeCacheRepository: HomeCacheRepository by lazy { HomeCacheRepository(context) }
     val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(context, myListRepository, authRepository)
     val continueWatchingRepository: ContinueWatchingRepository = ContinueWatchingRepository(context)
+    val lastSourceRepository: LastSourceRepository = LastSourceRepository(context)
     val continueWatchingSyncRepository: ContinueWatchingSyncRepository = ContinueWatchingSyncRepository(
         context, continueWatchingRepository, authRepository
     )
@@ -171,6 +173,7 @@ class AppContainer(context: Context) {
             firstSyncState = firstSyncState,
             myListRepository = myListRepository,
             continueWatchingRepository = continueWatchingRepository,
+            lastSourceRepository = lastSourceRepository,
             addonRepository = addonRepository,
             homeRowPreferencesRepository = homeRowPreferencesRepository,
             playerPreferencesRepository = playerPreferencesRepository,

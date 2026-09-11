@@ -43,4 +43,4 @@ val FocusBorder = Color(0xFFFFC873)
 
 // Ratings / progress
 val ProgressTrack = Color(0x33FFFFFF)
-val ProgressFill = MangoAmber
+val ProgressFill = MangoCoral

@@ -2,6 +2,7 @@ package com.mangotv.app.ui.detail
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -18,6 +19,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +36,7 @@ import androidx.compose.ui.input.key.onPreviewKeyEvent
 import androidx.compose.ui.input.key.type
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntSize
@@ -43,6 +46,7 @@ import com.mangotv.app.data.model.Content
 import com.mangotv.app.ui.components.TvFocusSurface
 import com.mangotv.app.ui.components.rememberOpaqueImageRequest
 import com.mangotv.app.ui.theme.MangoDimens
+import com.mangotv.app.ui.theme.MangoMotion
 import com.mangotv.app.ui.theme.MangoSurface
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextTertiary
@@ -98,26 +102,37 @@ fun SimilarRow(
                 vertical = 6.dp
             )
         )
-        LazyRow(
-            modifier = if (onNavigateUpPastRow != null) {
-                Modifier.onPreviewKeyEvent { event ->
-                    if (event.key == Key.DirectionUp) {
-                        if (event.type == KeyEventType.KeyDown) {
-                            onNavigateUpPastRow()
+        // Same edge-safe bring-into-view fix as ContentRow: without it, this
+        // row's default (fully un-overridden) bring-into-view positioning
+        // scrolls a card flush against the LazyRow's clip bounds, leaving
+        // no room for TvFocusSurface's focus scale-up and clipping it a few
+        // dp at a time.
+        val density = LocalDensity.current
+        val bringIntoViewSpec = remember(density) {
+            with(density) { MangoMotion.edgeSafeBringIntoViewSpec(MangoMotion.CardEdgeSafeBufferDp.dp.toPx()) }
+        }
+        CompositionLocalProvider(LocalBringIntoViewSpec provides bringIntoViewSpec) {
+            LazyRow(
+                modifier = if (onNavigateUpPastRow != null) {
+                    Modifier.onPreviewKeyEvent { event ->
+                        if (event.key == Key.DirectionUp) {
+                            if (event.type == KeyEventType.KeyDown) {
+                                onNavigateUpPastRow()
+                            }
+                            true
+                        } else {
+                            false
                         }
-                        true
-                    } else {
-                        false
                     }
+                } else {
+                    Modifier
+                },
+                contentPadding = PaddingValues(horizontal = MangoDimens.ScreenPaddingHorizontal),
+                horizontalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                items(items, key = { it.id }) { content ->
+                    SimilarCard(content = content, onClick = { onItemClick(content) })
                 }
-            } else {
-                Modifier
-            },
-            contentPadding = PaddingValues(horizontal = MangoDimens.ScreenPaddingHorizontal),
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            items(items, key = { it.id }) { content ->
-                SimilarCard(content = content, onClick = { onItemClick(content) })
             }
         }
     }

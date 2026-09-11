@@ -38,6 +38,7 @@ class PlayerViewModel(
     private val preferencesRepository = (application as MangoTvApplication).container.playerPreferencesRepository
     private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
     private val continueWatchingSyncRepository = (application as MangoTvApplication).container.continueWatchingSyncRepository
+    private val lastSourceRepository = (application as MangoTvApplication).container.lastSourceRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -164,6 +165,21 @@ class PlayerViewModel(
         if (!completed && positionMs < MIN_REPORTABLE_POSITION_MS) return
 
         val state = uiState.value as? PlayerScreenUiState.Ready ?: return
+
+        // Same gating as the Continue Watching entry this report is about
+        // to create (not completed, past the "genuinely started watching"
+        // threshold above) -- remembers the source that actually got this
+        // title into Continue Watching, so SourcesViewModel can skip
+        // straight back to it next time instead of asking the user to pick
+        // again. See LastSourceRepository's own doc for why this is a
+        // separate, local-only store rather than a field synced with the
+        // rest of this report.
+        if (!completed) {
+            viewModelScope.launch {
+                lastSourceRepository.setLastStreamId(providerId, contentId, contentType, season, episodeNumber, streamId)
+            }
+        }
+
         continueWatchingSyncRepository.reportProgress(
             providerId = providerId,
             contentId = contentId,

@@ -198,7 +198,17 @@ fun MangoNavHost() {
             modifier = Modifier
                 .fillMaxSize()
                 .onPreviewKeyEvent { event ->
-                    if (event.type == KeyEventType.KeyDown &&
+                    // Silenced while the player is active -- D-pad moves there
+                    // are scrubbing the timeline and navigating the player's
+                    // own overlay (quality/subtitle/settings menus), not
+                    // browsing the rest of the interface, and the same tick
+                    // firing on every one of those reads as interface chrome
+                    // noise over what should just be video/audio. See
+                    // PlayerScreen's own composable below for the matching
+                    // LocalUiSoundPlayer override that silences its buttons'
+                    // click/back sounds the same way.
+                    if (!isPlayerActive &&
+                        event.type == KeyEventType.KeyDown &&
                         (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
                             event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
                     ) {
@@ -328,27 +338,44 @@ fun MangoNavHost() {
                     )
                 }
                 composable(MangoRoutes.PLAYER_PATTERN) { backStackEntry ->
-                    PlayerScreen(
-                        onBack = { navController.popBackStack() },
-                        // Pops the player off the back stack before pushing Sources
-                        // rather than stacking Sources on top of a dead player
-                        // instance the user could otherwise navigate back into.
-                        onChangeSource = {
-                            val args = backStackEntry.arguments
-                            val providerId = URLDecoder.decode(args?.getString("providerId").orEmpty(), "UTF-8")
-                            val type = if (args?.getString("type") == ContentType.TV_SHOW.name) {
-                                ContentType.TV_SHOW
-                            } else {
-                                ContentType.MOVIE
+                    // Silences every TvFocusSurface's click/back sound (Play/
+                    // Pause, the timeline, quality/subtitle/settings menus, ...)
+                    // for as long as the player is on screen -- TvFocusSurface
+                    // and PlayerScreen's own BackHandler both read this same
+                    // composition local, so overriding it here to null covers
+                    // all of them at once instead of threading a "silent"
+                    // flag through every individual control. Paired with the
+                    // isPlayerActive guard above the NavHost, which handles
+                    // the one nav-tick sound that plays from outside any
+                    // TvFocusSurface at all.
+                    CompositionLocalProvider(LocalUiSoundPlayer provides null) {
+                        PlayerScreen(
+                            onBack = { navController.popBackStack() },
+                            // Pops the player off the back stack before pushing Sources
+                            // rather than stacking Sources on top of a dead player
+                            // instance the user could otherwise navigate back into.
+                            onChangeSource = {
+                                val args = backStackEntry.arguments
+                                val providerId = URLDecoder.decode(args?.getString("providerId").orEmpty(), "UTF-8")
+                                val type = if (args?.getString("type") == ContentType.TV_SHOW.name) {
+                                    ContentType.TV_SHOW
+                                } else {
+                                    ContentType.MOVIE
+                                }
+                                val id = URLDecoder.decode(args?.getString("id").orEmpty(), "UTF-8")
+                                val season = args?.getString("season")?.toIntOrNull()?.takeIf { it >= 0 }
+                                val episode = args?.getString("episode")?.toIntOrNull()?.takeIf { it >= 0 }
+                                // Explicit "change source" request -- always show
+                                // the picker, even for a title that would
+                                // otherwise auto-continue with the very source
+                                // being changed away from (see sources()'s own
+                                // doc on skipAutoSelect).
+                                navController.navigate(MangoRoutes.sources(providerId, type, id, season, episode, skipAutoSelect = true)) {
+                                    popUpTo(MangoRoutes.PLAYER_PATTERN) { inclusive = true }
+                                }
                             }
-                            val id = URLDecoder.decode(args?.getString("id").orEmpty(), "UTF-8")
-                            val season = args?.getString("season")?.toIntOrNull()?.takeIf { it >= 0 }
-                            val episode = args?.getString("episode")?.toIntOrNull()?.takeIf { it >= 0 }
-                            navController.navigate(MangoRoutes.sources(providerId, type, id, season, episode)) {
-                                popUpTo(MangoRoutes.PLAYER_PATTERN) { inclusive = true }
-                            }
-                        }
-                    )
+                        )
+                    }
                 }
             }
         }

@@ -1,7 +1,9 @@
 package com.mangotv.app.ui.components
 
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
+import androidx.compose.foundation.basicMarquee
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Spacer
@@ -37,6 +39,7 @@ import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun ContentCard(
     content: Content,
@@ -166,7 +169,15 @@ fun ContentCard(
             color = if (focused) TextPrimary else TextSecondary,
             style = titleStyle,
             maxLines = 1,
-            overflow = TextOverflow.Ellipsis
+            // Ellipsis is fine for every unfocused card -- there are
+            // usually a dozen+ on screen in a row/grid at once, and
+            // scrolling all of their titles simultaneously would be
+            // visual noise. Only the focused card's title -- the one the
+            // user is actually reading -- marquees, and only clips
+            // (rather than truncating with "...") while it does, so a
+            // title too long for the card is still fully readable.
+            overflow = if (focused) TextOverflow.Clip else TextOverflow.Ellipsis,
+            modifier = if (focused) Modifier.basicMarquee() else Modifier
         )
 
         if (isContinueWatching) {

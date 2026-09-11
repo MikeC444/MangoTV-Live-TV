@@ -13,8 +13,11 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -40,6 +43,8 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -52,12 +57,15 @@ import com.mangotv.app.ui.components.ContentRow
 import com.mangotv.app.ui.components.FullScreenErrorState
 import com.mangotv.app.ui.components.GridLoadingSkeleton
 import com.mangotv.app.ui.components.RowsLoadingSkeleton
+import com.mangotv.app.ui.components.TvFocusSurface
 import com.mangotv.app.ui.detail.PendingDetailCache
 import com.mangotv.app.ui.home.MangoNavItems
 import com.mangotv.app.ui.home.TopNavBar
+import com.mangotv.app.ui.theme.MangoAmber
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.MangoMotion
+import com.mangotv.app.ui.theme.MangoSurfaceHigh
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import kotlinx.coroutines.launch
@@ -350,6 +358,85 @@ private fun RowsBrowseLoadedContent(
     }
 }
 
+enum class RatingFilter(val label: String, val minRating: Double?) {
+    ALL("All Ratings", null),
+    SEVEN_PLUS("7.0+", 7.0),
+    EIGHT_PLUS("8.0+", 8.0),
+    NINE_PLUS("9.0+", 9.0)
+}
+
+/**
+ * A row of rating-tier pills above Movies/TV Shows/Genre Results' grid --
+ * same pill look SourceFilterBar already established for the Sources
+ * screen's filters. Every pill wires the same focusUp/focusDown
+ * (RowsBrowseGridContent's nav bar and remembered-card requesters) rather
+ * than just the first, so the seam works no matter which pill happens to
+ * be focused when the user presses UP/DOWN.
+ */
+@Composable
+private fun RatingFilterBar(
+    selected: RatingFilter,
+    onSelect: (RatingFilter) -> Unit,
+    modifier: Modifier = Modifier,
+    focusRequester: FocusRequester? = null,
+    focusUp: FocusRequester? = null,
+    focusDown: FocusRequester? = null
+) {
+    LazyRow(
+        modifier = modifier,
+        contentPadding = PaddingValues(horizontal = MangoDimens.ScreenPaddingHorizontal),
+        horizontalArrangement = Arrangement.spacedBy(8.dp)
+    ) {
+        items(RatingFilter.entries, key = { it.name }) { filter ->
+            RatingFilterPill(
+                label = filter.label,
+                selected = filter == selected,
+                onClick = { onSelect(filter) },
+                focusRequester = if (filter == RatingFilter.ALL) focusRequester else null,
+                focusUp = focusUp,
+                focusDown = focusDown
+            )
+        }
+    }
+}
+
+@Composable
+private fun RatingFilterPill(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    focusRequester: FocusRequester? = null,
+    focusUp: FocusRequester? = null,
+    focusDown: FocusRequester? = null
+) {
+    var focused by remember { mutableStateOf(false) }
+    val contentColor = when {
+        selected -> MangoBackground
+        focused -> TextPrimary
+        else -> TextSecondary
+    }
+    TvFocusSurface(
+        onClick = onClick,
+        shape = RoundedCornerShape(percent = 50),
+        backgroundColor = if (selected) MangoAmber else MangoSurfaceHigh,
+        onFocusChanged = { focused = it },
+        bringIntoViewOnFocus = false,
+        focusRequester = focusRequester,
+        focusUp = focusUp,
+        focusDown = focusDown
+    ) {
+        Text(
+            text = label,
+            color = contentColor,
+            fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
+            style = MaterialTheme.typography.labelSmall,
+            maxLines = 1,
+            overflow = TextOverflow.Clip,
+            modifier = Modifier.padding(horizontal = 12.dp, vertical = 7.dp)
+        )
+    }
+}
+
 // Fixed chunk size for items.chunked(GRID_COLUMNS) below -- the actual
 // on-screen poster size (posterScale) is computed at runtime from measured
 // layout constraints (see RowsBrowseGridContent) so this many columns
@@ -385,8 +472,15 @@ private fun RowsBrowseGridContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val navFocusRequester = remember { FocusRequester() }
+    val filterBarFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
+
+    // Plain remember, not rememberSaveable -- same choice SourcesContent
+    // makes for its own filter/sort state, and for the same reason: a
+    // filter is a transient viewing preference for this visit, not
+    // something worth restoring after process death.
+    var selectedRatingFilter by remember { mutableStateOf(RatingFilter.ALL) }
 
     // Which title the grid returns D-pad focus to -- both for the nav bar's
     // DOWN key and, more importantly, for returning from Detail. By default
@@ -406,21 +500,29 @@ private fun RowsBrowseGridContent(
     // same poster instead of resetting to the nav bar/top of the list.
     var lastFocusedContentId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    val rows = remember(items) { items.chunked(GRID_COLUMNS) }
-    // Computed only when the item list itself changes (mount, or a loadMore
-    // page landing) -- this used to be remember(items, lastFocusedContentId),
-    // re-running this items.indexOfFirst scan on every single focus change.
-    // Holding the D-pad moves focus (and re-sets lastFocusedContentId)
-    // roughly every ~100ms via key-repeat, so on a long, paged-in catalogue
-    // this O(items) scan repeating that often stalled the whole screen for
-    // as long as the button was held, then caught up in one jump once it
-    // was released. targetRowIndex/targetColIndex below now track focus
-    // live in O(1) instead (see ContentCard's onFocusChanged) -- this
-    // id-based scan only has to run once, to recover where a remembered id
+    // Re-filtered whenever the underlying catalogue changes (mount, a
+    // loadMore page landing) or the user picks a different rating tier.
+    val filteredItems = remember(items, selectedRatingFilter) {
+        val minRating = selectedRatingFilter.minRating
+        if (minRating == null) items else items.filter { (it.rating ?: 0.0) >= minRating }
+    }
+
+    val rows = remember(filteredItems) { filteredItems.chunked(GRID_COLUMNS) }
+    // Computed only when the (filtered) item list itself changes (mount, a
+    // loadMore page landing, or a filter change) -- this used to be
+    // remember(items, lastFocusedContentId), re-running this
+    // items.indexOfFirst scan on every single focus change. Holding the
+    // D-pad moves focus (and re-sets lastFocusedContentId) roughly every
+    // ~100ms via key-repeat, so on a long, paged-in catalogue this
+    // O(items) scan repeating that often stalled the whole screen for as
+    // long as the button was held, then caught up in one jump once it was
+    // released. targetRowIndex/targetColIndex below now track focus live
+    // in O(1) instead (see ContentCard's onFocusChanged) -- this id-based
+    // scan only has to run once, to recover where a remembered id
     // (restored via rememberSaveable after a Detail round trip) now lives
     // in the possibly-different item list.
-    val restoredFlatIndex = remember(items) {
-        lastFocusedContentId?.let { id -> items.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
+    val restoredFlatIndex = remember(filteredItems) {
+        lastFocusedContentId?.let { id -> filteredItems.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
     }
     var targetRowIndex by remember { mutableStateOf(restoredFlatIndex?.let { it / GRID_COLUMNS } ?: 0) }
     var targetColIndex by remember { mutableStateOf(restoredFlatIndex?.let { it % GRID_COLUMNS } ?: 0) }
@@ -437,7 +539,7 @@ private fun RowsBrowseGridContent(
         if (!hasRequestedInitialFocus) {
             hasRequestedInitialFocus = true
             if (restoredFlatIndex != null) {
-                val lazyIndex = targetRowIndex + 1 // offset for the title item at index 0
+                val lazyIndex = targetRowIndex + 2 // offset for the title (0) and filter bar (1) items
                 val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
                 if (!alreadyVisible) {
                     listState.scrollToItem(lazyIndex)
@@ -482,7 +584,7 @@ private fun RowsBrowseGridContent(
     LaunchedEffect(focusedGridRowIndex, navRegionFocused) {
         val rowIndex = focusedGridRowIndex ?: return@LaunchedEffect
         if (navRegionFocused) return@LaunchedEffect
-        val lazyIndex = rowIndex + 1 // offset for the title item at index 0
+        val lazyIndex = rowIndex + 2 // offset for the title (0) and filter bar (1) items
         val info = listState.layoutInfo.visibleItemsInfo.find { it.index == lazyIndex }
         if (info != null) {
             val viewportHeight = listState.layoutInfo.viewportSize.height
@@ -516,7 +618,7 @@ private fun RowsBrowseGridContent(
         val cardWidth = (availableWidth - MangoDimens.CardSpacing * (GRID_COLUMNS - 1)) / GRID_COLUMNS
         val posterScale = (cardWidth / MangoDimens.PosterWidth).coerceIn(0.3f, 1f)
 
-        if (rows.isEmpty()) {
+        if (items.isEmpty()) {
             Text(
                 text = emptyMessage,
                 color = TextSecondary,
@@ -544,6 +646,34 @@ private fun RowsBrowseGridContent(
                                 vertical = 4.dp
                             )
                         )
+                    }
+                    // Always shown once there's a catalogue to filter, even
+                    // if the current pick filters it down to zero results --
+                    // otherwise picking a filter with no matches would strand
+                    // the user with no way to get back to a less restrictive
+                    // one without leaving the screen.
+                    item(key = "rating_filter") {
+                        RatingFilterBar(
+                            selected = selectedRatingFilter,
+                            onSelect = { selectedRatingFilter = it },
+                            modifier = Modifier.padding(bottom = MangoDimens.RowSpacing / 2),
+                            focusRequester = filterBarFocusRequester,
+                            focusUp = navFocusRequester,
+                            focusDown = firstCardFocusRequester
+                        )
+                    }
+                    if (rows.isEmpty()) {
+                        item(key = "filtered_empty") {
+                            Text(
+                                text = "No titles match this filter.",
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(
+                                    horizontal = MangoDimens.ScreenPaddingHorizontal,
+                                    vertical = 24.dp
+                                )
+                            )
+                        }
                     }
                     itemsIndexed(rows, key = { index, _ -> "grid_row_$index" }) { rowIndex, rowItems ->
                         Row(
@@ -610,27 +740,31 @@ private fun RowsBrowseGridContent(
             modifier = Modifier.align(Alignment.TopCenter),
             selectedIndex = MangoNavItems.indexOf(navLabel),
             selectedItemFocusRequester = navFocusRequester,
-            contentFocusRequester = if (rows.isNotEmpty()) firstCardFocusRequester else null,
+            // Lands on the filter bar, not directly on a card -- it's the
+            // first focusable thing below the nav bar now. RatingFilterBar's
+            // own focusDown wiring carries a second DOWN press on through to
+            // whichever card lastFocusedContentId points at.
+            contentFocusRequester = if (items.isNotEmpty()) filterBarFocusRequester else null,
             onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) },
-            onNavigateDown = if (rows.isNotEmpty()) {
+            onNavigateDown = if (items.isNotEmpty()) {
                 {
                     navRegionFocused = false
                     coroutineScope.launch {
-                        // Targets whichever card lastFocusedContentId points
-                        // at (defaults to the very first one when nothing's
-                        // been focused yet) rather than always the top-left
-                        // corner -- same reasoning as the LaunchedEffect
-                        // above. Animated (unlike that one-time entry
-                        // scroll) since this is an actively-observed
-                        // interaction, and only scrolled at all if the
-                        // target isn't already on screen, so a nearby
-                        // return doesn't visibly jump for no reason.
-                        val lazyIndex = targetRowIndex + 1
-                        val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
-                        if (!alreadyVisible) {
-                            listState.animateScrollToItem(lazyIndex)
+                        // Scrolls the remembered card into view now (same
+                        // reasoning as the LaunchedEffect above, and only if
+                        // it isn't already on screen) so it's already
+                        // visible by the time DOWN from the filter bar
+                        // reaches it -- current filter may have none at all.
+                        if (rows.isNotEmpty()) {
+                            val lazyIndex = targetRowIndex + 2
+                            val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
+                            if (!alreadyVisible) {
+                                listState.animateScrollToItem(lazyIndex)
+                            }
+                        } else {
+                            listState.animateScrollToItem(0)
                         }
-                        runCatching { firstCardFocusRequester.requestFocus() }
+                        runCatching { filterBarFocusRequester.requestFocus() }
                     }
                 }
             } else {
