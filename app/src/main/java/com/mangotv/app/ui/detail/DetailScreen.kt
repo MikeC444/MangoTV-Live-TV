@@ -152,22 +152,27 @@ private fun DetailContent(
     }
 
     // Shared by the hero's Play/Resume button and a season's individual
-    // episode rows: when the target season/episode is exactly what Continue
-    // Watching points at AND a source was actually remembered for it, skip
-    // the Sources picker entirely and jump straight into Player on that
-    // source -- what "Resume" actually means to the user, rather than
-    // routing through Sources just to have it auto-redirect there (which
-    // still flashed the picker screen/loading state on the way through).
-    // Falls back to the normal picker for a first-ever play, a different
-    // episode than the one being resumed, or a remembered source that's
-    // gone missing from this fresh fetch (Player's own error state then
-    // offers "Choose a Different Source" back to the picker, so this is
-    // never a dead end).
+    // episode rows: whenever a source is actually remembered for this exact
+    // title/season/episode, skip the Sources picker entirely and jump
+    // straight into Player on it -- what "Resume" actually means to the
+    // user, rather than routing through Sources just to have it
+    // auto-redirect there (which still flashed the picker screen/loading
+    // state on the way through). Deliberately does NOT also require this to
+    // match resumeEntry's own season/episode -- lastStreamIdFor is already
+    // keyed on the exact season/episode being requested here, so adding
+    // that check on top only made this fragile: if DetailHeroSection's own
+    // "find this episode in content.seasons" lookup ever fell back to
+    // episode 1 for any reason (a data hiccup on a later fetch, say), the
+    // season/episode passed here would silently stop matching resumeEntry
+    // and this would wrongly fall through to the picker even though a
+    // perfectly good remembered source existed for the episode actually
+    // being requested. Falls back to the normal picker for a first-ever
+    // play, an episode nothing was ever remembered for, or a remembered
+    // source that's gone missing from a fresh fetch (Player's own error
+    // state then offers "Choose a Different Source" back to the picker, so
+    // this is never a dead end).
     fun navigateToPlayback(providerId: String, season: Int?, episode: Int?) {
-        val isResumeTarget = resumeEntry != null &&
-            resumeEntry.seasonNumber == season &&
-            resumeEntry.episodeNumber == episode
-        val streamId = if (isResumeTarget) lastStreamIdFor(season, episode) else null
+        val streamId = lastStreamIdFor(season, episode)
         val route = if (streamId != null) {
             MangoRoutes.player(providerId, content.type, content.id, season, episode, streamId)
         } else {
