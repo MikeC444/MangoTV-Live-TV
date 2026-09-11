@@ -94,15 +94,31 @@ fun MangoNavHost() {
     // CardActionsMenu.kt's own doc.
     val cardActionsMenuState = remember { CardActionsMenuState() }
 
-    // Shown once, in place of the real nav graph, on cold boot -- see
-    // LoadingScreen's own doc. dataReady mirrors what used to be the whole
-    // of isAppReady (LoadingScreen's own onReady callback); isAppReady now
-    // also waits on audioMidwayReached (see below) so the boot chime and
-    // Home's own readiness are both required before the reveal, not just
-    // whichever finishes first. Neither flag is ever reset once true, so
-    // isAppReady is still "never re-armed for the rest of the process's
-    // lifetime" exactly as before (tab switches, backgrounding, etc. don't
-    // recompose MangoNavHost from scratch).
+    // Shown once, as an opaque overlay ON TOP of the real nav graph, on cold
+    // boot -- see LoadingScreen's own doc. dataReady mirrors what used to be
+    // the whole of isAppReady (LoadingScreen's own onReady callback);
+    // isAppReady now also waits on audioMidwayReached (see below) so the
+    // boot chime and Home's own readiness are both required before the
+    // reveal, not just whichever finishes first. Neither flag is ever reset
+    // once true, so isAppReady is still "never re-armed for the rest of the
+    // process's lifetime" exactly as before (tab switches, backgrounding,
+    // etc. don't recompose MangoNavHost from scratch).
+    //
+    // The NavHost below is ALWAYS composed, not gated behind isAppReady --
+    // only this overlay is. That's deliberate: NavHost's startDestination is
+    // the auth gate, which redirects to Home or AuthStart the moment its own
+    // (local-only, fast) check resolves via a hard back-stack-clearing
+    // navigate -- the same kind of pop-and-recreate that tears down and
+    // rebuilds a screen's whole composition elsewhere in this file (see
+    // navigateTo's own doc on the black-flash bug that caused). Gating
+    // NavHost's own existence behind isAppReady used to mean that redirect,
+    // plus Home's own first composition, only ever happened AFTER this
+    // overlay was dismissed -- right in front of the user, as a brief blank
+    // flash before Home reappeared. Keeping NavHost always mounted instead
+    // lets all of that settle underneath this overlay while it's still
+    // covering the screen, so by the time isAppReady flips and this overlay
+    // disappears, Home is already sitting there fully composed with nothing
+    // left to visibly transition.
     var dataReady by remember { mutableStateOf(false) }
     var audioMidwayReached by remember { mutableStateOf(false) }
     val isAppReady = dataReady && audioMidwayReached
@@ -141,11 +157,21 @@ fun MangoNavHost() {
         LocalUiSoundPlayer provides container.uiSoundPlayer,
         LocalCardActionsMenu provides cardActionsMenuState
     ) {
-        if (!isAppReady) {
-            LoadingScreen(homeViewModel = homeViewModel, onReady = { dataReady = true })
-            return@CompositionLocalProvider
-        }
-
+        // Stacks the real nav graph and the cold-boot overlay on top of each
+        // other (declaration order = z-order in a Box, so LoadingScreen
+        // below, composed last, draws on top) -- see the isAppReady doc
+        // above for why both need to be mounted together instead of one
+        // gating the other's existence. The onPreviewKeyEvent here swallows
+        // every key while the overlay is covering the screen: NavHost's
+        // content underneath is a real, focusable composition the whole
+        // time now (not merely invisible), so without this a D-pad press
+        // during that window could silently move focus around, or even
+        // fire a click, on whatever's hidden behind the splash.
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .onPreviewKeyEvent { !isAppReady }
+        ) {
         val navController = rememberNavController()
 
         // NavHost registers its OWN back-press handling internally (it's
@@ -451,5 +477,14 @@ fun MangoNavHost() {
             onNavigate = ::navigateTo,
             resolvePlayRoute = ::resolvePlayRoute
         )
+        } // Box
+
+        // Declared last, so it draws on top of everything else in the Box
+        // above -- see the isAppReady doc near the top of this function for
+        // why NavHost stays mounted underneath this the whole time instead
+        // of being gated by it.
+        if (!isAppReady) {
+            LoadingScreen(homeViewModel = homeViewModel, onReady = { dataReady = true })
+        }
     }
 }

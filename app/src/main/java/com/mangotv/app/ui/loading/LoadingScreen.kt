@@ -56,9 +56,13 @@ private const val PRELOAD_CARD_COUNT = 6
 private const val READY_TIMEOUT_MS = 10_000L
 
 /**
- * Branded cold-boot gate: shown once, in place of the real UI, the moment
- * the app opens -- see MangoNavHost, which renders this instead of the
- * NavHost until [homeViewModel] has its FIRST batch of real (network-
+ * Branded cold-boot gate: shown once, as an opaque overlay on top of the
+ * real UI, the moment the app opens -- see MangoNavHost, which keeps its
+ * NavHost mounted underneath this the whole time (rather than gating its
+ * existence behind the same condition) specifically so the auth-gate
+ * redirect and Home's own first composition both settle out of sight
+ * before this is ever removed, instead of visibly happening right after.
+ * Removed once [homeViewModel] has its FIRST batch of real (network-
  * fetched) rows AND the resulting hero/poster images are preloaded into
  * Coil's cache, so Home appears already populated with no visible pop-in
  * for what's shown at that point. Rows beyond the first batch keep loading
