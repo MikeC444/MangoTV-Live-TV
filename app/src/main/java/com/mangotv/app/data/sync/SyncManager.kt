@@ -82,15 +82,41 @@ class SyncManager(
         startPeriodicRetry()
     }
 
-    /** Pulls every domain's authoritative state, then drains every domain's retry queue. */
+    /**
+     * Pulls every domain's authoritative state, then drains every domain's
+     * retry queue.
+     *
+     * Deliberately runs its actual work on this SyncManager's own
+     * long-lived [scope] rather than whatever coroutine calls this, then
+     * joins it. AuthGateViewModel, QrSignInViewModel, and
+     * PasswordSignInViewModel all call this and, in the same breath,
+     * flip the StateFlow that immediately navigates away from themselves
+     * (the ProceedNormally case's whole point is instant navigation with
+     * no perceptible delay) -- which tears down that screen's own
+     * ViewModel and cancels its viewModelScope. Before this, that
+     * cancelled this call mid-pull right along with it, so a domain's
+     * pull that hadn't finished yet (or hadn't even started) simply
+     * never happened -- its local cache silently stayed exactly as it
+     * was, with no error, which for a fresh sign-in could mean addons (or
+     * any other synced domain) added on another device never actually
+     * showing up despite genuinely being on the account server-side.
+     * Launching onto [scope] and joining it keeps a caller that
+     * deliberately awaits a real result before proceeding (e.g.
+     * FirstLoginMigrationCoordinator.resolveStartFresh(), which waits on
+     * purpose so its own loading state doesn't dismiss early) working
+     * exactly as before, while a caller that gets cancelled the instant
+     * this returns no longer takes the sync down with it.
+     */
     suspend fun syncAll() {
-        supervisorScope {
-            launch { settingsSyncRepository.pullFromServer() }
-            launch { watchlistSyncRepository.pullFromServer() }
-            launch { continueWatchingSyncRepository.pullFromServer() }
-            launch { addonSyncRepository.pullFromServer() }
-        }
-        retryPendingAll()
+        scope.launch {
+            supervisorScope {
+                launch { settingsSyncRepository.pullFromServer() }
+                launch { watchlistSyncRepository.pullFromServer() }
+                launch { continueWatchingSyncRepository.pullFromServer() }
+                launch { addonSyncRepository.pullFromServer() }
+            }
+            retryPendingAll()
+        }.join()
     }
 
     /** Drains every domain's retry queue without a full pull -- what a network reconnect (or the periodic timer below) triggers, and what [syncAll] runs after its own pulls complete. */
