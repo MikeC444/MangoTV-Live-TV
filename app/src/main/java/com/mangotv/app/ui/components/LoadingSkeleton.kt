@@ -116,11 +116,12 @@ fun RowsLoadingSkeleton(modifier: Modifier = Modifier, rowCount: Int = 4) {
  * Grid-shaped sibling of [RowsLoadingSkeleton] for screens that render their
  * loaded content as a vertical poster grid rather than horizontal shelves
  * (Movies, TV Shows, Genre Results -- see RowsBrowseLayout.GRID). Mirrors
- * RowsBrowseGridContent's own structure -- same screen title, same
- * width-driven posterScale computation using the same [GRID_COLUMNS], same
- * padding/spacing -- so the transition from skeleton to real content is a
- * simple crossfade of poster art rather than the whole layout re-flowing
- * from stacked horizontal rows into a grid.
+ * RowsBrowseGridContent's own structure -- same screen title, same sort-bar
+ * pill row (shimmer placeholders sized to roughly match CatalogSort's real
+ * labels), same width-driven posterScale computation using the same
+ * [GRID_COLUMNS], same padding/spacing -- so the transition from skeleton to
+ * real content is a simple crossfade of poster art and pill labels rather
+ * than the whole layout re-flowing or a filter bar popping in afterward.
  */
 @Composable
 fun GridLoadingSkeleton(screenTitle: String, modifier: Modifier = Modifier, rowCount: Int = 3) {
@@ -147,6 +148,19 @@ fun GridLoadingSkeleton(screenTitle: String, modifier: Modifier = Modifier, rowC
                     vertical = 4.dp
                 )
             )
+            Row(
+                modifier = Modifier.padding(horizontal = MangoDimens.ScreenPaddingHorizontal, vertical = MangoDimens.RowSpacing / 2),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Featured / Highest Rated / Newest, roughly matching each
+                // real pill's label width.
+                listOf(78.dp, 118.dp, 76.dp).forEach { pillWidth ->
+                    ShimmerBox(
+                        modifier = Modifier.width(pillWidth).height(30.dp),
+                        shape = RoundedCornerShape(percent = 50)
+                    )
+                }
+            }
             repeat(rowCount) {
                 Row(
                     modifier = Modifier.padding(

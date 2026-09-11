@@ -359,25 +359,24 @@ private fun RowsBrowseLoadedContent(
     }
 }
 
-enum class RatingFilter(val label: String, val minRating: Double?) {
-    ALL("All Ratings", null),
-    SEVEN_PLUS("7.0+", 7.0),
-    EIGHT_PLUS("8.0+", 8.0),
-    NINE_PLUS("9.0+", 9.0)
+enum class CatalogSort(val label: String) {
+    FEATURED("Featured"),
+    HIGHEST_RATED("Highest Rated"),
+    NEWEST("Newest")
 }
 
 /**
- * A row of rating-tier pills above Movies/TV Shows/Genre Results' grid --
- * same pill look SourceFilterBar already established for the Sources
- * screen's filters. Every pill wires the same focusUp/focusDown
+ * A row of sort pills above Movies/TV Shows/Genre Results' grid -- same
+ * pill look SourceFilterBar already established for the Sources screen's
+ * own filters. Every pill wires the same focusUp/focusDown
  * (RowsBrowseGridContent's nav bar and remembered-card requesters) rather
  * than just the first, so the seam works no matter which pill happens to
  * be focused when the user presses UP/DOWN.
  */
 @Composable
-private fun RatingFilterBar(
-    selected: RatingFilter,
-    onSelect: (RatingFilter) -> Unit,
+private fun CatalogSortBar(
+    selected: CatalogSort,
+    onSelect: (CatalogSort) -> Unit,
     modifier: Modifier = Modifier,
     focusRequester: FocusRequester? = null,
     focusUp: FocusRequester? = null,
@@ -388,12 +387,12 @@ private fun RatingFilterBar(
         contentPadding = PaddingValues(horizontal = MangoDimens.ScreenPaddingHorizontal),
         horizontalArrangement = Arrangement.spacedBy(8.dp)
     ) {
-        items(RatingFilter.entries, key = { it.name }) { filter ->
-            RatingFilterPill(
-                label = filter.label,
-                selected = filter == selected,
-                onClick = { onSelect(filter) },
-                focusRequester = if (filter == RatingFilter.ALL) focusRequester else null,
+        items(CatalogSort.entries, key = { it.name }) { sort ->
+            CatalogSortPill(
+                label = sort.label,
+                selected = sort == selected,
+                onClick = { onSelect(sort) },
+                focusRequester = if (sort == CatalogSort.FEATURED) focusRequester else null,
                 focusUp = focusUp,
                 focusDown = focusDown
             )
@@ -402,7 +401,7 @@ private fun RatingFilterBar(
 }
 
 @Composable
-private fun RatingFilterPill(
+private fun CatalogSortPill(
     label: String,
     selected: Boolean,
     onClick: () -> Unit,
@@ -473,15 +472,15 @@ private fun RowsBrowseGridContent(
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val navFocusRequester = remember { FocusRequester() }
-    val filterBarFocusRequester = remember { FocusRequester() }
+    val sortBarFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
 
     // Plain remember, not rememberSaveable -- same choice SourcesContent
     // makes for its own filter/sort state, and for the same reason: a
-    // filter is a transient viewing preference for this visit, not
+    // sort is a transient viewing preference for this visit, not
     // something worth restoring after process death.
-    var selectedRatingFilter by remember { mutableStateOf(RatingFilter.ALL) }
+    var selectedSort by remember { mutableStateOf(CatalogSort.FEATURED) }
 
     // Which title the grid returns D-pad focus to -- both for the nav bar's
     // DOWN key and, more importantly, for returning from Detail. By default
@@ -501,16 +500,22 @@ private fun RowsBrowseGridContent(
     // same poster instead of resetting to the nav bar/top of the list.
     var lastFocusedContentId by rememberSaveable { mutableStateOf<String?>(null) }
 
-    // Re-filtered whenever the underlying catalogue changes (mount, a
-    // loadMore page landing) or the user picks a different rating tier.
-    val filteredItems = remember(items, selectedRatingFilter) {
-        val minRating = selectedRatingFilter.minRating
-        if (minRating == null) items else items.filter { (it.rating ?: 0.0) >= minRating }
+    // Re-sorted whenever the underlying catalogue changes (mount, a
+    // loadMore page landing) or the user picks a different sort. Sorting
+    // never drops items -- unlike a threshold filter, every title the
+    // catalogue has is still shown, just reordered -- so there's no
+    // separate "nothing matches" state to handle below.
+    val sortedItems = remember(items, selectedSort) {
+        when (selectedSort) {
+            CatalogSort.FEATURED -> items
+            CatalogSort.HIGHEST_RATED -> items.sortedByDescending { it.rating ?: -1.0 }
+            CatalogSort.NEWEST -> items.sortedByDescending { it.year ?: -1 }
+        }
     }
 
-    val rows = remember(filteredItems) { filteredItems.chunked(GRID_COLUMNS) }
-    // Computed only when the (filtered) item list itself changes (mount, a
-    // loadMore page landing, or a filter change) -- this used to be
+    val rows = remember(sortedItems) { sortedItems.chunked(GRID_COLUMNS) }
+    // Computed only when the (sorted) item list itself changes (mount, a
+    // loadMore page landing, or a sort change) -- this used to be
     // remember(items, lastFocusedContentId), re-running this
     // items.indexOfFirst scan on every single focus change. Holding the
     // D-pad moves focus (and re-sets lastFocusedContentId) roughly every
@@ -522,8 +527,8 @@ private fun RowsBrowseGridContent(
     // scan only has to run once, to recover where a remembered id
     // (restored via rememberSaveable after a Detail round trip) now lives
     // in the possibly-different item list.
-    val restoredFlatIndex = remember(filteredItems) {
-        lastFocusedContentId?.let { id -> filteredItems.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
+    val restoredFlatIndex = remember(sortedItems) {
+        lastFocusedContentId?.let { id -> sortedItems.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
     }
     var targetRowIndex by remember { mutableStateOf(restoredFlatIndex?.let { it / GRID_COLUMNS } ?: 0) }
     var targetColIndex by remember { mutableStateOf(restoredFlatIndex?.let { it % GRID_COLUMNS } ?: 0) }
@@ -540,7 +545,7 @@ private fun RowsBrowseGridContent(
         if (!hasRequestedInitialFocus) {
             hasRequestedInitialFocus = true
             if (restoredFlatIndex != null) {
-                val lazyIndex = targetRowIndex + 2 // offset for the title (0) and filter bar (1) items
+                val lazyIndex = targetRowIndex + 2 // offset for the title (0) and sort bar (1) items
                 val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
                 if (!alreadyVisible) {
                     listState.scrollToItem(lazyIndex)
@@ -585,7 +590,7 @@ private fun RowsBrowseGridContent(
     LaunchedEffect(focusedGridRowIndex, navRegionFocused) {
         val rowIndex = focusedGridRowIndex ?: return@LaunchedEffect
         if (navRegionFocused) return@LaunchedEffect
-        val lazyIndex = rowIndex + 2 // offset for the title (0) and filter bar (1) items
+        val lazyIndex = rowIndex + 2 // offset for the title (0) and sort bar (1) items
         val info = listState.layoutInfo.visibleItemsInfo.find { it.index == lazyIndex }
         if (info != null) {
             val viewportHeight = listState.layoutInfo.viewportSize.height
@@ -648,33 +653,15 @@ private fun RowsBrowseGridContent(
                             )
                         )
                     }
-                    // Always shown once there's a catalogue to filter, even
-                    // if the current pick filters it down to zero results --
-                    // otherwise picking a filter with no matches would strand
-                    // the user with no way to get back to a less restrictive
-                    // one without leaving the screen.
-                    item(key = "rating_filter") {
-                        RatingFilterBar(
-                            selected = selectedRatingFilter,
-                            onSelect = { selectedRatingFilter = it },
+                    item(key = "sort_bar") {
+                        CatalogSortBar(
+                            selected = selectedSort,
+                            onSelect = { selectedSort = it },
                             modifier = Modifier.padding(bottom = MangoDimens.RowSpacing / 2),
-                            focusRequester = filterBarFocusRequester,
+                            focusRequester = sortBarFocusRequester,
                             focusUp = navFocusRequester,
                             focusDown = firstCardFocusRequester
                         )
-                    }
-                    if (rows.isEmpty()) {
-                        item(key = "filtered_empty") {
-                            Text(
-                                text = "No titles match this filter.",
-                                color = TextSecondary,
-                                style = MaterialTheme.typography.bodyLarge,
-                                modifier = Modifier.padding(
-                                    horizontal = MangoDimens.ScreenPaddingHorizontal,
-                                    vertical = 24.dp
-                                )
-                            )
-                        }
                     }
                     itemsIndexed(rows, key = { index, _ -> "grid_row_$index" }) { rowIndex, rowItems ->
                         Row(
@@ -741,11 +728,11 @@ private fun RowsBrowseGridContent(
             modifier = Modifier.align(Alignment.TopCenter),
             selectedIndex = MangoNavItems.indexOf(navLabel),
             selectedItemFocusRequester = navFocusRequester,
-            // Lands on the filter bar, not directly on a card -- it's the
-            // first focusable thing below the nav bar now. RatingFilterBar's
+            // Lands on the sort bar, not directly on a card -- it's the
+            // first focusable thing below the nav bar now. CatalogSortBar's
             // own focusDown wiring carries a second DOWN press on through to
             // whichever card lastFocusedContentId points at.
-            contentFocusRequester = if (items.isNotEmpty()) filterBarFocusRequester else null,
+            contentFocusRequester = if (items.isNotEmpty()) sortBarFocusRequester else null,
             onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) },
             onNavigateDown = if (items.isNotEmpty()) {
                 {
@@ -754,18 +741,16 @@ private fun RowsBrowseGridContent(
                         // Scrolls the remembered card into view now (same
                         // reasoning as the LaunchedEffect above, and only if
                         // it isn't already on screen) so it's already
-                        // visible by the time DOWN from the filter bar
-                        // reaches it -- current filter may have none at all.
-                        if (rows.isNotEmpty()) {
-                            val lazyIndex = targetRowIndex + 2
-                            val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
-                            if (!alreadyVisible) {
-                                listState.animateScrollToItem(lazyIndex)
-                            }
-                        } else {
-                            listState.animateScrollToItem(0)
+                        // visible by the time DOWN from the sort bar
+                        // reaches it. rows is never empty here -- sorting
+                        // never drops items, and this whole branch is
+                        // already gated on items being non-empty.
+                        val lazyIndex = targetRowIndex + 2
+                        val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
+                        if (!alreadyVisible) {
+                            listState.animateScrollToItem(lazyIndex)
                         }
-                        runCatching { filterBarFocusRequester.requestFocus() }
+                        runCatching { sortBarFocusRequester.requestFocus() }
                     }
                 }
             } else {

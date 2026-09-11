@@ -161,6 +161,21 @@ fun MangoNavHost() {
 
         fun navigateTo(route: String) {
             if (route in TAB_ROOT_ROUTES) {
+                // Re-tapping the tab you're already on: with the popUpTo +
+                // saveState + restoreState combo below (the standard bottom-
+                // nav recipe), navigating to a route that's already the
+                // current destination still pops it off the back stack
+                // (popUpTo's range includes it) and immediately restores a
+                // fresh copy of it -- launchSingleTop doesn't prevent this,
+                // since the pop happens as part of the same navigate() call.
+                // That pop+restore tears down and recreates the whole
+                // screen's composition, which is what showed up as a brief
+                // black flash (the window's raw background for one frame
+                // before the recreated screen has drawn anything) every time
+                // a nav item was tapped while already selected. Skipping the
+                // call entirely when there's nothing to navigate to is a
+                // plain no-op instead.
+                if (navController.currentDestination?.route == route) return
                 navController.navigate(route) {
                     launchSingleTop = true
                     restoreState = true
