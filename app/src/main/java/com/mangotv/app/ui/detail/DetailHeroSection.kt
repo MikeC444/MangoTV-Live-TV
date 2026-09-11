@@ -55,6 +55,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
+import com.mangotv.app.data.history.ContinueWatchingEntry
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.model.Episode
@@ -98,7 +99,13 @@ fun DetailHeroSection(
     // Movie detail only, for now: shrinks everything except the title so
     // the whole page (hero + Cast + You May Also Like) fits on one screen
     // without scrolling. TV shows don't pass this and are unaffected.
-    compact: Boolean = false
+    compact: Boolean = false,
+    // This exact title's Continue Watching entry, if any -- null for a
+    // title that's never been played, or one that's since been finished.
+    // Swaps "Play" for "Resume" and, for a TV show, retargets which
+    // episode the button plays. See its own doc further down for why the
+    // TV show episode target matters beyond just the button label.
+    resumeEntry: ContinueWatchingEntry? = null
 ) {
     val screenHeightDp = LocalConfiguration.current.screenHeightDp.dp
     val heroMinHeight = if (compact) {
@@ -121,24 +128,38 @@ fun DetailHeroSection(
     // being on screen.
     var actionsExpanded by remember { mutableStateOf(false) }
 
-    // TV shows show which episode Play will start — the first episode of
-    // the first season, since there's no watch-progress tracking yet to
-    // pick up where the user left off. Movies just say "Play". Hoisted out
-    // here (not just used for the button text) so the same episode can be
-    // passed to onPlay for the sources screen to resolve.
+    // TV shows show which episode Play/Resume will start. resumeEntry (a
+    // Continue Watching hit for this exact show) takes priority over the
+    // plain "first episode of the first season" default -- this isn't just
+    // cosmetic: SourcesViewModel only auto-continues on the same source
+    // the user was watching when the season/episode it's asked to play
+    // exactly matches the stored resume point (see its own doc), so
+    // defaulting back to episode 1 here would silently break auto-resume
+    // for every show beyond its first episode, even though the button
+    // itself would still say "Resume". Falls back to the first episode if
+    // the resume entry's season/episode can't be found in this show's own
+    // season data (e.g. stale data after a re-fetch) rather than pointing
+    // Play at nothing. Movies need no episode at all -- resumeEntry alone
+    // (matched on providerId/contentId/contentType, with no season/episode
+    // to compare) already drives their own Play -> Resume swap below.
+    val resumeEpisode = resumeEntry?.takeIf { it.seasonNumber != null && it.episodeNumber != null }?.let { entry ->
+        content.seasons.find { it.seasonNumber == entry.seasonNumber }
+            ?.episodes?.find { it.episodeNumber == entry.episodeNumber }
+    }
     val firstEpisode = if (content.type == ContentType.TV_SHOW) {
-        content.seasons.firstOrNull()?.episodes?.firstOrNull()
+        resumeEpisode ?: content.seasons.firstOrNull()?.episodes?.firstOrNull()
     } else {
         null
     }
+    val actionLabel = if (resumeEntry != null) "Resume" else "Play"
     val playButtonText = if (content.type == ContentType.TV_SHOW) {
         if (firstEpisode != null) {
-            "Play S${firstEpisode.seasonNumber}E${firstEpisode.episodeNumber}"
+            "$actionLabel S${firstEpisode.seasonNumber}E${firstEpisode.episodeNumber}"
         } else {
-            "Play"
+            actionLabel
         }
     } else {
-        "Play"
+        actionLabel
     }
 
     Box(

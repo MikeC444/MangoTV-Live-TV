@@ -33,6 +33,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
+import com.mangotv.app.data.history.ContinueWatchingEntry
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.model.HomeSection
@@ -68,12 +69,14 @@ fun DetailScreen(
             )
             is DetailUiState.Success -> {
                 val isInMyList by viewModel.isInMyList.collectAsStateWithLifecycle()
+                val resumeEntry by viewModel.resumeEntry.collectAsStateWithLifecycle()
                 DetailContent(
                     content = state.content,
                     similar = state.similar,
                     onNavigate = onNavigate,
                     isInMyList = isInMyList,
-                    onToggleMyList = viewModel::toggleMyList
+                    onToggleMyList = viewModel::toggleMyList,
+                    resumeEntry = resumeEntry
                 )
             }
         }
@@ -87,6 +90,7 @@ private fun DetailContent(
     onNavigate: (String) -> Unit,
     isInMyList: Boolean,
     onToggleMyList: () -> Unit,
+    resumeEntry: ContinueWatchingEntry?,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -204,7 +208,8 @@ private fun DetailContent(
                     navUpFocusRequester = navFocusRequester,
                     onNavigateUpPastHero = { returnToHero() },
                     onNavigateDownFromHero = { heroRegionFocused = false },
-                    compact = compact
+                    compact = compact,
+                    resumeEntry = resumeEntry
                 )
             }
             item(key = "seasons_or_cast_and_similar") {

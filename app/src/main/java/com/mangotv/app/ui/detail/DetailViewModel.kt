@@ -5,6 +5,7 @@ import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
 import com.mangotv.app.MangoTvApplication
+import com.mangotv.app.data.history.ContinueWatchingEntry
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.provider.CatalogProvider
@@ -28,6 +29,7 @@ sealed interface DetailUiState {
 class DetailViewModel(application: Application, private val savedStateHandle: SavedStateHandle) : AndroidViewModel(application) {
 
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
+    private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -55,6 +57,19 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     val isInMyList: StateFlow<Boolean> = myListRepository.items
         .map { items -> items.any { it.id == contentId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Drives DetailHeroSection's Play -> Resume switch and which episode it
+    // targets for a TV show -- reactive (not just a one-off findResumePoint
+    // snapshot) so finishing an episode while this screen is still open
+    // (e.g. the player's own back button) updates the button immediately
+    // instead of only on the next full navigation into Detail.
+    val resumeEntry: StateFlow<ContinueWatchingEntry?> = continueWatchingRepository.items
+        .map { items -> items.firstOrNull { it.providerId == providerId && it.contentId == contentId && it.contentType == contentType } }
+        .stateIn(
+            viewModelScope,
+            SharingStarted.WhileSubscribed(5000),
+            continueWatchingRepository.findResumePoint(providerId, contentId, contentType)
+        )
 
     fun toggleMyList() {
         val content = (uiState.value as? DetailUiState.Success)?.content ?: return
