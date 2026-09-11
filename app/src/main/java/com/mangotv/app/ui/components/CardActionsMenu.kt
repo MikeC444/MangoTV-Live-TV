@@ -76,18 +76,31 @@ class CardActionsMenuState {
     var canFocusActions: Boolean by mutableStateOf(false)
         private set
 
+    // The FocusRequester of the card that opened this menu (handed back by
+    // TvFocusSurface's onLongClickKeyReleased) -- not Compose state, since
+    // it's only ever read imperatively from dismiss() below, never during
+    // composition. Lets dismiss() return focus to that exact card instead
+    // of wherever Compose's focus system falls back to once this overlay's
+    // own focused row leaves composition (empirically, the top nav bar's
+    // Home button, since that's this app's other default-focus target).
+    private var originFocusRequester: FocusRequester? = null
+
     fun open(content: Content) {
         target = content
         canFocusActions = false
+        originFocusRequester = null
     }
 
-    fun armFocus() {
+    fun armFocus(requester: FocusRequester) {
         canFocusActions = true
+        originFocusRequester = requester
     }
 
     fun dismiss() {
+        originFocusRequester?.let { runCatching { it.requestFocus() } }
         target = null
         canFocusActions = false
+        originFocusRequester = null
     }
 }
 

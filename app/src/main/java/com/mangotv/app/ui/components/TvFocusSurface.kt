@@ -92,7 +92,14 @@ fun TvFocusSurface(
     // handling (which already correctly no-ops on it) is what consumes the
     // release instead. Ignored entirely for touch -- pointer-up is
     // position-routed, not focus-routed, so it never had this problem.
-    onLongClickKeyReleased: (() -> Unit)? = null,
+    //
+    // Also hands back this surface's own FocusRequester (always created
+    // when onLongClick is set, whether or not a caller-supplied
+    // [focusRequester] below exists) so a caller whose onLongClick opens
+    // something that takes over focus can later request focus back onto
+    // this exact card once that's dismissed -- see CardActionsMenuState's
+    // armFocus/dismiss for the concrete use.
+    onLongClickKeyReleased: ((FocusRequester) -> Unit)? = null,
     // Which click sound to play -- DEFAULT for virtually every caller (cards,
     // buttons, nav items); BACK for anything whose whole purpose is leaving
     // the current screen (an on-screen Back button); NONE for a caller that
@@ -157,6 +164,10 @@ fun TvFocusSurface(
     val longPressScope = rememberCoroutineScope()
     var longPressJob by remember { mutableStateOf<Job?>(null) }
     var longClickFired by remember { mutableStateOf(false) }
+    // See onLongClickKeyReleased's own doc. Only ever attached to this
+    // surface's modifier chain (further down) when onLongClick is set, but
+    // created here unconditionally along with the rest of this state.
+    val selfFocusRequester = remember { FocusRequester() }
 
     // scale/elevation are read via .value INSIDE the graphicsLayer block
     // below rather than through `by` at composable scope, so an animation
@@ -214,6 +225,14 @@ fun TvFocusSurface(
         }
     if (focusRequester != null) {
         boxModifier = boxModifier.focusRequester(focusRequester)
+    }
+    if (onLongClick != null) {
+        // Compose allows more than one FocusRequester on the same node --
+        // this doesn't conflict with the caller-supplied one right above
+        // (that one's for an unrelated, caller-chosen "restore focus to
+        // this specific item" case, e.g. RowsBrowseScreen's last-hovered
+        // card, and is null for most cards in a row/grid).
+        boxModifier = boxModifier.focusRequester(selfFocusRequester)
     }
     if (focusUp != null || focusDown != null || focusLeft != null || focusRight != null) {
         // The default D-pad focus search is a geometric heuristic and can fail
@@ -290,7 +309,7 @@ fun TvFocusSurface(
                     longPressJob = null
                     if (longClickFired) {
                         longClickFired = false
-                        onLongClickKeyReleased?.invoke()
+                        onLongClickKeyReleased?.invoke(selfFocusRequester)
                     } else {
                         handleClick()
                     }
