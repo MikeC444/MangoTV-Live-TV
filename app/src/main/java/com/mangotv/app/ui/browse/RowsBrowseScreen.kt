@@ -229,18 +229,31 @@ private fun RowsBrowseLoadedContent(
             }
     }
 
-    LaunchedEffect(focusedRowIndex, navRegionFocused) {
-        val rowIndex = focusedRowIndex ?: return@LaunchedEffect
+    // A plain LaunchedEffect(focusedRowIndex, ...) cancels its
+    // animateScrollBy every time focus lands on a new row, so during a
+    // held D-pad press (a new row roughly every ~100ms) almost every
+    // animation got cancelled moments in, until the last key-repeat had to
+    // cover several rows at once -- a spring covers a fixed distance in
+    // about the same settle time, so a big leftover delta reads as a
+    // sudden jump rather than a scroll. Collecting from snapshotFlow
+    // instead lets each animateScrollBy finish before picking up wherever
+    // focus has landed since, and focusTween keeps each step fast enough
+    // to actually keep up (same fix ContentRow's horizontal scroll needed,
+    // see FastBringIntoViewSpec).
+    LaunchedEffect(navRegionFocused) {
         if (navRegionFocused) return@LaunchedEffect
-        val lazyIndex = rowIndex + 1 // offset for the title item at index 0
-        val info = listState.layoutInfo.visibleItemsInfo.find { it.index == lazyIndex }
-        if (info != null) {
-            val viewportHeight = listState.layoutInfo.viewportSize.height
-            val itemCenter = info.offset + info.size / 2f
-            val delta = itemCenter - viewportHeight / 2f
-            listState.animateScrollBy(delta)
-        } else {
-            listState.animateScrollToItem(lazyIndex)
+        snapshotFlow { focusedRowIndex }.collect { rowIndex ->
+            rowIndex ?: return@collect
+            val lazyIndex = rowIndex + 1 // offset for the title item at index 0
+            val info = listState.layoutInfo.visibleItemsInfo.find { it.index == lazyIndex }
+            if (info != null) {
+                val viewportHeight = listState.layoutInfo.viewportSize.height
+                val itemCenter = info.offset + info.size / 2f
+                val delta = itemCenter - viewportHeight / 2f
+                listState.animateScrollBy(delta, animationSpec = MangoMotion.focusTween)
+            } else {
+                listState.animateScrollToItem(lazyIndex)
+            }
         }
     }
 
@@ -470,18 +483,24 @@ private fun RowsBrowseGridContent(
             }
     }
 
-    LaunchedEffect(focusedGridRowIndex, navRegionFocused) {
-        val rowIndex = focusedGridRowIndex ?: return@LaunchedEffect
+    // See the identical comment on RowsBrowseLoadedContent's version of
+    // this effect -- same bug (a held D-pad press cancelling the
+    // in-flight scroll on every row change, so only a big leftover jump
+    // at the end ever gets to run), same fix.
+    LaunchedEffect(navRegionFocused) {
         if (navRegionFocused) return@LaunchedEffect
-        val lazyIndex = rowIndex + 1 // offset for the title item at index 0
-        val info = listState.layoutInfo.visibleItemsInfo.find { it.index == lazyIndex }
-        if (info != null) {
-            val viewportHeight = listState.layoutInfo.viewportSize.height
-            val itemCenter = info.offset + info.size / 2f
-            val delta = itemCenter - viewportHeight / 2f
-            listState.animateScrollBy(delta)
-        } else {
-            listState.animateScrollToItem(lazyIndex)
+        snapshotFlow { focusedGridRowIndex }.collect { rowIndex ->
+            rowIndex ?: return@collect
+            val lazyIndex = rowIndex + 1 // offset for the title item at index 0
+            val info = listState.layoutInfo.visibleItemsInfo.find { it.index == lazyIndex }
+            if (info != null) {
+                val viewportHeight = listState.layoutInfo.viewportSize.height
+                val itemCenter = info.offset + info.size / 2f
+                val delta = itemCenter - viewportHeight / 2f
+                listState.animateScrollBy(delta, animationSpec = MangoMotion.focusTween)
+            } else {
+                listState.animateScrollToItem(lazyIndex)
+            }
         }
     }
 
