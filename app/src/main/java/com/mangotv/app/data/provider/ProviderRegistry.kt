@@ -49,7 +49,28 @@ object ProviderRegistry {
     // for N addons that's N-1 extra fetches, each visible as the whole
     // Home screen flashing back to its loading state and reloading shortly
     // after the previous one finished.
+    //
+    // Skips the update entirely when the set of provider ids is unchanged
+    // from what's already registered. CatalogProvider implementations (e.g.
+    // StremioAddonProvider) are plain classes, not data classes, so a fresh
+    // instance built from the exact same manifest never equals() the one
+    // it's replacing -- without this check, every caller here still counts
+    // as "different" to this StateFlow and re-emits even when nothing
+    // actually changed, which was happening on every single cold boot for
+    // a signed-in user: restoreFromDisk() registers the locally-cached
+    // addon list, and moments later the account addon sync pull calls
+    // applyRemote() again with a server-confirmed list that's usually
+    // identical -- re-emitting anyway re-triggered Home's catalog fetch a
+    // second time right after the first one had already finished, visible
+    // as the whole screen dropping back to its loading state and reloading
+    // for no reason a user could see.
     fun replaceAll(providers: List<CatalogProvider>) {
-        _providers.value = providers
+        _providers.update { current ->
+            if (current.map { it.id }.toSet() == providers.map { it.id }.toSet()) {
+                current
+            } else {
+                providers
+            }
+        }
     }
 }
