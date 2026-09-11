@@ -9,6 +9,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CloudOff
 import androidx.compose.material.icons.filled.Extension
+import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -29,7 +30,14 @@ import com.mangotv.app.ui.theme.TextTertiary
 fun FullScreenErrorState(
     message: String,
     onRetry: () -> Unit,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    // Optional second action below Retry -- used by PlayerScreen's error
+    // state so a remembered source that's gone stale (Resume skipped the
+    // picker entirely, then the stream itself turned out to be missing)
+    // still has a way back to it instead of Retry just failing the exact
+    // same way every time.
+    secondaryActionLabel: String? = null,
+    onSecondaryAction: (() -> Unit)? = null
 ) {
     Box(
         modifier = modifier
@@ -65,6 +73,15 @@ fun FullScreenErrorState(
                 onClick = onRetry,
                 style = MangoButtonStyle.FILLED
             )
+            if (secondaryActionLabel != null && onSecondaryAction != null) {
+                androidx.compose.foundation.layout.Spacer(Modifier.height(12.dp))
+                MangoButton(
+                    text = secondaryActionLabel,
+                    icon = Icons.Filled.List,
+                    onClick = onSecondaryAction,
+                    style = MangoButtonStyle.GLASS
+                )
+            }
         }
     }
 }

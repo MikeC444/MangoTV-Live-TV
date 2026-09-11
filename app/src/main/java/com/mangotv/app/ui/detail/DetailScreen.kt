@@ -76,7 +76,8 @@ fun DetailScreen(
                     onNavigate = onNavigate,
                     isInMyList = isInMyList,
                     onToggleMyList = viewModel::toggleMyList,
-                    resumeEntry = resumeEntry
+                    resumeEntry = resumeEntry,
+                    lastStreamIdFor = viewModel::lastStreamIdFor
                 )
             }
         }
@@ -91,6 +92,7 @@ private fun DetailContent(
     isInMyList: Boolean,
     onToggleMyList: () -> Unit,
     resumeEntry: ContinueWatchingEntry?,
+    lastStreamIdFor: (season: Int?, episode: Int?) -> String?,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -149,6 +151,31 @@ private fun DetailContent(
         onNavigate(MangoRoutes.detail(providerId, target.type, target.id))
     }
 
+    // Shared by the hero's Play/Resume button and a season's individual
+    // episode rows: when the target season/episode is exactly what Continue
+    // Watching points at AND a source was actually remembered for it, skip
+    // the Sources picker entirely and jump straight into Player on that
+    // source -- what "Resume" actually means to the user, rather than
+    // routing through Sources just to have it auto-redirect there (which
+    // still flashed the picker screen/loading state on the way through).
+    // Falls back to the normal picker for a first-ever play, a different
+    // episode than the one being resumed, or a remembered source that's
+    // gone missing from this fresh fetch (Player's own error state then
+    // offers "Choose a Different Source" back to the picker, so this is
+    // never a dead end).
+    fun navigateToPlayback(providerId: String, season: Int?, episode: Int?) {
+        val isResumeTarget = resumeEntry != null &&
+            resumeEntry.seasonNumber == season &&
+            resumeEntry.episodeNumber == episode
+        val streamId = if (isResumeTarget) lastStreamIdFor(season, episode) else null
+        val route = if (streamId != null) {
+            MangoRoutes.player(providerId, content.type, content.id, season, episode, streamId)
+        } else {
+            MangoRoutes.sources(providerId, content.type, content.id, season, episode)
+        }
+        onNavigate(route)
+    }
+
     // Movies only, for now: shrink the whole page so it fits on one screen
     // without scrolling. TV shows (whether they have season data or not)
     // keep the existing, larger layout untouched.
@@ -198,7 +225,7 @@ private fun DetailContent(
                     playFocusRequester = playFocusRequester,
                     onPlay = { episode ->
                         content.providerId?.let { pid ->
-                            onNavigate(MangoRoutes.sources(pid, content.type, content.id, episode?.seasonNumber, episode?.episodeNumber))
+                            navigateToPlayback(pid, episode?.seasonNumber, episode?.episodeNumber)
                         }
                     },
                     onWatched = {},
@@ -224,7 +251,7 @@ private fun DetailContent(
                         onNavigateUpPastRow = { returnToHero() },
                         onEpisodeClick = { episode ->
                             content.providerId?.let { pid ->
-                                onNavigate(MangoRoutes.sources(pid, content.type, content.id, episode.seasonNumber, episode.episodeNumber))
+                                navigateToPlayback(pid, episode.seasonNumber, episode.episodeNumber)
                             }
                         }
                     )

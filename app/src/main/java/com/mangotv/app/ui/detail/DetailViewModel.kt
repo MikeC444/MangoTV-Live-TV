@@ -30,6 +30,7 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
 
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
     private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
+    private val lastSourceRepository = (application as MangoTvApplication).container.lastSourceRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -70,6 +71,21 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
             SharingStarted.WhileSubscribed(5000),
             continueWatchingRepository.findResumePoint(providerId, contentId, contentType)
         )
+
+    /**
+     * The stream id last used for this exact title/episode, if any -- a
+     * plain synchronous lookup (not reactive; called once at the moment
+     * Resume/an episode is actually clicked, same as PlayerViewModel's own
+     * resumePositionMs()). DetailScreen uses this to skip the Sources
+     * picker entirely and jump straight into Player when there's a
+     * remembered source to reuse, rather than routing through Sources just
+     * to have it auto-redirect -- the user still sees a real picker if
+     * this comes back null (nothing remembered yet) or if the remembered
+     * stream turns out to be gone (Player's own error state offers a way
+     * back to the picker then).
+     */
+    fun lastStreamIdFor(season: Int?, episode: Int?): String? =
+        lastSourceRepository.findLastStreamId(providerId, contentId, contentType, season, episode)
 
     fun toggleMyList() {
         val content = (uiState.value as? DetailUiState.Success)?.content ?: return

@@ -88,7 +88,18 @@ fun PlayerScreen(
                 )
             }
             is PlayerScreenUiState.Error -> {
-                FullScreenErrorState(message = state.message, onRetry = viewModel::load)
+                // Reachable now that Detail can jump straight here on Resume,
+                // skipping the Sources picker (see DetailScreen's
+                // navigateToPlayback) -- if the source it remembered has
+                // since gone missing, Retry alone would just fail the exact
+                // same way forever, so this also offers a way back to the
+                // picker instead of a dead end.
+                FullScreenErrorState(
+                    message = state.message,
+                    onRetry = viewModel::load,
+                    secondaryActionLabel = "Choose a Different Source",
+                    onSecondaryAction = onChangeSource
+                )
             }
             is PlayerScreenUiState.Ready -> {
                 PlaybackContent(
