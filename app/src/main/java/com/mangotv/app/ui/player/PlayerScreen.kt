@@ -243,6 +243,20 @@ private fun PlaybackContent(
     // -- Controls visibility, focus zone, and the interaction-resets-the-
     // -- auto-hide-timer bookkeeping.
     var controlsVisible by remember { mutableStateOf(false) }
+    // True for the remainder of a single physical confirm-key press that
+    // revealed hidden controls (see the onPreviewKeyEvent handler below) --
+    // covers the window between that KeyDown and its eventual KeyUp, during
+    // which focus moves onto the newly-revealed Play/Pause button. Without
+    // this, a press held just long enough for Android's own key-repeat to
+    // fire after that focus move would leak a repeat KeyDown straight to
+    // the button (which sees it as a fresh press, having never seen the
+    // original KeyDown this screen's root already consumed), and the
+    // eventual release would then land on it too and fire its own onClick
+    // -- toggling playback right after a press whose whole intent was only
+    // to reveal the controls. Same underlying hazard as TvFocusSurface's
+    // own onLongClick doc describes: Compose routes key events by current
+    // focus, not by which node originally claimed the press.
+    var revealingKeyHeld by remember { mutableStateOf(false) }
     var focusZone by remember { mutableStateOf(PlayerFocusZone.NONE) }
     var interactionTick by remember { mutableIntStateOf(0) }
     fun bumpInteraction() { interactionTick++ }
@@ -421,6 +435,15 @@ private fun PlaybackContent(
             .focusRequester(rootFocusRequester)
             .focusable()
             .onPreviewKeyEvent { event ->
+                // See revealingKeyHeld's own declaration for why this has to
+                // come first and unconditionally own the rest of the
+                // physical press it started, however focus has since moved.
+                if (revealingKeyHeld) {
+                    if (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter) {
+                        if (event.type == KeyEventType.KeyUp) revealingKeyHeld = false
+                        return@onPreviewKeyEvent true
+                    }
+                }
                 // The Fire TV remote's dedicated Play/Pause hardware button
                 // is a transport control, not a D-pad direction — it should
                 // always work (menu open or not, controls hidden or not),
@@ -439,22 +462,39 @@ private fun PlaybackContent(
                 // (its own list navigation/selection) — don't fight it with
                 // the player's own global seek/reveal shortcuts.
                 if (activeOverlay != null) return@onPreviewKeyEvent false
-                // Any D-pad direction wakes the controls when they're
-                // hidden -- previously only DPAD_CENTER/Enter did, so
-                // pressing e.g. UP or LEFT while watching silently did
-                // nothing instead of bringing up the timeline/transport row
-                // the way every other TV player does. Deliberately just
+                // Any D-pad direction, or a confirm press, wakes the controls
+                // when they're hidden -- previously only DPAD_CENTER/Enter
+                // did, so pressing e.g. UP or LEFT while watching silently
+                // did nothing instead of bringing up the timeline/transport
+                // row the way every other TV player does. Deliberately just
                 // reveals on this first press rather than also performing
-                // that key's normal action (a seek, a focus move) --
-                // nothing below (seekEligible in particular) can act on it
-                // yet anyway, since every control is still off screen and
-                // unfocusable at this point.
+                // that key's normal action (a seek, a focus move, a
+                // play/pause toggle) -- nothing below (seekEligible in
+                // particular) can act on it yet anyway, since every control
+                // is still off screen and unfocusable at this point. This
+                // check is deliberately the ONLY thing gating a confirm
+                // press while hidden -- it doesn't look at focusZone the way
+                // the Key.DirectionCenter/Enter case further down does for
+                // the controls-already-visible case, so a confirm press here
+                // can never fall through to that later logic and act on
+                // whatever zone happened to be focused before controls last
+                // hid (which was the actual cause of a confirm press
+                // instantly toggling play/pause instead of just revealing
+                // controls the first time).
                 if (!controlsVisible &&
                     event.type == KeyEventType.KeyDown &&
                     (event.key == Key.DirectionUp || event.key == Key.DirectionDown ||
-                        event.key == Key.DirectionLeft || event.key == Key.DirectionRight)
+                        event.key == Key.DirectionLeft || event.key == Key.DirectionRight ||
+                        event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter)
                 ) {
                     controlsVisible = true
+                    // Only a confirm key needs the rest of its own press
+                    // tracked -- see revealingKeyHeld's own doc. A plain
+                    // direction key has no "click" semantics on release for
+                    // any control to misfire, so there's nothing to guard.
+                    if (event.key == Key.DirectionCenter || event.key == Key.Enter || event.key == Key.NumPadEnter) {
+                        revealingKeyHeld = true
+                    }
                     return@onPreviewKeyEvent true
                 }
                 // LEFT/RIGHT only seeks while the timeline itself has focus
@@ -482,21 +522,24 @@ private fun PlaybackContent(
                             else -> false
                         }
                     }
-                    Key.DirectionCenter, Key.Enter -> {
+                    Key.DirectionCenter, Key.Enter, Key.NumPadEnter -> {
                         when {
                             event.type != KeyEventType.KeyDown -> false
                             // Selecting the timeline toggles scrub mode
                             // in-place, rather than firing a click (it has
                             // no onClick — TvFocusSurface isn't used here
                             // since LEFT/RIGHT, not a click, is what drives
-                            // seeking once selected).
+                            // seeking once selected). The controls-hidden
+                            // case is already handled above, before this
+                            // whole `when` block, so focusZone here is only
+                            // ever read while controls are visible -- every
+                            // other zone (transport, icon row, top bar) is
+                            // deliberately left unconsumed (false) so the
+                            // actually-focused button's own click handling
+                            // gets the event instead of this intercepting it.
                             focusZone == PlayerFocusZone.TIMELINE -> {
                                 timelineScrubbing = !timelineScrubbing
                                 bumpInteraction()
-                                true
-                            }
-                            !controlsVisible && focusZone == PlayerFocusZone.NONE -> {
-                                controlsVisible = true
                                 true
                             }
                             else -> false
