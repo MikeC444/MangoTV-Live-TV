@@ -54,7 +54,7 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     // cache-only paint or one of fetch()'s early-return "still transient,
     // keep waiting" paths. Deliberately fires on the FIRST batch rather
     // than waiting for the entire fetch (every base+genre row across every
-    // provider) to finish: LoadingScreen (see its own doc) waits for this
+    // provider) to finish: BootVideoScreen (see its own doc) waits for this
     // so Home can reveal as soon as there's something real to show, with
     // whatever's still in flight filling in live afterward, rather than
     // hiding the whole multi-row fetch behind the loading screen.

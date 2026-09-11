@@ -6,8 +6,6 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -26,7 +24,6 @@ import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangotv.app.MangoTvApplication
-import com.mangotv.app.data.audio.BootSoundPlayer
 import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
@@ -42,7 +39,7 @@ import com.mangotv.app.ui.detail.DetailScreen
 import com.mangotv.app.ui.genres.GenreResultsScreen
 import com.mangotv.app.ui.genres.GenresScreen
 import com.mangotv.app.ui.search.SearchScreen
-import com.mangotv.app.ui.loading.LoadingScreen
+import com.mangotv.app.ui.loading.BootVideoScreen
 import com.mangotv.app.ui.mylist.MyListScreen
 import com.mangotv.app.ui.home.HomeScreen
 import com.mangotv.app.ui.home.HomeViewModel
@@ -58,7 +55,6 @@ import com.mangotv.app.ui.components.CardActionsMenuOverlay
 import com.mangotv.app.ui.components.CardActionsMenuState
 import com.mangotv.app.ui.components.LocalCardActionsMenu
 import java.net.URLDecoder
-import kotlinx.coroutines.delay
 
 // Static, argument-less top-level destinations reached from the top nav bar.
 // Navigating to one of these reuses/restores its existing back-stack entry
@@ -71,19 +67,15 @@ private val TAB_ROOT_ROUTES = setOf(
     MangoRoutes.GENRES, MangoRoutes.SEARCH, MangoRoutes.MY_LIST, MangoRoutes.SETTINGS
 )
 
-// How long after cold boot begins the boot chime starts playing -- see its
-// own call site for why this isn't just 0.
-private const val BOOT_SOUND_START_DELAY_MS = 1000L
-
 @Composable
 fun MangoNavHost() {
     val context = LocalContext.current
     val container = remember { (context.applicationContext as MangoTvApplication).container }
 
     // Constructed here, outside any NavHost destination, so it's scoped to
-    // the Activity rather than to Home's own back-stack entry -- LoadingScreen
+    // the Activity rather than to Home's own back-stack entry -- BootVideoScreen
     // and the HOME destination below share this exact instance instead of
-    // each getting their own. Sharing it is what lets LoadingScreen observe
+    // each getting their own. Sharing it is what lets BootVideoScreen observe
     // (and preload images for) the SAME fetch Home itself ends up showing,
     // rather than duplicating that fetch a second time once Home mounts.
     val homeViewModel: HomeViewModel = viewModel()
@@ -95,14 +87,12 @@ fun MangoNavHost() {
     val cardActionsMenuState = remember { CardActionsMenuState() }
 
     // Shown once, as an opaque overlay ON TOP of the real nav graph, on cold
-    // boot -- see LoadingScreen's own doc. dataReady mirrors what used to be
-    // the whole of isAppReady (LoadingScreen's own onReady callback);
-    // isAppReady now also waits on audioMidwayReached (see below) so the
-    // boot chime and Home's own readiness are both required before the
-    // reveal, not just whichever finishes first. Neither flag is ever reset
-    // once true, so isAppReady is still "never re-armed for the rest of the
-    // process's lifetime" exactly as before (tab switches, backgrounding,
-    // etc. don't recompose MangoNavHost from scratch).
+    // boot -- see BootVideoScreen's own doc. Never reset once true, so
+    // isAppReady is "never re-armed for the rest of the process's lifetime"
+    // (tab switches, backgrounding, etc. don't recompose MangoNavHost from
+    // scratch). BootVideoScreen itself owns waiting on both its own video
+    // and Home's data readiness before calling onReady() -- this is a
+    // single flag, not a combination of separately-tracked conditions.
     //
     // The NavHost below is ALWAYS composed, not gated behind isAppReady --
     // only this overlay is. That's deliberate: NavHost's startDestination is
@@ -120,34 +110,7 @@ fun MangoNavHost() {
     // disappears, Home is already sitting there fully composed with nothing
     // left to visibly transition.
     var dataReady by remember { mutableStateOf(false) }
-    var audioMidwayReached by remember { mutableStateOf(false) }
-    val isAppReady = dataReady && audioMidwayReached
-
-    // Starts the user's chosen boot chime BOOT_SOUND_START_DELAY_MS after
-    // cold boot begins (not instantly -- a beat of silence over the first
-    // frame reads more intentional than audio firing before anything's
-    // even visible) and holds audioMidwayReached false until the chime
-    // reaches its own halfway point after that -- see BootSoundPlayer's own
-    // doc for why that's what makes the reveal land on the chime's midpoint
-    // rather than its start. bootSoundPlayer is deliberately a plain local
-    // instance, not something pulled from AppContainer: it's used exactly
-    // once per process and releases itself when the chime finishes, unlike
-    // every other AppContainer entry, which is a persistent app-scoped
-    // singleton.
-    val bootSoundPlayer = remember { BootSoundPlayer(context) }
-    LaunchedEffect(Unit) {
-        val selectedSound = container.soundPreferencesRepository.awaitSelectedBootSound()
-        delay(BOOT_SOUND_START_DELAY_MS)
-        bootSoundPlayer.startAndAwaitMidpoint(selectedSound)
-        audioMidwayReached = true
-    }
-    // Defensive only: the chime normally releases itself on natural
-    // completion. This just stops it from playing on into the background
-    // in the rare case the Activity is torn down (e.g. the user backs out)
-    // while it's still going.
-    DisposableEffect(bootSoundPlayer) {
-        onDispose { bootSoundPlayer.release() }
-    }
+    val isAppReady = dataReady
 
     // Provided here, above both the loading screen and the real nav graph,
     // so every TvFocusSurface anywhere in the app (cards, buttons, nav
@@ -158,7 +121,7 @@ fun MangoNavHost() {
         LocalCardActionsMenu provides cardActionsMenuState
     ) {
         // Stacks the real nav graph and the cold-boot overlay on top of each
-        // other (declaration order = z-order in a Box, so LoadingScreen
+        // other (declaration order = z-order in a Box, so BootVideoScreen
         // below, composed last, draws on top) -- see the isAppReady doc
         // above for why both need to be mounted together instead of one
         // gating the other's existence. The onPreviewKeyEvent here swallows
@@ -484,7 +447,7 @@ fun MangoNavHost() {
         // why NavHost stays mounted underneath this the whole time instead
         // of being gated by it.
         if (!isAppReady) {
-            LoadingScreen(homeViewModel = homeViewModel, onReady = { dataReady = true })
+            BootVideoScreen(homeViewModel = homeViewModel, onReady = { dataReady = true })
         }
     }
 }

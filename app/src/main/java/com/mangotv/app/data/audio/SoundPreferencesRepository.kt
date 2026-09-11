@@ -23,13 +23,13 @@ private val Context.soundPreferencesDataStore: DataStore<Preferences> by prefere
 
 @Serializable
 data class SoundPreferences(
-    val selectedBootSound: BootSound = BootSound.BOOT_SOUND_1,
-    // Applies to the nav/click/back sounds only (see UiSoundPlayer) -- the
-    // boot chime has no volume control of its own, only on/off (BootSound.NONE).
+    // Applies to the nav/click/back sounds only (see UiSoundPlayer) -- boot
+    // audio was a separate, since-removed chime system with its own on/off
+    // control (a boot video, if any, now carries its own embedded audio).
     val navigationVolume: Float = 0.5f
 )
 
-/** Same DataStore+JSON pattern as PlayerPreferencesRepository, applied to the boot-sound choice. */
+/** Same DataStore+JSON pattern as PlayerPreferencesRepository, applied to the nav/click sound volume. */
 class SoundPreferencesRepository(context: Context) {
 
     private val appContext = context.applicationContext
@@ -43,15 +43,8 @@ class SoundPreferencesRepository(context: Context) {
         scope.launch { _preferences.value = readPersisted() }
     }
 
-    suspend fun setSelectedBootSound(sound: BootSound) = withContext(Dispatchers.IO) {
-        val updated = _preferences.value.copy(selectedBootSound = sound)
-        _preferences.value = updated
-        persist(updated)
-    }
-
-    // Updates the in-memory value BEFORE the disk write, unlike
-    // setSelectedBootSound above -- the volume slider previews itself by
-    // playing a nav tick right after calling this (see
+    // Updates the in-memory value BEFORE the disk write -- the volume slider
+    // previews itself by playing a nav tick right after calling this (see
     // SoundSettingsViewModel.setNavigationVolume), and UiSoundPlayer reads
     // its volume from [preferences] reactively, so that preview needs the
     // new value visible immediately rather than only after a background
@@ -61,16 +54,6 @@ class SoundPreferencesRepository(context: Context) {
         _preferences.value = updated
         withContext(Dispatchers.IO) { persist(updated) }
     }
-
-    /**
-     * Reads straight from disk rather than [preferences]' current value --
-     * used once, at cold boot, to pick which chime to play before the init
-     * block's own background read above is guaranteed to have finished.
-     * [preferences] itself stays the reactive source for Settings > Sounds,
-     * which doesn't have that same "only matters once, right now" timing
-     * pressure.
-     */
-    suspend fun awaitSelectedBootSound(): BootSound = readPersisted().selectedBootSound
 
     private suspend fun readPersisted(): SoundPreferences {
         val raw = appContext.soundPreferencesDataStore.data.first()[PREFERENCES_KEY] ?: return SoundPreferences()

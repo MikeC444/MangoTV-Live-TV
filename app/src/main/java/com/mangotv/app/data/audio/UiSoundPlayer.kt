@@ -27,7 +27,7 @@ import kotlinx.coroutines.launch
  * internally (a background collect, not something callers manage) so every
  * play*() call anywhere in the app always uses whatever the user last set
  * in Settings > Sounds, with no caller needing to know volume exists at
- * all. The boot chime has no such control -- see BootSoundPlayer.
+ * all.
  */
 class UiSoundPlayer(context: Context, soundPreferencesRepository: SoundPreferencesRepository) {
 

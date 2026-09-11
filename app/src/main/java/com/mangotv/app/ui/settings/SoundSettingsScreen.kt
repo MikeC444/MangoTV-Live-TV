@@ -13,13 +13,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MusicNote
-import androidx.compose.material.icons.filled.MusicOff
-import androidx.compose.material.icons.filled.PlayCircle
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -41,7 +37,6 @@ import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.mangotv.app.data.audio.BootSound
 import com.mangotv.app.ui.components.ClickSound
 import com.mangotv.app.ui.components.TvFocusSurface
 import com.mangotv.app.ui.theme.MangoAmber
@@ -86,7 +81,7 @@ fun SoundSettingsScreen(
         ) {
             item(key = "volume_header") {
                 Text(
-                    text = "Applies to the navigation and click sounds -- not the boot chime below.",
+                    text = "Applies to the navigation and click sounds.",
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodySmall,
                     modifier = Modifier.padding(bottom = 8.dp)
@@ -98,21 +93,6 @@ fun SoundSettingsScreen(
                     onVolumeChange = viewModel::setNavigationVolume,
                     focusRequester = volumeRowFocusRequester,
                     focusUp = navFocusRequester
-                )
-            }
-            item(key = "boot_header") {
-                Text(
-                    text = "Pick the chime that plays as the app boots, or turn it off. Selecting one plays a preview.",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(top = 24.dp, bottom = 8.dp)
-                )
-            }
-            itemsIndexed(BootSound.entries, key = { _, sound -> sound.name }) { _, sound ->
-                BootSoundOptionRow(
-                    sound = sound,
-                    isSelected = sound == preferences.selectedBootSound,
-                    onClick = { viewModel.selectBootSound(sound) }
                 )
             }
         }
@@ -195,50 +175,6 @@ private fun NavigationVolumeRow(
                     text = "LEFT / RIGHT to adjust",
                     color = TextTertiary,
                     style = MaterialTheme.typography.labelSmall
-                )
-            }
-        }
-    }
-}
-
-@Composable
-private fun BootSoundOptionRow(
-    sound: BootSound,
-    isSelected: Boolean,
-    onClick: () -> Unit
-) {
-    TvFocusSurface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
-        backgroundColor = MangoSurface,
-        alwaysShowBorder = isSelected,
-        borderColor = MangoAmber
-    ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Icon(
-                imageVector = if (sound == BootSound.NONE) Icons.Filled.MusicOff else Icons.Filled.PlayCircle,
-                contentDescription = null,
-                tint = if (isSelected) MangoAmber else TextTertiary
-            )
-            Spacer(Modifier.width(16.dp))
-            Column(modifier = Modifier.weight(1f)) {
-                Text(
-                    text = sound.label,
-                    color = if (isSelected) TextPrimary else TextSecondary,
-                    style = MaterialTheme.typography.titleMedium
-                )
-            }
-            if (isSelected) {
-                Icon(
-                    imageVector = Icons.Filled.CheckCircle,
-                    contentDescription = "Selected",
-                    tint = MangoAmber
                 )
             }
         }

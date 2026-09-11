@@ -17,14 +17,23 @@ import androidx.media3.ui.PlayerView
  */
 @OptIn(UnstableApi::class)
 @Composable
-fun PlayerSurface(exoPlayer: ExoPlayer, modifier: Modifier = Modifier) {
+fun PlayerSurface(
+    exoPlayer: ExoPlayer,
+    modifier: Modifier = Modifier,
+    // FIT (letterboxed, never crops) is right for actual video content,
+    // where cropping could cut off picture the user actually wants to see.
+    // A caller like the full-screen boot video, which is decorative rather
+    // than something to watch frame-accurately, can pass ZOOM instead to
+    // fill the screen edge-to-edge with no letterboxing.
+    resizeMode: Int = AspectRatioFrameLayout.RESIZE_MODE_FIT
+) {
     AndroidView(
         modifier = modifier.fillMaxSize(),
         factory = { context ->
             PlayerView(context).apply {
                 player = exoPlayer
                 useController = false
-                resizeMode = AspectRatioFrameLayout.RESIZE_MODE_FIT
+                this.resizeMode = resizeMode
             }
         }
     )
