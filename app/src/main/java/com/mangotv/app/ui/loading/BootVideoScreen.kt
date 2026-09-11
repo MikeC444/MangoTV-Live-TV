@@ -1,10 +1,8 @@
 package com.mangotv.app.ui.loading
 
 import android.net.Uri
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -12,15 +10,12 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.res.painterResource
-import androidx.compose.ui.unit.dp
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
@@ -29,7 +24,6 @@ import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.AspectRatioFrameLayout
 import coil.imageLoader
 import coil.request.ImageRequest
-import com.mangotv.app.R
 import com.mangotv.app.ui.home.HomeUiState
 import com.mangotv.app.ui.home.HomeViewModel
 import com.mangotv.app.ui.player.PlayerSurface
@@ -121,7 +115,7 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
     // Whether PlayerSurface's underlying SurfaceView actually has a real
     // frame to show right now -- see its own use below for why this
     // matters. False both before the first frame decodes and again once
-    // playback ends, so the fallback logo (not a blank/black surface)
+    // playback ends, so the branded background (not a blank/black surface)
     // covers both edges of the video.
     var showVideo by remember { mutableStateOf(false) }
 
@@ -155,9 +149,9 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
 
                 override fun onPlaybackStateChanged(playbackState: Int) {
                     if (playbackState == Player.STATE_ENDED) {
-                        // Switches back to the fallback logo instead of
-                        // leaving the now-static (and often dark/faded-out)
-                        // last frame on screen for however long the
+                        // Switches back to the branded background instead
+                        // of leaving the now-static (and often dark/faded-
+                        // out) last frame on screen for however long the
                         // data-readiness wait below still has left to run.
                         showVideo = false
                         videoFinished.complete(Unit)
@@ -238,11 +232,11 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
         if (exoPlayer == null || !showVideo) {
             // Covers the video surface -- solid black before its first
             // frame decodes, and again once playback ends -- with the same
-            // branded background+logo shown outright when there's no video
-            // asset at all. Composing this as a later sibling rather than
-            // relying on SurfaceView's own default (behind-the-hierarchy)
-            // z-order keeps this correct regardless of exactly how
-            // PlayerView's internal surface is configured.
+            // plain branded background shown outright when there's no video
+            // asset at all. No logo -- composing this as a later sibling
+            // rather than relying on SurfaceView's own default
+            // (behind-the-hierarchy) z-order keeps this correct regardless
+            // of exactly how PlayerView's internal surface is configured.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
@@ -266,15 +260,8 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
                                 center = corner
                             )
                         }
-                    },
-                contentAlignment = Alignment.Center
-            ) {
-                Image(
-                    painter = painterResource(R.drawable.logo_mango),
-                    contentDescription = null,
-                    modifier = Modifier.size(180.dp)
-                )
-            }
+                    }
+            )
         }
     }
 }
