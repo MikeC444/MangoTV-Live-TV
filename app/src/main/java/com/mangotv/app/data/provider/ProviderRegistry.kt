@@ -35,4 +35,21 @@ object ProviderRegistry {
     fun unregister(providerId: String) {
         _providers.update { current -> current.filterNot { it.id == providerId } }
     }
+
+    // Replaces the entire set of registered providers in one shot -- a
+    // single emission on [providers] instead of one per provider added or
+    // removed. register()/unregister() above stay as they are for the
+    // genuinely one-at-a-time case (a user installing or removing a single
+    // addon from Settings), where one provider-list change is exactly the
+    // correct trigger for one downstream re-fetch. This is for callers
+    // reconciling several addons at once (cold-boot restore, a server sync
+    // pull, wiping everything on sign-out): looping register()/unregister()
+    // for each one there used to emit once per addon, and every one of
+    // those emissions independently re-triggers Home's own catalog fetch --
+    // for N addons that's N-1 extra fetches, each visible as the whole
+    // Home screen flashing back to its loading state and reloading shortly
+    // after the previous one finished.
+    fun replaceAll(providers: List<CatalogProvider>) {
+        _providers.value = providers
+    }
 }

@@ -64,9 +64,14 @@ class AddonRepository(context: Context) {
     private suspend fun restoreFromDisk() {
         val stored = readPersisted()
         _installedAddons.value = stored
-        stored.filter { it.enabled }.forEach { addon ->
-            ProviderRegistry.register(StremioAddonProvider(addon.manifestUrl, addon.manifest, client))
-        }
+        // One emission for every restored addon together, not one per
+        // addon -- see ProviderRegistry.replaceAll's own doc. Looping
+        // register() here meant Home visibly reloading once for every addon
+        // beyond the first, right after cold boot, as each one finished
+        // restoring.
+        ProviderRegistry.replaceAll(
+            stored.filter { it.enabled }.map { addon -> StremioAddonProvider(addon.manifestUrl, addon.manifest, client) }
+        )
 
         // First-ever launch (nothing installed yet, and we've never
         // successfully bootstrapped before) gets Cinemeta pre-installed so
@@ -161,29 +166,27 @@ class AddonRepository(context: Context) {
      * the local cache wholesale and reconciling [ProviderRegistry] to
      * match -- unlike MyListRepository/ContinueWatchingRepository's own
      * applyRemote, this one has a live side effect to keep in sync, not
-     * just a DataStore-backed cache. Unregisters every addon this device
-     * previously knew about, then registers whichever of the new list is
-     * enabled, the same "clear and rebuild from a fresh list" shape
-     * restoreFromDisk() already uses at startup, rather than diffing old
-     * vs. new.
+     * just a DataStore-backed cache. Replaces [ProviderRegistry]'s contents
+     * outright with whichever of the new list is enabled, the same "clear
+     * and rebuild from a fresh list" shape restoreFromDisk() already uses
+     * at startup, rather than diffing old vs. new.
      */
     suspend fun applyRemote(remoteAddons: List<InstalledAddon>) = withContext(Dispatchers.IO) {
-        val previous = _installedAddons.value
         _installedAddons.value = remoteAddons
         persist(remoteAddons)
 
-        previous.forEach { ProviderRegistry.unregister(it.manifest.id) }
-        remoteAddons.filter { it.enabled }.forEach { addon ->
-            ProviderRegistry.register(StremioAddonProvider(addon.manifestUrl, addon.manifest, client))
-        }
+        // Same one-emission-for-the-whole-batch reasoning as
+        // restoreFromDisk() -- see ProviderRegistry.replaceAll's own doc.
+        ProviderRegistry.replaceAll(
+            remoteAddons.filter { it.enabled }.map { addon -> StremioAddonProvider(addon.manifestUrl, addon.manifest, client) }
+        )
     }
 
     /** Wipes every locally-cached addon (Milestone 12's account switching) without notifying [onLocalChange] — unregisters everything from [ProviderRegistry], same as [applyRemote]'s own cleanup step, but replaces with an empty list rather than a new one. The account being signed out of still owns these addons server-side; this device is only forgetting its own local copy. Deliberately leaves the Cinemeta auto-bootstrap flag untouched — that flag is a device-scoped "has this install ever shown default content" concept, not an account-scoped one, so a second account signing in on this same device is treated the same as a user who's deliberately removed every addon: no auto-reinstall. */
     suspend fun clear() = withContext(Dispatchers.IO) {
-        val previous = _installedAddons.value
         _installedAddons.value = emptyList()
         persist(emptyList())
-        previous.forEach { ProviderRegistry.unregister(it.manifest.id) }
+        ProviderRegistry.replaceAll(emptyList())
     }
 
     private suspend fun readPersisted(): List<InstalledAddon> {
