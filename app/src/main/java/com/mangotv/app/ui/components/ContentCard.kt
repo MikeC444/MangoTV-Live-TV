@@ -86,6 +86,7 @@ fun ContentCard(
         TvFocusSurface(
             onClick = onClick,
             onLongClick = { cardActionsMenu.open(content) },
+            onLongClickKeyReleased = { cardActionsMenu.armFocus() },
             modifier = Modifier.width(width).height(height),
             shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
             backgroundColor = MangoSurface,

@@ -148,6 +148,7 @@ private fun SimilarCard(content: Content, onClick: () -> Unit) {
     TvFocusSurface(
         onClick = onClick,
         onLongClick = { cardActionsMenu.open(content) },
+        onLongClickKeyReleased = { cardActionsMenu.armFocus() },
         shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
         backgroundColor = MangoSurface,
         modifier = Modifier

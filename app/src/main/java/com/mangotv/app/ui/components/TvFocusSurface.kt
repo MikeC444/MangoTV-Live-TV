@@ -75,6 +75,24 @@ fun TvFocusSurface(
     // further down implements the equivalent "held past a threshold"
     // detection for keys, so both input modes reach this callback.
     onLongClick: (() -> Unit)? = null,
+    // Fires once the key that triggered onLongClick above is physically
+    // released -- i.e. on the KeyUp that follows a fired long click, never
+    // on the KeyUp of an ordinary short click. Exists for callers whose
+    // onLongClick opens a focus-stealing overlay (the card quick-actions
+    // menu): if that overlay moves Compose focus onto itself the instant
+    // onLongClick fires, it does so while the user is still physically
+    // holding the button down. Compose routes key events by current focus,
+    // not touch position, so whatever happens next with that still-held
+    // button -- a key-repeat KeyDown, or the eventual release KeyUp --
+    // lands on the newly-focused element instead of this surface, which on
+    // a plain clickable row reads as an unwanted extra click (e.g. the
+    // menu's first action firing right as it opens). Callers with this
+    // problem should wait for onLongClickKeyReleased before requesting
+    // focus into whatever onLongClick opened, so this surface's own KeyUp
+    // handling (which already correctly no-ops on it) is what consumes the
+    // release instead. Ignored entirely for touch -- pointer-up is
+    // position-routed, not focus-routed, so it never had this problem.
+    onLongClickKeyReleased: (() -> Unit)? = null,
     // Which click sound to play -- DEFAULT for virtually every caller (cards,
     // buttons, nav items); BACK for anything whose whole purpose is leaving
     // the current screen (an on-screen Back button); NONE for a caller that
@@ -272,6 +290,7 @@ fun TvFocusSurface(
                     longPressJob = null
                     if (longClickFired) {
                         longClickFired = false
+                        onLongClickKeyReleased?.invoke()
                     } else {
                         handleClick()
                     }

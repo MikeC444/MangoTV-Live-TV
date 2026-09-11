@@ -67,12 +67,27 @@ class CardActionsMenuState {
     var target: Content? by mutableStateOf(null)
         private set
 
+    // Whether the overlay may move keyboard focus onto its own rows yet.
+    // Starts false on every open() -- see TvFocusSurface's own
+    // onLongClickKeyReleased doc for why stealing focus while the
+    // triggering D-pad button is still physically held causes an unwanted
+    // extra click. armFocus() is the signal that it's now safe, called
+    // once the card that opened this menu observes that button's release.
+    var canFocusActions: Boolean by mutableStateOf(false)
+        private set
+
     fun open(content: Content) {
         target = content
+        canFocusActions = false
+    }
+
+    fun armFocus() {
+        canFocusActions = true
     }
 
     fun dismiss() {
         target = null
+        canFocusActions = false
     }
 }
 
@@ -112,8 +127,14 @@ fun CardActionsMenuOverlay(
     val isInMyList = savedIds.any { it.id == content.id }
     val firstRowFocusRequester = remember(content.id) { FocusRequester() }
 
-    LaunchedEffect(content.id) {
-        runCatching { firstRowFocusRequester.requestFocus() }
+    // Gated on canFocusActions rather than firing as soon as content is set
+    // -- see CardActionsMenuState's own doc for why taking focus early
+    // (while the long-press button is still held) causes an unwanted click
+    // on whichever row ends up focused.
+    LaunchedEffect(content.id, state.canFocusActions) {
+        if (state.canFocusActions) {
+            runCatching { firstRowFocusRequester.requestFocus() }
+        }
     }
 
     fun dismissAndNavigate(route: String) {
