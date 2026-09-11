@@ -407,14 +407,23 @@ private fun RowsBrowseGridContent(
     var lastFocusedContentId by rememberSaveable { mutableStateOf<String?>(null) }
 
     val rows = remember(items) { items.chunked(GRID_COLUMNS) }
-    // Recomputed from the id above rather than storing row/col directly --
-    // items can reorder or grow (loadMore), so the id is the only part of
-    // this that's actually stable across a round trip.
-    val targetFlatIndex = remember(items, lastFocusedContentId) {
+    // Computed only when the item list itself changes (mount, or a loadMore
+    // page landing) -- this used to be remember(items, lastFocusedContentId),
+    // re-running this items.indexOfFirst scan on every single focus change.
+    // Holding the D-pad moves focus (and re-sets lastFocusedContentId)
+    // roughly every ~100ms via key-repeat, so on a long, paged-in catalogue
+    // this O(items) scan repeating that often stalled the whole screen for
+    // as long as the button was held, then caught up in one jump once it
+    // was released. targetRowIndex/targetColIndex below now track focus
+    // live in O(1) instead (see ContentCard's onFocusChanged) -- this
+    // id-based scan only has to run once, to recover where a remembered id
+    // (restored via rememberSaveable after a Detail round trip) now lives
+    // in the possibly-different item list.
+    val restoredFlatIndex = remember(items) {
         lastFocusedContentId?.let { id -> items.indexOfFirst { it.id == id } }?.takeIf { it >= 0 }
     }
-    val targetRowIndex = targetFlatIndex?.let { it / GRID_COLUMNS } ?: 0
-    val targetColIndex = targetFlatIndex?.let { it % GRID_COLUMNS } ?: 0
+    var targetRowIndex by remember { mutableStateOf(restoredFlatIndex?.let { it / GRID_COLUMNS } ?: 0) }
+    var targetColIndex by remember { mutableStateOf(restoredFlatIndex?.let { it % GRID_COLUMNS } ?: 0) }
 
     // Nav-region starts UNLOCKED (skips the top-pinning watchdog below) when
     // there's a remembered target to restore straight into -- otherwise it
@@ -427,7 +436,7 @@ private fun RowsBrowseGridContent(
     LaunchedEffect(items) {
         if (!hasRequestedInitialFocus) {
             hasRequestedInitialFocus = true
-            if (targetFlatIndex != null) {
+            if (restoredFlatIndex != null) {
                 val lazyIndex = targetRowIndex + 1 // offset for the title item at index 0
                 val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == lazyIndex }
                 if (!alreadyVisible) {
@@ -578,7 +587,13 @@ private fun RowsBrowseGridContent(
                                         null
                                     },
                                     posterScale = posterScale,
-                                    onFocusChanged = { isFocused -> if (isFocused) lastFocusedContentId = content.id }
+                                    onFocusChanged = { isFocused ->
+                                        if (isFocused) {
+                                            lastFocusedContentId = content.id
+                                            targetRowIndex = rowIndex
+                                            targetColIndex = colIndex
+                                        }
+                                    }
                                 )
                             }
                         }
