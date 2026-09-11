@@ -8,7 +8,10 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
@@ -115,6 +118,13 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
     // reactively during composition.
     val videoFinished = remember { CompletableDeferred<Unit>() }
 
+    // Whether PlayerSurface's underlying SurfaceView actually has a real
+    // frame to show right now -- see its own use below for why this
+    // matters. False both before the first frame decodes and again once
+    // playback ends, so the fallback logo (not a blank/black surface)
+    // covers both edges of the video.
+    var showVideo by remember { mutableStateOf(false) }
+
     val exoPlayer = remember {
         if (!hasVideoAsset) {
             null
@@ -132,11 +142,30 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
     } else {
         DisposableEffect(exoPlayer) {
             val listener = object : Player.Listener {
+                // Fires the moment the SurfaceView actually has a decoded
+                // frame on it -- a SurfaceView is solid black (a separate
+                // hardware layer punched through the normal view hierarchy,
+                // not compositing with anything Compose draws behind it)
+                // until this point, so showing PlayerSurface any earlier
+                // than this is exactly what read as "blank" before the
+                // video visibly started.
+                override fun onRenderedFirstFrame() {
+                    showVideo = true
+                }
+
                 override fun onPlaybackStateChanged(playbackState: Int) {
-                    if (playbackState == Player.STATE_ENDED) videoFinished.complete(Unit)
+                    if (playbackState == Player.STATE_ENDED) {
+                        // Switches back to the fallback logo instead of
+                        // leaving the now-static (and often dark/faded-out)
+                        // last frame on screen for however long the
+                        // data-readiness wait below still has left to run.
+                        showVideo = false
+                        videoFinished.complete(Unit)
+                    }
                 }
 
                 override fun onPlayerError(error: PlaybackException) {
+                    showVideo = false
                     videoFinished.complete(Unit)
                 }
             }
@@ -182,34 +211,20 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
         onReady()
     }
 
-    Box(
-        modifier = Modifier
-            .fillMaxSize()
-            .drawBehind {
-                // Solid MangoBackground with two soft brand-color glows in
-                // opposite corners -- shows through behind the video (any
-                // letterboxed edge, or a transparent moment in the clip
-                // itself) and is all that's visible at all when there's no
-                // video asset yet.
-                drawRect(MangoBackground)
-                val glowRadius = size.minDimension * 0.7f
-                listOf(
-                    Offset(0f, 0f) to MangoAmber,
-                    Offset(size.width, size.height) to MangoCoral
-                ).forEach { (corner, color) ->
-                    drawCircle(
-                        brush = Brush.radialGradient(
-                            colors = listOf(color.copy(alpha = 0.30f), Color.Transparent),
-                            center = corner,
-                            radius = glowRadius
-                        ),
-                        radius = glowRadius,
-                        center = corner
-                    )
-                }
-            }
-    ) {
+    Box(modifier = Modifier.fillMaxSize()) {
         if (exoPlayer != null) {
+            // Always composed whenever there's a player at all -- NOT
+            // conditioned on showVideo. PlayerSurface's underlying
+            // SurfaceView is what the player actually renders decoded
+            // frames onto; if it were only composed once showVideo is
+            // already true, the player would have no surface to render a
+            // first frame onto in the first place, so onRenderedFirstFrame
+            // (which is what sets showVideo true below) could never fire --
+            // a deadlock. Instead this stays mounted the whole time, and
+            // the covering box below -- a later sibling, so a higher
+            // z-order within this same Box -- is what's conditionally shown
+            // on top of it.
+            //
             // ZOOM rather than PlayerSurface's own FIT default -- a
             // decorative full-screen boot clip should fill the screen
             // edge-to-edge, unlike real video content where cropping could
@@ -219,12 +234,47 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
                 modifier = Modifier.fillMaxSize(),
                 resizeMode = AspectRatioFrameLayout.RESIZE_MODE_ZOOM
             )
-        } else {
-            Image(
-                painter = painterResource(R.drawable.logo_mango),
-                contentDescription = null,
-                modifier = Modifier.size(180.dp).align(Alignment.Center)
-            )
+        }
+        if (exoPlayer == null || !showVideo) {
+            // Covers the video surface -- solid black before its first
+            // frame decodes, and again once playback ends -- with the same
+            // branded background+logo shown outright when there's no video
+            // asset at all. Composing this as a later sibling rather than
+            // relying on SurfaceView's own default (behind-the-hierarchy)
+            // z-order keeps this correct regardless of exactly how
+            // PlayerView's internal surface is configured.
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .drawBehind {
+                        // Solid MangoBackground with two soft brand-color
+                        // glows in opposite corners, matching the reference
+                        // design.
+                        drawRect(MangoBackground)
+                        val glowRadius = size.minDimension * 0.7f
+                        listOf(
+                            Offset(0f, 0f) to MangoAmber,
+                            Offset(size.width, size.height) to MangoCoral
+                        ).forEach { (corner, color) ->
+                            drawCircle(
+                                brush = Brush.radialGradient(
+                                    colors = listOf(color.copy(alpha = 0.30f), Color.Transparent),
+                                    center = corner,
+                                    radius = glowRadius
+                                ),
+                                radius = glowRadius,
+                                center = corner
+                            )
+                        }
+                    },
+                contentAlignment = Alignment.Center
+            ) {
+                Image(
+                    painter = painterResource(R.drawable.logo_mango),
+                    contentDescription = null,
+                    modifier = Modifier.size(180.dp)
+                )
+            }
         }
     }
 }
