@@ -43,6 +43,7 @@ import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import coil.compose.AsyncImage
 import com.mangotv.app.data.model.Content
+import com.mangotv.app.ui.components.LocalCardActionsMenu
 import com.mangotv.app.ui.components.TvFocusSurface
 import com.mangotv.app.ui.components.rememberOpaqueImageRequest
 import com.mangotv.app.ui.theme.MangoDimens
@@ -140,8 +141,13 @@ fun SimilarRow(
 
 @Composable
 private fun SimilarCard(content: Content, onClick: () -> Unit) {
+    // Same app-wide long-press quick-actions menu ContentCard wires up --
+    // this row uses its own smaller card layout (see SimilarRow's own doc)
+    // but should still offer the same actions as every other card.
+    val cardActionsMenu = LocalCardActionsMenu.current
     TvFocusSurface(
         onClick = onClick,
+        onLongClick = { cardActionsMenu.open(content) },
         shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
         backgroundColor = MangoSurface,
         modifier = Modifier

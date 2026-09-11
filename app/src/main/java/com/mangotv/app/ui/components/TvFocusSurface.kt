@@ -17,7 +17,10 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.FocusRequester
@@ -27,13 +30,27 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.key.Key
+import androidx.compose.ui.input.key.KeyEventType
+import androidx.compose.ui.input.key.key
+import androidx.compose.ui.input.key.nativeKeyEvent
+import androidx.compose.ui.input.key.onPreviewKeyEvent
+import androidx.compose.ui.input.key.type
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.data.audio.LocalUiSoundPlayer
 import com.mangotv.app.ui.theme.FocusBorder
 import com.mangotv.app.ui.theme.MangoMotion
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /** Which sound (if any) a TvFocusSurface's click plays -- see TvFocusSurface's own doc. */
 enum class ClickSound { DEFAULT, BACK, NONE }
+
+// How long DPAD_CENTER/Enter/NumPadEnter must be held before it counts as a
+// long click -- see the onLongClick param's own doc for why this needs its
+// own key-based detection, separate from combinedClickable's.
+private const val LongPressTimeoutMs = 500L
 
 /**
  * The single building block behind every focusable tile in Mango TV (cards,
@@ -50,11 +67,14 @@ enum class ClickSound { DEFAULT, BACK, NONE }
 fun TvFocusSurface(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    // Held DPAD_CENTER/Enter (or a touch long-press) -- null (the default)
-    // leaves this surface exactly as before, a plain click target. Compose's
-    // combinedClickable already recognizes a held selection key as a long
-    // click the same way it recognizes a held touch, so this needs no
-    // separate D-pad-specific handling here.
+    // Held DPAD_CENTER/Enter/NumPadEnter, or a touch long-press -- null (the
+    // default) leaves this surface exactly as before, a plain click target.
+    // combinedClickable's own onLongClick below only ever fires for the
+    // touch case (it's built on detectTapGestures, a pointer-input gesture
+    // detector with no concept of a held key) -- on a real TV remote, with
+    // no touchscreen, that alone never fires. The onPreviewKeyEvent block
+    // further down implements the equivalent "held past a threshold"
+    // detection for keys, so both input modes reach this callback.
     onLongClick: (() -> Unit)? = null,
     // Which click sound to play -- DEFAULT for virtually every caller (cards,
     // buttons, nav items); BACK for anything whose whole purpose is leaving
@@ -109,6 +129,17 @@ fun TvFocusSurface(
     // wire sound playback into its own click handlers. Null outside the
     // real app tree (previews, tests) -- see LocalUiSoundPlayer's own doc.
     val uiSoundPlayer = LocalUiSoundPlayer.current
+
+    // Held for the onLongClick key-detection block further down. Declared
+    // unconditionally (not just `if (onLongClick != null)`) so every
+    // composition of this composable calls remember/rememberCoroutineScope
+    // in the same order regardless of which caller this instance is --
+    // onLongClick's null-ness never actually changes across recompositions
+    // of one given call site in this app, but there's no reason to rely on
+    // that when hoisting these costs nothing.
+    val longPressScope = rememberCoroutineScope()
+    var longPressJob by remember { mutableStateOf<Job?>(null) }
+    var longClickFired by remember { mutableStateOf(false) }
 
     // scale/elevation are read via .value INSIDE the graphicsLayer block
     // below rather than through `by` at composable scope, so an animation
@@ -185,21 +216,79 @@ fun TvFocusSurface(
     } else {
         boxModifier.background(backgroundColor)
     }
-    boxModifier = boxModifier
-        .border(BorderStroke(2.dp, borderColor.copy(alpha = borderAlpha)), shape)
-        .combinedClickable(
-            interactionSource = interactionSource,
-            indication = null,
-            onLongClick = onLongClick,
-            onClick = {
-                when (clickSound) {
-                    ClickSound.DEFAULT -> uiSoundPlayer?.playClick()
-                    ClickSound.BACK -> uiSoundPlayer?.playBack()
-                    ClickSound.NONE -> Unit
-                }
-                onClick()
+    boxModifier = boxModifier.border(BorderStroke(2.dp, borderColor.copy(alpha = borderAlpha)), shape)
+
+    // Shared by both the touch path (combinedClickable's own onClick below)
+    // and the key path (this composable's own onPreviewKeyEvent handler,
+    // when onLongClick is set) so the sound-playing logic isn't duplicated.
+    val handleClick = {
+        when (clickSound) {
+            ClickSound.DEFAULT -> uiSoundPlayer?.playClick()
+            ClickSound.BACK -> uiSoundPlayer?.playBack()
+            ClickSound.NONE -> Unit
+        }
+        onClick()
+    }
+
+    if (onLongClick != null) {
+        // Held-key long-press detection for D-pad/remote input -- see the
+        // onLongClick param's own doc for why combinedClickable's built-in
+        // onLongClick alone isn't enough here. This handler takes complete
+        // ownership of DirectionCenter/Enter/NumPadEnter -- both KeyDown
+        // and KeyUp are always consumed (never forwarded to
+        // combinedClickable's own key handling below) rather than only
+        // suppressing the one release that followed a long click: letting
+        // combinedClickable see the KeyDown half of a sequence but not its
+        // KeyUp would leave whatever internal press state it tracks for
+        // that key dangling, an easy way to end up with a stuck/confused
+        // state after the very first long press. Fully separating the two
+        // paths avoids that regardless of combinedClickable's own
+        // internals. Touch input is entirely unaffected -- key and pointer
+        // events are separate pipelines, so combinedClickable's own
+        // touch-driven onClick/onLongClick (still wired below) keep
+        // working exactly as before.
+        boxModifier = boxModifier.onPreviewKeyEvent { event ->
+            if (event.key != Key.DirectionCenter && event.key != Key.Enter && event.key != Key.NumPadEnter) {
+                return@onPreviewKeyEvent false
             }
-        )
+            when (event.type) {
+                KeyEventType.KeyDown -> {
+                    // Holding the key sends KeyDown again and again via
+                    // Android's own key-repeat -- only the very first one
+                    // (repeatCount == 0) should (re)start the timer, or
+                    // every repeat would restart it and the threshold would
+                    // never actually be reached.
+                    if (event.nativeKeyEvent.repeatCount == 0) {
+                        longPressJob?.cancel()
+                        longClickFired = false
+                        longPressJob = longPressScope.launch {
+                            delay(LongPressTimeoutMs)
+                            longClickFired = true
+                            onLongClick()
+                        }
+                    }
+                }
+                KeyEventType.KeyUp -> {
+                    longPressJob?.cancel()
+                    longPressJob = null
+                    if (longClickFired) {
+                        longClickFired = false
+                    } else {
+                        handleClick()
+                    }
+                }
+                else -> Unit
+            }
+            true
+        }
+    }
+
+    boxModifier = boxModifier.combinedClickable(
+        interactionSource = interactionSource,
+        indication = null,
+        onLongClick = onLongClick,
+        onClick = handleClick
+    )
 
     Box(modifier = boxModifier, content = content)
 }
