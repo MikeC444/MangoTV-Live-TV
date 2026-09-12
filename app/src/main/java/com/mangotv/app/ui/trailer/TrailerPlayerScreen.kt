@@ -100,7 +100,17 @@ fun TrailerPlayerScreen(videoId: String) {
         val listener = player?.let {
             object : Player.Listener {
                 override fun onPlayerError(error: PlaybackException) {
-                    Log.w(TAG, "Trailer playback error: ${error.message}")
+                    // error.message alone is often just a generic label
+                    // ("Source error", "Renderer error") -- the actually
+                    // useful detail is further down the cause chain.
+                    Log.w(TAG, "Trailer playback error: errorCode=${error.errorCodeName} message=${error.message}")
+                    var cause: Throwable? = error.cause
+                    var depth = 0
+                    while (cause != null && depth < 5) {
+                        Log.w(TAG, "  caused by [${cause.javaClass.simpleName}]: ${cause.message}")
+                        cause = cause.cause
+                        depth++
+                    }
                     failed = true
                 }
 
