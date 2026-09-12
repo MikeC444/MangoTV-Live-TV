@@ -14,12 +14,12 @@ run the release workflow for that version.
 
 ## Unreleased
 
+- Update banner's Update button is now white instead of amber
+
 ## 0.1.1
 
 - Redesigned the Genres tab: genres are now a grid of colorful cards with
   an icon per genre, instead of a plain list
-- Fixed a scrolling stutter and a couple of sizing/legibility issues in
-  the new Genres grid
 
 ## 0.1.0
 
