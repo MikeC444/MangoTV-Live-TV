@@ -60,6 +60,23 @@ jobs:
           echo "code=$CODE" >> "$GITHUB_OUTPUT"
           echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
 
+      - name: Extract changelog for this version
+        run: |
+          # RELEASE_NOTES.md is what actually becomes this release's notes
+          # (kept separate from CHANGELOG.md, which is an unrelated backend
+          # engineering log predating this workflow) -- pulls everything
+          # under "## <version>" up to the next "## " heading (or end of
+          # file). Kept as its own step rather than folded into version
+          # resolution above, for readability.
+          awk -v ver="## ${{ steps.version.outputs.name }}" '
+            $0 == ver { found=1; next }
+            /^## / { if (found) exit }
+            found { print }
+          ' RELEASE_NOTES.md > "$RUNNER_TEMP/release_notes.md"
+          if [ ! -s "$RUNNER_TEMP/release_notes.md" ]; then
+            echo "See commit history for changes in this release." > "$RUNNER_TEMP/release_notes.md"
+          fi
+
       - name: Decode release keystore
         run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
 
@@ -80,5 +97,5 @@ jobs:
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           name: ${{ steps.version.outputs.tag }}
-          generate_release_notes: true
+          body_path: ${{ runner.temp }}/release_notes.md
           files: app/build/outputs/apk/release/app-release.apk
