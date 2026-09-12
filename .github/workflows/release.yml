@@ -1,0 +1,84 @@
+name: Build and publish release APK
+
+# Fires only on a pushed version tag (v0.1.1, v1.2.0, ...), or manually via
+# workflow_dispatch -- deliberately NOT on every push to main, so nothing
+# ships to users until a release is actually cut on purpose. See
+# build-apk.yml for the separate, existing "does this compile" check that
+# already runs on every push.
+on:
+  push:
+    tags:
+      - "v*.*.*"
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Version to release (e.g. 0.1.1) -- only used for a manual run; a tag push derives this from the tag itself"
+        required: true
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-release:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Grant execute permission for gradlew
+        run: chmod +x gradlew
+
+      - name: Resolve release version
+        id: version
+        run: |
+          if [ "${{ github.ref_type }}" = "tag" ]; then
+            RAW="${{ github.ref_name }}"
+          else
+            RAW="${{ github.event.inputs.version }}"
+          fi
+          NAME="${RAW#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$NAME"
+          if [ -z "$MAJOR" ] || [ -z "$MINOR" ] || [ -z "$PATCH" ]; then
+            echo "Version '$NAME' isn't in major.minor.patch form" >&2
+            exit 1
+          fi
+          # Deterministic from the version itself (not a run counter), and
+          # strictly increasing as long as the version itself increases --
+          # Android's installer refuses to install an update whose
+          # versionCode doesn't exceed what's already on the device.
+          CODE=$((MAJOR * 1000000 + MINOR * 1000 + PATCH))
+          echo "name=$NAME" >> "$GITHUB_OUTPUT"
+          echo "code=$CODE" >> "$GITHUB_OUTPUT"
+          echo "tag=v$NAME" >> "$GITHUB_OUTPUT"
+
+      - name: Decode release keystore
+        run: echo "${{ secrets.RELEASE_KEYSTORE_BASE64 }}" | base64 -d > "$RUNNER_TEMP/release.keystore"
+
+      - name: Build release APK
+        env:
+          API_BASE_URL: ${{ secrets.API_BASE_URL }}
+          RELEASE_KEYSTORE_PATH: ${{ runner.temp }}/release.keystore
+          RELEASE_KEYSTORE_PASSWORD: ${{ secrets.RELEASE_KEYSTORE_PASSWORD }}
+          RELEASE_KEY_ALIAS: ${{ secrets.RELEASE_KEY_ALIAS }}
+          RELEASE_KEY_PASSWORD: ${{ secrets.RELEASE_KEY_PASSWORD }}
+        run: |
+          ./gradlew assembleRelease --stacktrace \
+            -PversionNameOverride="${{ steps.version.outputs.name }}" \
+            -PversionCodeOverride="${{ steps.version.outputs.code }}"
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.version.outputs.tag }}
+          name: ${{ steps.version.outputs.tag }}
+          generate_release_notes: true
+          files: app/build/outputs/apk/release/app-release.apk

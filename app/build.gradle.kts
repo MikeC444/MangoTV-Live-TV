@@ -19,8 +19,14 @@ val localProperties = Properties().apply {
         localPropertiesFile.inputStream().use { load(it) }
     }
 }
+// Env var checked first so CI (which never has a local.properties file --
+// it's gitignored, never committed) can inject the real backend URL from a
+// repo secret for a release build; local dev keeps using local.properties
+// exactly as before.
 val apiBaseUrl: String =
-    localProperties.getProperty("API_BASE_URL") ?: "https://not-configured.invalid"
+    System.getenv("API_BASE_URL")
+        ?: localProperties.getProperty("API_BASE_URL")
+        ?: "https://not-configured.invalid"
 
 // Milestone 14: fail the build, not just at runtime, if this ever points
 // at plain http:// -- every account API client sends a bearer token on
@@ -36,6 +42,28 @@ require(apiBaseUrl.startsWith("https://")) {
     "API_BASE_URL must use https:// (was: $apiBaseUrl) -- this app sends bearer tokens on almost every account API request, which must never go out over plaintext HTTP."
 }
 
+// Set only by the release-publishing CI workflow (-PversionNameOverride=...
+// -PversionCodeOverride=...), derived there from the git tag being
+// released -- see .github/workflows/release.yml. Absent for every local/
+// debug build, which keeps using the plain values below unchanged.
+val versionNameOverride: String? = (project.findProperty("versionNameOverride") as String?)?.takeIf { it.isNotBlank() }
+val versionCodeOverride: Int? = (project.findProperty("versionCodeOverride") as String?)?.toIntOrNull()
+
+// Same env-var-first, local.properties-fallback pattern as apiBaseUrl above
+// -- CI provides these from repo secrets (see .github/workflows/release.yml);
+// a local release build can instead set them in local.properties. Left null
+// (rather than defaulting to something) when neither is configured: signing
+// a release build is only ever meaningful once a real keystore exists, and
+// silently falling back to no signing at all should be visible as "release
+// build type has no signingConfig", not hidden behind a fake default.
+fun releaseSigningProperty(name: String): String? =
+    System.getenv("RELEASE_$name") ?: localProperties.getProperty("RELEASE_$name")
+val releaseKeystorePath = releaseSigningProperty("KEYSTORE_PATH")
+val releaseKeystorePassword = releaseSigningProperty("KEYSTORE_PASSWORD")
+val releaseKeyAlias = releaseSigningProperty("KEY_ALIAS")
+val releaseKeyPassword = releaseSigningProperty("KEY_PASSWORD")
+val hasReleaseSigningConfig = !releaseKeystorePath.isNullOrBlank()
+
 android {
     namespace = "com.mangotv.app"
     compileSdk = 34
@@ -44,16 +72,30 @@ android {
         applicationId = "com.mangotv.app"
         minSdk = 23
         targetSdk = 34
-        versionCode = 1
-        versionName = "0.1.0"
+        versionCode = versionCodeOverride ?: 1
+        versionName = versionNameOverride ?: "0.1.0"
 
         buildConfigField("String", "API_BASE_URL", "\"$apiBaseUrl\"")
+    }
+
+    signingConfigs {
+        if (hasReleaseSigningConfig) {
+            create("release") {
+                storeFile = file(releaseKeystorePath!!)
+                storePassword = releaseKeystorePassword
+                keyAlias = releaseKeyAlias
+                keyPassword = releaseKeyPassword
+            }
+        }
     }
 
     buildTypes {
         release {
             isMinifyEnabled = false
             proguardFiles(getDefaultProguardFile("proguard-android-optimize.txt"), "proguard-rules.pro")
+            if (hasReleaseSigningConfig) {
+                signingConfig = signingConfigs.getByName("release")
+            }
         }
     }
 

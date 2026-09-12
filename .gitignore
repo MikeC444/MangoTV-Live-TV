@@ -12,3 +12,8 @@ app/build/
 build/
 *.hprof
 .kotlin/
+
+# Release signing key -- never committed; generated locally per
+# the keystore instructions and referenced via local.properties/CI secrets.
+*.keystore
+*.jks
