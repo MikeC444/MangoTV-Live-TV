@@ -23,6 +23,8 @@ import java.util.concurrent.atomic.AtomicReference
 
 private const val TAG = "InAppYouTubeExtractor"
 private const val EXTRACTOR_TIMEOUT_MS = 30_000L
+/** How long a single CDN-reachability probe gets before its candidate is given up on -- see resolveReachableUrl's own kdoc. */
+private const val PROBE_TIMEOUT_MS = 6_000L
 private const val DEFAULT_USER_AGENT =
     "Mozilla/5.0 (Linux; Android 12; Android TV) AppleWebKit/537.36 " +
         "(KHTML, like Gecko) Chrome/133.0.0.0 Safari/537.36"
@@ -803,7 +805,14 @@ class InAppYouTubeExtractor {
             }
         }
         return try {
-            withTimeoutOrNull(2_000L) { result.await() }
+            // 2s here previously rejected a confirmed-valid 4K adaptive
+            // candidate outright, forcing a fallback all the way down to the
+            // old progressive format -- this network's connections to
+            // googlevideo.com can genuinely take several seconds just to
+            // get a first response, which isn't the same thing as the URL
+            // being unreachable. 6s gives that room without meaningfully
+            // slowing down extraction's overall ~30s budget.
+            withTimeoutOrNull(PROBE_TIMEOUT_MS) { result.await() }
         } finally {
             probeScope.cancel()
         }
@@ -811,8 +820,8 @@ class InAppYouTubeExtractor {
 
     private val probeClient by lazy {
         OkHttpClient.Builder()
-            .connectTimeout(2, TimeUnit.SECONDS)
-            .readTimeout(2, TimeUnit.SECONDS)
+            .connectTimeout(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
+            .readTimeout(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS)
             .followRedirects(true)
             .followSslRedirects(true)
             .build()
