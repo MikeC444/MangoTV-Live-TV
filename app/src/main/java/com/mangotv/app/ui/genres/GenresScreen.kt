@@ -1,5 +1,7 @@
 package com.mangotv.app.ui.genres
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.LocalBringIntoViewSpec
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
@@ -44,6 +46,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -69,6 +72,7 @@ import com.mangotv.app.ui.theme.MangoAmber
 import com.mangotv.app.ui.theme.MangoAzure
 import com.mangotv.app.ui.theme.MangoCoral
 import com.mangotv.app.ui.theme.MangoDimens
+import com.mangotv.app.ui.theme.MangoMotion
 import com.mangotv.app.ui.theme.MangoSurfaceHigh
 import com.mangotv.app.ui.theme.MangoTangerine
 import com.mangotv.app.ui.theme.MangoTeal
@@ -122,6 +126,7 @@ private fun iconForGenre(genre: String): ImageVector {
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun GenresScreen(
     onNavigate: (String) -> Unit,
@@ -186,6 +191,13 @@ fun GenresScreen(
                     ) {
                         val cardWidth = (maxWidth - MangoDimens.CardSpacing * (GENRE_GRID_COLUMNS - 1)) / GENRE_GRID_COLUMNS
                         val cardHeight = (maxHeight - MangoDimens.CardSpacing * (GENRE_GRID_VISIBLE_ROWS - 1)) / GENRE_GRID_VISIBLE_ROWS
+                        // Same fix RowsBrowseGridContent already needed for its own
+                        // vertical grid: without this, Compose's automatic focus-
+                        // triggered bring-into-view still reacts to a card's own
+                        // scale-on-focus transform reporting a shifted rect, and
+                        // nudges this whole LazyColumn on every focus move -- read
+                        // as the entire page shaking while scrolling/navigating.
+                        CompositionLocalProvider(LocalBringIntoViewSpec provides MangoMotion.DisabledBringIntoViewSpec) {
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
@@ -237,6 +249,7 @@ fun GenresScreen(
                                 Spacer(Modifier.height(24.dp))
                             }
                         }
+                        }
                     }
                 }
             }
@@ -263,20 +276,20 @@ private fun GenreCard(
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(16.dp)
+                .padding(10.dp)
         ) {
             Icon(
                 imageVector = iconForGenre(genre),
                 contentDescription = null,
                 tint = TextPrimary,
-                modifier = Modifier.size(28.dp)
+                modifier = Modifier.size(20.dp)
             )
             Spacer(Modifier.weight(1f))
             Text(
                 text = genre,
                 color = TextPrimary,
                 fontWeight = FontWeight.Bold,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.labelLarge,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis
             )
