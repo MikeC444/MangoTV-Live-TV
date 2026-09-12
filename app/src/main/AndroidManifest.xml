@@ -7,7 +7,7 @@
          a downloaded APK to the system installer without the user first
          hunting down a system setting on their own. The system still shows
          its own one-time "allow unknown sources for this app" prompt and,
-         every time, its own "install this update?" confirmation -- this
+         every time, its own "install this update?" confirmation; this
          permission only lets the app ASK, never installs anything silently. -->
     <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
@@ -59,7 +59,7 @@
 
         <!-- Exposes cacheDir/updates/ (where ApkDownloader saves a
              downloaded release) as a content:// URI the system installer
-             package can read -- Android blocks handing it a plain file://
+             package can read; Android blocks handing it a plain file://
              URI across app boundaries. -->
         <provider
             android:name="androidx.core.content.FileProvider"
