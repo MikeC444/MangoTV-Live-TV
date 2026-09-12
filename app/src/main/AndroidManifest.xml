@@ -3,6 +3,13 @@
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- For the in-app updater (ApkInstaller): lets this sideloaded app hand
+         a downloaded APK to the system installer without the user first
+         hunting down a system setting on their own. The system still shows
+         its own one-time "allow unknown sources for this app" prompt and,
+         every time, its own "install this update?" confirmation -- this
+         permission only lets the app ASK, never installs anything silently. -->
+    <uses-permission android:name="android.permission.REQUEST_INSTALL_PACKAGES" />
 
     <uses-feature
         android:name="android.software.leanback"
@@ -49,6 +56,20 @@
                 <category android:name="android.intent.category.LEANBACK_LAUNCHER" />
             </intent-filter>
         </activity>
+
+        <!-- Exposes cacheDir/updates/ (where ApkDownloader saves a
+             downloaded release) as a content:// URI the system installer
+             package can read -- Android blocks handing it a plain file://
+             URI across app boundaries. -->
+        <provider
+            android:name="androidx.core.content.FileProvider"
+            android:authorities="${applicationId}.fileprovider"
+            android:exported="false"
+            android:grantUriPermissions="true">
+            <meta-data
+                android:name="android.support.FILE_PROVIDER_PATHS"
+                android:resource="@xml/file_paths" />
+        </provider>
     </application>
 
 </manifest>

@@ -56,6 +56,8 @@ import com.mangotv.app.ui.trailer.TrailerPlayerScreen
 import com.mangotv.app.ui.components.CardActionsMenuOverlay
 import com.mangotv.app.ui.components.CardActionsMenuState
 import com.mangotv.app.ui.components.LocalCardActionsMenu
+import com.mangotv.app.ui.update.UpdateBannerHost
+import com.mangotv.app.ui.update.UpdateViewModel
 import java.net.URLDecoder
 
 // Static, argument-less top-level destinations reached from the top nav bar.
@@ -81,6 +83,11 @@ fun MangoNavHost() {
     // (and preload images for) the SAME fetch Home itself ends up showing,
     // rather than duplicating that fetch a second time once Home mounts.
     val homeViewModel: HomeViewModel = viewModel()
+
+    // Scoped to the Activity, same as homeViewModel above -- checks GitHub
+    // for a newer release once per process, independent of which tab/screen
+    // is showing.
+    val updateViewModel: UpdateViewModel = viewModel()
 
     // One instance for the whole app, provided below so any ContentCard
     // (however deeply nested in Home's rows or a browse grid) can open its
@@ -253,6 +260,11 @@ fun MangoNavHost() {
                     false
                 }
         ) {
+            // Suppressed while the player is active, same reasoning as the
+            // nav-sound listener just above: an "Update available" banner
+            // over the video is exactly the kind of interface chrome that
+            // shouldn't compete with what the user is actually watching.
+            UpdateBannerHost(viewModel = updateViewModel, suppressed = isPlayerActive) {
             NavHost(navController = navController, startDestination = MangoRoutes.AUTH_GATE) {
                 composable(MangoRoutes.AUTH_GATE) {
                     AuthGateScreen(
@@ -424,6 +436,7 @@ fun MangoNavHost() {
                     TrailerPlayerScreen(videoId = videoId)
                 }
             }
+            } // UpdateBannerHost
         }
 
         // Global fallback for the hardware/remote BACK button -- see the
