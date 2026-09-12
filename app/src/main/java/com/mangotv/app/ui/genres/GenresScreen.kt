@@ -84,6 +84,13 @@ private const val GENRE_GRID_COLUMNS = 5
 // the real screen's dp dimensions. More rows than this just scroll.
 private const val GENRE_GRID_VISIBLE_ROWS = 4
 
+// Floor under that measured-height division: on a shorter screen, an even
+// 1/4 share isn't always enough room for the icon plus two lines of text
+// before TvFocusSurface's own rounded-corner clip cuts the text off. When
+// the floor wins, four rows no longer all fit without a small scroll --
+// legible text takes priority over that.
+private val GenreCardMinHeight = 160.dp
+
 // Cycled by card position so the grid reads as a coherent set of accents
 // (the same amber/tangerine/coral/azure/teal family used sparingly
 // elsewhere in the app) rather than one repeated color -- there's no
@@ -185,7 +192,10 @@ fun GenresScreen(
                             .weight(1f)
                     ) {
                         val cardWidth = (maxWidth - MangoDimens.CardSpacing * (GENRE_GRID_COLUMNS - 1)) / GENRE_GRID_COLUMNS
-                        val cardHeight = (maxHeight - MangoDimens.CardSpacing * (GENRE_GRID_VISIBLE_ROWS - 1)) / GENRE_GRID_VISIBLE_ROWS
+                        val cardHeight = maxOf(
+                            (maxHeight - MangoDimens.CardSpacing * (GENRE_GRID_VISIBLE_ROWS - 1)) / GENRE_GRID_VISIBLE_ROWS,
+                            GenreCardMinHeight
+                        )
                         LazyColumn(
                             state = listState,
                             modifier = Modifier.fillMaxWidth(),
