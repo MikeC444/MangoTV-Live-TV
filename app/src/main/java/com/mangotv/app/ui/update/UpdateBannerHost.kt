@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -32,6 +33,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -109,6 +111,14 @@ fun UpdateBannerHost(
 @Composable
 private fun UpdateReleaseNotesOverlay(update: AppUpdate, onDismiss: () -> Unit) {
     val scrollState = rememberScrollState()
+    val closeFocusRequester = remember { FocusRequester() }
+    // This overlay is a plain Box drawn over everything else, not a real
+    // dialog -- nothing moves D-pad focus onto it automatically, so without
+    // this the Close button is simply unreachable (focus stays wherever it
+    // was on the screen behind, now hidden underneath).
+    LaunchedEffect(Unit) {
+        runCatching { closeFocusRequester.requestFocus() }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -142,7 +152,8 @@ private fun UpdateReleaseNotesOverlay(update: AppUpdate, onDismiss: () -> Unit) 
                 icon = Icons.Filled.Close,
                 onClick = onDismiss,
                 style = MangoButtonStyle.GLASS,
-                clickSound = ClickSound.BACK
+                clickSound = ClickSound.BACK,
+                focusRequester = closeFocusRequester
             )
         }
     }
@@ -150,6 +161,11 @@ private fun UpdateReleaseNotesOverlay(update: AppUpdate, onDismiss: () -> Unit) 
 
 @Composable
 private fun UpdateUnknownSourcesOverlay(onOpenSettings: () -> Unit, onDismiss: () -> Unit) {
+    val openSettingsFocusRequester = remember { FocusRequester() }
+    // Same focus gap as UpdateReleaseNotesOverlay -- see its own comment.
+    LaunchedEffect(Unit) {
+        runCatching { openSettingsFocusRequester.requestFocus() }
+    }
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -182,7 +198,8 @@ private fun UpdateUnknownSourcesOverlay(onOpenSettings: () -> Unit, onDismiss: (
                     text = "Open Settings",
                     icon = Icons.Filled.Settings,
                     onClick = onOpenSettings,
-                    style = MangoButtonStyle.FILLED
+                    style = MangoButtonStyle.FILLED,
+                    focusRequester = openSettingsFocusRequester
                 )
                 Spacer(modifier = Modifier.padding(start = 12.dp))
                 MangoButton(
