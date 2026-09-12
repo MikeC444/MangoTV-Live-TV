@@ -72,6 +72,15 @@ fun SettingsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .verticalScroll(rememberScrollState())
+                // verticalScroll clips its content to its own bounds (that's
+                // what makes scrolling look right) -- unlike the plain,
+                // non-clipping Column this replaced, so a row's focus
+                // scale-up now has nowhere to grow into and gets clipped
+                // flush against this Column's left/right/top/bottom edges.
+                // Same fix as TopNavBar/SourcesScreen/SoundSettingsScreen's
+                // own contentPadding: reserve a little headroom for the
+                // scale to grow into.
+                .padding(horizontal = 8.dp, vertical = 8.dp)
         ) {
             SettingsCategoryRow(
                 icon = Icons.Filled.AccountCircle,

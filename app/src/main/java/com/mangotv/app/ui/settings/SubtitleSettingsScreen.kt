@@ -1,6 +1,7 @@
 package com.mangotv.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -122,6 +123,13 @@ fun SubtitleSettingsScreen(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f),
+            // LazyColumn clips to its own bounds, and each row below fills
+            // its full width with no margin of its own -- so a row's focus
+            // scale-up (TvFocusSurface) had nowhere to grow into and got
+            // clipped flush against the list's left/right edges. Same fix
+            // as TopNavBar/SourcesScreen/SoundSettingsScreen: reserve a
+            // little headroom via contentPadding for the scale to grow into.
+            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
             verticalArrangement = Arrangement.spacedBy(4.dp)
         ) {
             items(SubtitleLanguageOptions, key = { it.code ?: "system_default" }) { option ->
