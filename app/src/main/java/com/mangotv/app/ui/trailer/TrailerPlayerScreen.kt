@@ -1,6 +1,7 @@
 package com.mangotv.app.ui.trailer
 
 import android.annotation.SuppressLint
+import android.view.View
 import android.view.ViewGroup
 import android.webkit.WebChromeClient
 import android.webkit.WebView
@@ -44,6 +45,17 @@ import com.mangotv.app.ui.theme.MangoAmber
 @Composable
 fun TrailerPlayerScreen(videoId: String) {
     var isLoading by remember { mutableStateOf(true) }
+    // YouTube's HTML5 player promotes its <video> element into a
+    // Chromium "custom view" for actual playback -- a bare
+    // WebChromeClient() (no onShowCustomView/onHideCustomView override)
+    // has nowhere to attach that view, which can surface as the player
+    // itself erroring out (reported as "video player configuration
+    // error") instead of quietly falling back to inline playback, even
+    // with playsinline=1 set. Holding the callback's own view here and
+    // layering it in a second AndroidView above the WebView is the
+    // standard fix: give Chromium a real place to put it.
+    var customView by remember { mutableStateOf<View?>(null) }
+    var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
     Box(
         modifier = Modifier
@@ -66,7 +78,22 @@ fun TrailerPlayerScreen(videoId: String) {
                     // own paused thumbnail forever, never actually
                     // starting on its own.
                     settings.mediaPlaybackRequiresUserGesture = false
-                    webChromeClient = WebChromeClient()
+                    webChromeClient = object : WebChromeClient() {
+                        override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+                            if (customView != null) {
+                                callback.onCustomViewHidden()
+                                return
+                            }
+                            customView = view
+                            customViewCallback = callback
+                        }
+
+                        override fun onHideCustomView() {
+                            customViewCallback?.onCustomViewHidden()
+                            customView = null
+                            customViewCallback = null
+                        }
+                    }
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             isLoading = false
@@ -81,7 +108,17 @@ fun TrailerPlayerScreen(videoId: String) {
             onRelease = { it.destroy() }
         )
 
-        if (isLoading) {
+        // Reuses the exact View instance Chromium handed to
+        // onShowCustomView -- factory below only runs once (AndroidView
+        // keys its recomposition on the View identity, and this
+        // composable itself only recomposes when customView changes), so
+        // this never tries to create a second, competing view for the
+        // same playback.
+        customView?.let { view ->
+            AndroidView(modifier = Modifier.fillMaxSize(), factory = { view })
+        }
+
+        if (isLoading && customView == null) {
             CircularProgressIndicator(
                 modifier = Modifier.align(Alignment.Center),
                 color = MangoAmber
