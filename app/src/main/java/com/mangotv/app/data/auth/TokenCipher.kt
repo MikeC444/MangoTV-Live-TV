@@ -1,7 +1,6 @@
 package com.mangotv.app.data.auth
 
 import android.content.Context
-import android.security.keystore.KeyProperties
 import android.util.Log
 import com.google.crypto.tink.Aead
 import com.google.crypto.tink.KeyTemplates
@@ -82,7 +81,7 @@ class TokenCipher(context: Context) {
     private fun awaitKeystoreReady() {
         repeat(KEYSTORE_READY_MAX_ATTEMPTS) { attempt ->
             try {
-                KeyStore.getInstance(KeyProperties.KEYSTORE_PROVIDER_ANDROID_KEYSTORE).load(null)
+                KeyStore.getInstance(ANDROID_KEYSTORE_PROVIDER).load(null)
                 return
             } catch (e: Exception) {
                 Log.w(TAG, "AndroidKeyStore not ready yet (attempt ${attempt + 1}/$KEYSTORE_READY_MAX_ATTEMPTS)", e)
@@ -96,6 +95,12 @@ class TokenCipher(context: Context) {
 
     companion object {
         private const val TAG = "TokenCipher"
+        // Same literal Tink's own AndroidKeysetManager resolves MASTER_KEY_URI's
+        // "android-keystore://" scheme against internally -- not exposed as a
+        // constant by the platform (KeyProperties has no such field; that
+        // constant only exists on androidx.security.crypto's now-deprecated
+        // MasterKeys, which this app doesn't depend on -- see the class doc).
+        private const val ANDROID_KEYSTORE_PROVIDER = "AndroidKeyStore"
         private const val KEYSET_NAME = "mangotv_session_keyset"
         private const val PREF_FILE_NAME = "mangotv_session_keyset_prefs"
         private const val MASTER_KEY_URI = "android-keystore://mangotv_session_master_key"
