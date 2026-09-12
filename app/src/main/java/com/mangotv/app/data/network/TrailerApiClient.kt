@@ -7,7 +7,7 @@ import kotlinx.serialization.json.Json
 import okhttp3.HttpUrl.Companion.toHttpUrl
 import okhttp3.Request
 
-/** Talks to /user/trailer -- a server-side TMDB lookup (see server/src/services/trailerService.ts), authenticated the same as every other /user/* endpoint. */
+/** Talks to /user/trailer -- a server-side TMDB lookup (see server/src/services/trailerService.ts), authenticated the same as every other endpoint under /user. */
 class TrailerApiClient(private val baseUrl: String) {
 
     private val httpClient = AccountApiHttpClient.client
