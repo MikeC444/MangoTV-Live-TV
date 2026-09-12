@@ -13,6 +13,7 @@ import androidx.compose.material.icons.filled.AccountCircle
 import androidx.compose.material.icons.filled.ChevronRight
 import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material.icons.filled.ViewList
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -36,6 +37,7 @@ fun SettingsScreen(
     onOpenAddons: () -> Unit,
     onOpenHomeRows: () -> Unit,
     onOpenSounds: () -> Unit,
+    onOpenSubtitles: () -> Unit,
     onOpenAccount: () -> Unit
 ) {
     val navFocusRequester = remember { FocusRequester() }
@@ -43,6 +45,7 @@ fun SettingsScreen(
     val addonsFocusRequester = remember { FocusRequester() }
     val homeRowsFocusRequester = remember { FocusRequester() }
     val soundsFocusRequester = remember { FocusRequester() }
+    val subtitlesFocusRequester = remember { FocusRequester() }
 
     SettingsScaffold(
         title = "Settings",
@@ -83,6 +86,14 @@ fun SettingsScreen(
             onClick = onOpenSounds,
             focusRequester = soundsFocusRequester
         )
+        Spacer(Modifier.height(14.dp))
+        SettingsCategoryRow(
+            icon = Icons.Filled.Subtitles,
+            title = "Subtitles",
+            subtitle = "Default on/off and preferred language",
+            onClick = onOpenSubtitles,
+            focusRequester = subtitlesFocusRequester
+        )
         Spacer(Modifier.height(32.dp))
         Text(
             text = "Mango TV · v0.1.0",
@@ -90,7 +101,7 @@ fun SettingsScreen(
             style = MaterialTheme.typography.bodyMedium
         )
         Text(
-            text = "More settings — playback, subtitles, audio, appearance — are coming in a later update.",
+            text = "More settings — playback, audio, appearance — are coming in a later update.",
             color = TextSecondary,
             style = MaterialTheme.typography.bodyMedium
         )

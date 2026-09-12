@@ -146,7 +146,10 @@ private fun PlaybackContent(
 ) {
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
-    val exoPlayer = remember { buildExoPlayer(context) }
+    // Captured once at first composition, same as exoPlayer itself below --
+    // a later change to Subtitles settings only takes effect on the next
+    // playback session (leaving/re-entering the player), not live mid-session.
+    val exoPlayer = remember { buildExoPlayer(context, preferences) }
     val uiSoundPlayer = LocalUiSoundPlayer.current
 
     // Without this, Fire TV's system screensaver/idle timeout kicks in

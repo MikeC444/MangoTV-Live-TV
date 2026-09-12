@@ -13,6 +13,8 @@ data class SettingsRequest(
     val hiddenRowIds: List<String>,
     val autoplayNextEpisode: Boolean,
     val skipIntroEnabled: Boolean,
+    val subtitlesEnabled: Boolean,
+    val defaultSubtitleLanguage: String?,
     val updatedAt: String
 )
 
@@ -22,6 +24,8 @@ data class SettingsResponse(
     val hiddenRowIds: List<String>,
     val autoplayNextEpisode: Boolean,
     val skipIntroEnabled: Boolean,
+    val subtitlesEnabled: Boolean,
+    val defaultSubtitleLanguage: String?,
     /** null only for an account that has never pushed settings from any device. */
     val updatedAt: String? = null
 )

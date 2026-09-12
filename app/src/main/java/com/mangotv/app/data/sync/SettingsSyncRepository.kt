@@ -64,7 +64,10 @@ class SettingsSyncRepository(
         try {
             val token = freshAccessTokenOrNull() ?: return
             val response = apiClient.getSettings(token)
-            applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
+            applyRemote(
+                response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled,
+                response.subtitlesEnabled, response.defaultSubtitleLanguage
+            )
         } catch (e: ApiException) {
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
         } catch (e: IOException) {
@@ -84,7 +87,10 @@ class SettingsSyncRepository(
             val body = pendingStore.all()[PENDING_KEY] ?: return
             val token = freshAccessTokenOrNull() ?: return
             val response = apiClient.putSettings(token, body)
-            applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
+            applyRemote(
+                response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled,
+                response.subtitlesEnabled, response.defaultSubtitleLanguage
+            )
             pendingStore.remove(PENDING_KEY)
         } catch (e: ApiException) {
             if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
@@ -141,6 +147,8 @@ class SettingsSyncRepository(
             hiddenRowIds = home.hiddenRowIds.toList(),
             autoplayNextEpisode = player.autoplayNextEpisode,
             skipIntroEnabled = player.skipIntroEnabled,
+            subtitlesEnabled = player.subtitlesEnabled,
+            defaultSubtitleLanguage = player.defaultSubtitleLanguage,
             updatedAt = Iso8601.nowString()
         )
         try {
@@ -155,7 +163,10 @@ class SettingsSyncRepository(
             // device): applies whatever the server says is
             // authoritative now, which is just this write's own values
             // echoed back when it won.
-            applyRemote(response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled)
+            applyRemote(
+                response.homeRowOrder, response.hiddenRowIds, response.autoplayNextEpisode, response.skipIntroEnabled,
+                response.subtitlesEnabled, response.defaultSubtitleLanguage
+            )
             pendingStore.remove(PENDING_KEY)
         } catch (e: ApiException) {
             pendingStore.put(PENDING_KEY, body)
@@ -175,9 +186,23 @@ class SettingsSyncRepository(
         return authRepository.getCurrentSession()?.accessToken
     }
 
-    private suspend fun applyRemote(homeRowOrder: List<String>, hiddenRowIds: List<String>, autoplay: Boolean, skipIntro: Boolean) {
+    private suspend fun applyRemote(
+        homeRowOrder: List<String>,
+        hiddenRowIds: List<String>,
+        autoplay: Boolean,
+        skipIntro: Boolean,
+        subtitlesEnabled: Boolean,
+        defaultSubtitleLanguage: String?
+    ) {
         homeRowPreferencesRepository.applyRemote(HomeRowPreferences(order = homeRowOrder, hiddenRowIds = hiddenRowIds.toSet()))
-        playerPreferencesRepository.applyRemote(PlayerPreferences(autoplayNextEpisode = autoplay, skipIntroEnabled = skipIntro))
+        playerPreferencesRepository.applyRemote(
+            PlayerPreferences(
+                autoplayNextEpisode = autoplay,
+                skipIntroEnabled = skipIntro,
+                subtitlesEnabled = subtitlesEnabled,
+                defaultSubtitleLanguage = defaultSubtitleLanguage
+            )
+        )
     }
 
     companion object {

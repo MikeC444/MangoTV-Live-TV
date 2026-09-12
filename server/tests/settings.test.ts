@@ -18,6 +18,8 @@ function validBody(overrides: Partial<Record<string, unknown>> = {}) {
     hiddenRowIds: ["horror"],
     autoplayNextEpisode: false,
     skipIntroEnabled: true,
+    subtitlesEnabled: false,
+    defaultSubtitleLanguage: "es",
     updatedAt: "2025-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -38,6 +40,8 @@ describe("GET /user/settings", () => {
       hiddenRowIds: [],
       autoplayNextEpisode: true,
       skipIntroEnabled: true,
+      subtitlesEnabled: true,
+      defaultSubtitleLanguage: null,
       updatedAt: null,
     });
   });
@@ -123,6 +127,26 @@ describe("PUT /user/settings", () => {
     expect(getResponse.body).toEqual(current);
   });
 
+  it("accepts a null defaultSubtitleLanguage (no language preference) and round-trips it", async () => {
+    const session = await createTestSession();
+    const body = validBody({ defaultSubtitleLanguage: null });
+    const response = await request(app).put("/user/settings").set("Authorization", `Bearer ${session.token}`).send(body);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual(body);
+
+    const getResponse = await request(app).get("/user/settings").set("Authorization", `Bearer ${session.token}`);
+    expect(getResponse.body).toEqual(body);
+  });
+
+  it("rejects a defaultSubtitleLanguage that's too short to be a real language code", async () => {
+    const session = await createTestSession();
+    const response = await request(app)
+      .put("/user/settings")
+      .set("Authorization", `Bearer ${session.token}`)
+      .send(validBody({ defaultSubtitleLanguage: "e" }));
+    expect(response.status).toBe(400);
+  });
+
   it("an equal updatedAt does not overwrite (strictly-greater-than, not greater-or-equal)", async () => {
     const session = await createTestSession();
     const first = validBody({ updatedAt: "2025-01-01T00:00:00.000Z", autoplayNextEpisode: true });
@@ -153,6 +177,8 @@ describe("cross-user isolation", () => {
       hiddenRowIds: [],
       autoplayNextEpisode: true,
       skipIntroEnabled: true,
+      subtitlesEnabled: true,
+      defaultSubtitleLanguage: null,
       updatedAt: null,
     });
 

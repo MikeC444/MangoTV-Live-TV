@@ -51,6 +51,11 @@ class PlayerPreferencesRepository(context: Context) {
 
     suspend fun setSkipIntroEnabled(enabled: Boolean) = update { it.copy(skipIntroEnabled = enabled) }
 
+    suspend fun setSubtitlesEnabled(enabled: Boolean) = update { it.copy(subtitlesEnabled = enabled) }
+
+    /** [languageCode] is an ISO 639-1 code (e.g. "en"), or null for "no preference". */
+    suspend fun setDefaultSubtitleLanguage(languageCode: String?) = update { it.copy(defaultSubtitleLanguage = languageCode) }
+
     /** Applies a value pulled from the server — persists locally without notifying [onLocalChange]; see its own kdoc for why. */
     suspend fun applyRemote(preferences: PlayerPreferences) = withContext(Dispatchers.IO) {
         _preferences.value = preferences

@@ -50,6 +50,7 @@ import com.mangotv.app.ui.settings.AddonsScreen
 import com.mangotv.app.ui.settings.HomeRowsScreen
 import com.mangotv.app.ui.settings.SettingsScreen
 import com.mangotv.app.ui.settings.SoundSettingsScreen
+import com.mangotv.app.ui.settings.SubtitleSettingsScreen
 import com.mangotv.app.ui.sources.SourcesScreen
 import com.mangotv.app.ui.components.CardActionsMenuOverlay
 import com.mangotv.app.ui.components.CardActionsMenuState
@@ -299,6 +300,7 @@ fun MangoNavHost() {
                         onOpenAddons = { navController.navigate(MangoRoutes.SETTINGS_ADDONS) },
                         onOpenHomeRows = { navController.navigate(MangoRoutes.SETTINGS_HOME_ROWS) },
                         onOpenSounds = { navController.navigate(MangoRoutes.SETTINGS_SOUNDS) },
+                        onOpenSubtitles = { navController.navigate(MangoRoutes.SETTINGS_SUBTITLES) },
                         onOpenAccount = { navController.navigate(MangoRoutes.SETTINGS_ACCOUNT) }
                     )
                 }
@@ -309,6 +311,11 @@ fun MangoNavHost() {
                 }
                 composable(MangoRoutes.SETTINGS_SOUNDS) {
                     SoundSettingsScreen(
+                        onNavigate = ::navigateTo
+                    )
+                }
+                composable(MangoRoutes.SETTINGS_SUBTITLES) {
+                    SubtitleSettingsScreen(
                         onNavigate = ::navigateTo
                     )
                 }

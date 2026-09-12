@@ -13,6 +13,8 @@ function serialize(settings: settingsService.UserSettings) {
     hiddenRowIds: settings.hiddenRowIds,
     autoplayNextEpisode: settings.autoplayNextEpisode,
     skipIntroEnabled: settings.skipIntroEnabled,
+    subtitlesEnabled: settings.subtitlesEnabled,
+    defaultSubtitleLanguage: settings.defaultSubtitleLanguage,
     updatedAt: settings.updatedAt ? settings.updatedAt.toISOString() : null,
   };
 }
