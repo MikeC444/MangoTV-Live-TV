@@ -103,6 +103,14 @@ fun TrailerPlayerScreen(videoId: String) {
                     Log.w(TAG, "Trailer playback error: ${error.message}")
                     failed = true
                 }
+
+                override fun onPlaybackStateChanged(playbackState: Int) {
+                    Log.w(TAG, "playbackState=${playbackStateName(playbackState)}")
+                }
+
+                override fun onRenderedFirstFrame() {
+                    Log.w(TAG, "onRenderedFirstFrame")
+                }
             }
         }
         listener?.let { player?.addListener(it) }
@@ -179,4 +187,12 @@ private fun buildTrailerExoPlayer(context: Context, source: TrailerPlaybackSourc
     player.prepare()
     player.playWhenReady = true
     return player
+}
+
+private fun playbackStateName(state: Int): String = when (state) {
+    Player.STATE_IDLE -> "IDLE"
+    Player.STATE_BUFFERING -> "BUFFERING"
+    Player.STATE_READY -> "READY"
+    Player.STATE_ENDED -> "ENDED"
+    else -> "UNKNOWN($state)"
 }

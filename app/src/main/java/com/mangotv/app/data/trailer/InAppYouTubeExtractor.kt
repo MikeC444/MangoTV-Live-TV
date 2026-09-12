@@ -256,7 +256,13 @@ class InAppYouTubeExtractor {
     suspend fun extractPlaybackSource(youtubeUrl: String): TrailerPlaybackSource? = withContext(Dispatchers.IO) {
         if (youtubeUrl.isBlank()) return@withContext null
 
-        Log.d(TAG, "Starting extraction for ${summarizeUrl(youtubeUrl)}")
+        // Log.w rather than Log.d for this and the result below -- on at
+        // least one real device tested against, debug-level app logs never
+        // reached logcat at all (even freshly cleared, even for a tag/level
+        // explicitly requested), while warn-level did. Cheap insurance
+        // against losing exactly the two log lines needed to tell whether
+        // extraction ran at all and what it found.
+        Log.w(TAG, "Starting extraction for ${summarizeUrl(youtubeUrl)}")
         var source: TrailerPlaybackSource? = null
         try {
             source = withTimeout(EXTRACTOR_TIMEOUT_MS) {
@@ -285,7 +291,7 @@ class InAppYouTubeExtractor {
         if (source == null) {
             Log.w(TAG, "Extraction returned no playable source for ${summarizeUrl(youtubeUrl)}")
         } else {
-            Log.d(
+            Log.w(
                 TAG,
                 "Extraction success for ${summarizeUrl(youtubeUrl)} " +
                     "(video=${summarizeUrl(source.videoUrl)}, audioPresent=${!source.audioUrl.isNullOrBlank()})"

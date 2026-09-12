@@ -69,6 +69,7 @@ class YoutubeChunkedDataSourceFactory(
             originalDataSpec = dataSpec
             currentChunkStart = dataSpec.position
             totalContentLength = dataSpec.length
+            Log.w(TAG, "open() googlevideo stream, initial length=$totalContentLength itag-uri=${uri.getQueryParameter("itag")}")
 
             return openNextChunk()
         }
@@ -94,6 +95,7 @@ class YoutubeChunkedDataSourceFactory(
                 .build()
 
             bytesReadInChunk = 0
+            Log.w(TAG, "requesting chunk range=$currentChunkStart-$currentChunkEnd (${currentChunkEnd - currentChunkStart + 1} bytes)")
             upstream.open(chunkedSpec)
             return if (totalContentLength != C.LENGTH_UNSET.toLong()) totalContentLength else C.LENGTH_UNSET.toLong()
         }
@@ -107,10 +109,13 @@ class YoutubeChunkedDataSourceFactory(
             if (bytesRead == C.RESULT_END_OF_INPUT) {
                 // Current chunk exhausted -- open the next one
                 val chunkBytesReceived = bytesReadInChunk
+                val chunkRequestedSize = currentChunkEnd - currentChunkStart + 1
                 upstream.close()
+                Log.w(TAG, "chunk at $currentChunkStart ended: received=$chunkBytesReceived requested=$chunkRequestedSize")
 
                 // If this chunk returned fewer bytes than requested, the stream is done
-                if (chunkBytesReceived < (currentChunkEnd - currentChunkStart + 1)) {
+                if (chunkBytesReceived < chunkRequestedSize) {
+                    Log.w(TAG, "treating short chunk as end of stream (received < requested)")
                     return C.RESULT_END_OF_INPUT
                 }
 
@@ -118,6 +123,7 @@ class YoutubeChunkedDataSourceFactory(
                 if (totalContentLength != C.LENGTH_UNSET.toLong()) {
                     totalContentLength -= chunkBytesReceived
                     if (totalContentLength <= 0) {
+                        Log.w(TAG, "totalContentLength exhausted, ending stream")
                         return C.RESULT_END_OF_INPUT
                     }
                 }
