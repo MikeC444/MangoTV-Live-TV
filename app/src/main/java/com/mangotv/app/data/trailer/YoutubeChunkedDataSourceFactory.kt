@@ -118,9 +118,17 @@ class YoutubeChunkedDataSourceFactory(
                 upstream.close()
                 Log.w(TAG, "chunk at $currentChunkStart ended: received=$chunkBytesReceived requested=$chunkRequestedSize")
 
-                // If this chunk returned fewer bytes than requested, the stream is done
-                if (chunkBytesReceived < chunkRequestedSize) {
-                    Log.w(TAG, "treating short chunk as end of stream (received < requested)")
+                // A chunk coming back shorter than requested does NOT reliably mean
+                // the file is over -- YouTube's CDN can truncate a single &range=
+                // response by a small, arbitrary amount well before the real end
+                // (confirmed in testing: a chunk came back ~2KB short of a 2MB
+                // request, and the calling MediaSource immediately re-requested
+                // from the next chunk boundary, proving it knew more data existed).
+                // Only a genuinely empty response is treated as the real end --
+                // anything else just continues from wherever this chunk actually
+                // left off, not from an assumed full-chunk boundary.
+                if (chunkBytesReceived <= 0) {
+                    Log.w(TAG, "chunk returned no data, treating as genuine end of stream")
                     return C.RESULT_END_OF_INPUT
                 }
 
