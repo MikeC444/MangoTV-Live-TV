@@ -178,11 +178,22 @@ fun TrailerPlayerScreen(videoId: String) {
                     // blank) so the IFrame Player API script and the real
                     // embed iframe it creates both load as same-origin
                     // youtube.com content, not as something cross-origin
-                    // from a mismatched or missing origin.
+                    // from a mismatched or missing origin. The explicit
+                    // <meta name="referrer"> above matters more than it
+                    // would on a normally-fetched page: this HTML is
+                    // synthetic (handed to the WebView directly, never
+                    // actually fetched over the network), and Chromium's
+                    // default referrer behavior for that kind of page's own
+                    // sub-requests isn't reliable -- YouTube's player
+                    // requires a verifiable referrer/origin to authorize
+                    // playback at all, and a missing one is exactly what
+                    // surfaces as onError code 150/152/153 ("video player
+                    // configuration error") regardless of which video.
                     val wrapperHtml = """
                         <!DOCTYPE html>
                         <html>
                         <head>
+                        <meta name="referrer" content="strict-origin-when-cross-origin">
                         <style>
                           html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
                           #player { position: fixed; top: 0; left: 0; width: 100%; height: 100%; }
