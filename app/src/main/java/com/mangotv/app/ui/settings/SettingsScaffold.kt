@@ -46,6 +46,16 @@ fun SettingsScaffold(
     // The Genres picker is the one non-Settings screen reusing this shell,
     // and passes "Genres" here instead.
     selectedNavLabel: String = "Settings",
+    // See TopNavBar's own kdoc on its identically-named parameter. Required
+    // (not just harmless-to-omit) for any caller whose content is a
+    // scrollable list with firstContentFocusRequester pinned to its first
+    // item, e.g. GenresScreen/HomeRowsScreen: the declarative
+    // firstContentFocusRequester alone crashes the moment that first item
+    // has scrolled out of composition, since nothing here scrolls the
+    // caller's own list back into view first. Screens whose
+    // firstContentFocusRequester targets a static, always-composed element
+    // instead (a button, a short fixed-size list) are unaffected either way.
+    onNavigateDown: (() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit
 ) {
     val selectedIndex = remember(selectedNavLabel) { MangoNavItems.indexOf(selectedNavLabel) }
@@ -72,7 +82,8 @@ fun SettingsScaffold(
             selectedIndex = selectedIndex,
             selectedItemFocusRequester = navFocusRequester,
             contentFocusRequester = firstContentFocusRequester,
-            onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) }
+            onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) },
+            onNavigateDown = onNavigateDown
         )
         Column(
             modifier = Modifier.padding(

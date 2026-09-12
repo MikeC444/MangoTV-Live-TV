@@ -10,6 +10,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.GridView
@@ -26,6 +27,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,7 @@ import com.mangotv.app.ui.theme.MangoSurface
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
+import kotlinx.coroutines.launch
 
 @Composable
 fun HomeRowsScreen(
@@ -57,6 +60,8 @@ fun HomeRowsScreen(
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
     val navFocusRequester = remember { FocusRequester() }
     val firstRowFocusRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
 
     // Which row is currently "picked up" for reordering, keyed by its id —
     // null means no row is being moved. While a row is grabbed, its drag
@@ -64,12 +69,35 @@ fun HomeRowsScreen(
     // instead of letting them move focus.
     var grabbedRowId by remember { mutableStateOf<String?>(null) }
 
+    // See TopNavBar's kdoc on onNavigateDown / GenresScreen's identical fix:
+    // firstRowFocusRequester below is pinned to only the list's very first
+    // row, which this LazyColumn stops composing once it's scrolled out of
+    // view -- an addon set with enough home rows to scroll makes that the
+    // common case. Scrolling back to item 0 first, then focusing, guarantees
+    // the target exists before it's used instead of crashing on DOWN from
+    // the nav bar.
+    val hasRows = (uiState as? HomeRowsUiState.Loaded)?.rows?.isNotEmpty() == true
+    val onNavigateDown: (() -> Unit)? = if (hasRows) {
+        {
+            coroutineScope.launch {
+                val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == 0 }
+                if (!alreadyVisible) {
+                    listState.animateScrollToItem(0)
+                }
+                runCatching { firstRowFocusRequester.requestFocus() }
+            }
+        }
+    } else {
+        null
+    }
+
     SettingsScaffold(
         title = "Home Rows",
         onNavigate = onNavigate,
         navFocusRequester = navFocusRequester,
         firstContentFocusRequester = firstRowFocusRequester,
-        titleIcon = Icons.Filled.GridView
+        titleIcon = Icons.Filled.GridView,
+        onNavigateDown = onNavigateDown
     ) {
         Text(
             text = "Toggle categories on or off, and use the handle to reorder them.",
@@ -97,6 +125,7 @@ fun HomeRowsScreen(
                     val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
 
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),

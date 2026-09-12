@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Category
@@ -14,6 +15,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
@@ -27,6 +29,7 @@ import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.MangoSurface
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
+import kotlinx.coroutines.launch
 
 @Composable
 fun GenresScreen(
@@ -36,6 +39,35 @@ fun GenresScreen(
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val navFocusRequester = remember { FocusRequester() }
     val firstGenreFocusRequester = remember { FocusRequester() }
+    val listState = rememberLazyListState()
+    val coroutineScope = rememberCoroutineScope()
+
+    // See TopNavBar's kdoc on onNavigateDown: firstGenreFocusRequester below
+    // is pinned to only the list's very first item, which this LazyColumn
+    // stops composing (and therefore detaches the requester from) once it's
+    // scrolled out of view -- a long enough genre+year list (see
+    // GenresViewModel's GENRE_LIST_MIN_YEAR) makes that the common case, not
+    // an edge case. Relying on SettingsScaffold's declarative
+    // firstContentFocusRequester alone crashed the app (IllegalStateException:
+    // "FocusRequester is not initialized") the moment DOWN was pressed from
+    // the nav bar while item 0 wasn't currently composed. Scrolling back to
+    // it first, then focusing, guarantees the target exists before it's used
+    // -- the same pattern RowsBrowseGridContent already uses for the same
+    // reason.
+    val genreList = (uiState as? GenresUiState.Loaded)?.genres.orEmpty()
+    val onNavigateDown: (() -> Unit)? = if (genreList.isNotEmpty()) {
+        {
+            coroutineScope.launch {
+                val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == 0 }
+                if (!alreadyVisible) {
+                    listState.animateScrollToItem(0)
+                }
+                runCatching { firstGenreFocusRequester.requestFocus() }
+            }
+        }
+    } else {
+        null
+    }
 
     SettingsScaffold(
         title = "Genres",
@@ -43,7 +75,8 @@ fun GenresScreen(
         navFocusRequester = navFocusRequester,
         firstContentFocusRequester = firstGenreFocusRequester,
         titleIcon = Icons.Filled.Category,
-        selectedNavLabel = "Genres"
+        selectedNavLabel = "Genres",
+        onNavigateDown = onNavigateDown
     ) {
         when (val state = uiState) {
             is GenresUiState.Loading -> CircularProgressIndicator(color = MangoAmber)
@@ -61,6 +94,7 @@ fun GenresScreen(
                     )
                 } else {
                     LazyColumn(
+                        state = listState,
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f),
