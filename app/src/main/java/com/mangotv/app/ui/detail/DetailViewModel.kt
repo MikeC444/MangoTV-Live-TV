@@ -26,11 +26,20 @@ sealed interface DetailUiState {
     data class Error(val message: String) : DetailUiState
 }
 
+/** Backs DetailHeroSection's Trailer button -- Idle/Loading before/while a lookup is running, so the button can stay hidden rather than flashing in only to disappear a moment later on NotFound. */
+sealed interface TrailerState {
+    data object Idle : TrailerState
+    data object Loading : TrailerState
+    data class Found(val youtubeVideoId: String) : TrailerState
+    data object NotFound : TrailerState
+}
+
 class DetailViewModel(application: Application, private val savedStateHandle: SavedStateHandle) : AndroidViewModel(application) {
 
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
     private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
     private val lastSourceRepository = (application as MangoTvApplication).container.lastSourceRepository
+    private val trailerRepository = (application as MangoTvApplication).container.trailerRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -58,6 +67,9 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     val isInMyList: StateFlow<Boolean> = myListRepository.items
         .map { items -> items.any { it.id == contentId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    private val _trailerState = MutableStateFlow<TrailerState>(TrailerState.Idle)
+    val trailerState: StateFlow<TrailerState> = _trailerState.asStateFlow()
 
     // Drives DetailHeroSection's Play -> Resume switch and which episode it
     // targets for a TV show -- reactive (not just a one-off findResumePoint
@@ -99,6 +111,7 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     fun load() {
         viewModelScope.launch {
             _uiState.value = DetailUiState.Loading
+            _trailerState.value = TrailerState.Idle
 
             val provider = ProviderRegistry.activeProviders().find { it.id == providerId }
             if (provider == null) {
@@ -120,11 +133,24 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
             // slower than it needed to. The row itself just pops in a
             // moment later once it's ready.
             _uiState.value = DetailUiState.Success(detail, similar = emptyList())
+            loadTrailer(detail)
 
             val similar = runCatching { loadSimilar(provider, detail) }.getOrDefault(emptyList())
             if (similar.isNotEmpty()) {
                 _uiState.value = DetailUiState.Success(detail, similar)
             }
+        }
+    }
+
+    // A separate child coroutine, not awaited inline here -- the Trailer
+    // lookup is an extra network round trip on top of the addon's own
+    // getDetails() call, and must never delay (or be delayed by) the
+    // "You May Also Like" row loading right below it.
+    private fun loadTrailer(content: Content) {
+        _trailerState.value = TrailerState.Loading
+        viewModelScope.launch {
+            val videoId = trailerRepository.findTrailer(content.title, content.year, content.type)
+            _trailerState.value = videoId?.let { TrailerState.Found(it) } ?: TrailerState.NotFound
         }
     }
 

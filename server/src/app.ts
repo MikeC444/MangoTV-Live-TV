@@ -13,6 +13,7 @@ import { createQrRouter } from "./routes/qr.js";
 import { addonsRouter } from "./routes/addons.js";
 import { historyRouter } from "./routes/history.js";
 import { settingsRouter } from "./routes/settings.js";
+import { trailersRouter } from "./routes/trailers.js";
 import { watchlistRouter } from "./routes/watchlist.js";
 
 // Walks up from this file's own directory to find the package root (marked
@@ -76,6 +77,7 @@ export function createApp(): Express {
   app.use("/user", watchlistRouter);
   app.use("/user", historyRouter);
   app.use("/user", addonsRouter);
+  app.use("/user", trailersRouter);
 
   app.use(notFoundHandler);
   app.use(errorHandler);

@@ -29,6 +29,7 @@ import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Theaters
 import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -96,6 +97,11 @@ fun DetailHeroSection(
     onNavigateUpPastHero: () -> Unit = {},
     onNavigateDownFromHero: () -> Unit = {},
     isInMyList: Boolean = false,
+    // Null hides the button entirely -- shown only once a lookup has
+    // actually found a YouTube trailer for this title (see
+    // DetailViewModel.TrailerState), never as a dead/no-op button for a
+    // title with no trailer available.
+    onTrailer: (() -> Unit)? = null,
     // Movie detail only, for now: shrinks everything except the title so
     // the whole page (hero + Cast + You May Also Like) fits on one screen
     // without scrolling. TV shows don't pass this and are unaffected.
@@ -353,6 +359,18 @@ fun DetailHeroSection(
                     bringIntoViewOnFocus = false,
                     compact = compact
                 )
+                if (onTrailer != null) {
+                    Spacer(Modifier.width(if (compact) 10.dp else 16.dp))
+                    MangoButton(
+                        text = "Trailer",
+                        icon = Icons.Filled.Theaters,
+                        onClick = onTrailer,
+                        style = MangoButtonStyle.GLASS,
+                        focusUp = navUpFocusRequester,
+                        bringIntoViewOnFocus = false,
+                        compact = compact
+                    )
+                }
                 Spacer(Modifier.width(if (compact) 10.dp else 16.dp))
                 AnimatedVisibility(
                     visible = actionsExpanded,

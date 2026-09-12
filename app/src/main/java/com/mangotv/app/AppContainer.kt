@@ -19,6 +19,7 @@ import com.mangotv.app.data.sync.FirstSyncState
 import com.mangotv.app.data.sync.SettingsSyncRepository
 import com.mangotv.app.data.sync.SyncManager
 import com.mangotv.app.data.sync.WatchlistSyncRepository
+import com.mangotv.app.data.trailer.TrailerRepository
 
 /**
  * A small hand-rolled container instead of a DI framework: this app only has
@@ -185,4 +186,10 @@ class AppContainer(context: Context) {
     }
     val soundPreferencesRepository: SoundPreferencesRepository by lazy { SoundPreferencesRepository(context) }
     val uiSoundPlayer: UiSoundPlayer by lazy { UiSoundPlayer(context, soundPreferencesRepository) }
+
+    // Lazy: no local state or side effect of its own to arm early (no
+    // hook to wire, no callback to register, no DataStore to warm) --
+    // nothing needs it before a Detail page for some title is actually
+    // opened.
+    val trailerRepository: TrailerRepository by lazy { TrailerRepository(authRepository) }
 }

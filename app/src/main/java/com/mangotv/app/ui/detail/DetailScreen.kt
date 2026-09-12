@@ -1,5 +1,10 @@
 package com.mangotv.app.ui.detail
 
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.net.Uri
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
@@ -29,6 +34,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -55,6 +61,7 @@ fun DetailScreen(
     viewModel: DetailViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Box(
         modifier = modifier
@@ -70,6 +77,8 @@ fun DetailScreen(
             is DetailUiState.Success -> {
                 val isInMyList by viewModel.isInMyList.collectAsStateWithLifecycle()
                 val resumeEntry by viewModel.resumeEntry.collectAsStateWithLifecycle()
+                val trailerState by viewModel.trailerState.collectAsStateWithLifecycle()
+                val foundTrailer = trailerState as? TrailerState.Found
                 DetailContent(
                     content = state.content,
                     similar = state.similar,
@@ -77,10 +86,39 @@ fun DetailScreen(
                     isInMyList = isInMyList,
                     onToggleMyList = viewModel::toggleMyList,
                     resumeEntry = resumeEntry,
-                    lastStreamIdFor = viewModel::lastStreamIdFor
+                    lastStreamIdFor = viewModel::lastStreamIdFor,
+                    // Null (no button shown at all) unless a lookup has
+                    // actually found one -- see DetailHeroSection's own
+                    // kdoc on why this is a nullable lambda, not a
+                    // separate boolean.
+                    onTrailer = foundTrailer?.let { found ->
+                        {
+                            openYouTubeTrailer(context, found.youtubeVideoId)
+                        }
+                    }
                 )
             }
         }
+    }
+}
+
+/**
+ * Hands off to whatever's installed (the YouTube app, or a browser) --
+ * this app has no built-in YouTube playback of its own, and building one
+ * (a WebView-embedded player) is real extra work with known-finicky D-pad
+ * control on Fire TV, not something this one button justifies. Silently
+ * no-ops (via a short Toast, not a crash) on a device with neither
+ * installed, which regular Fire TV hardware is not expected to hit but
+ * isn't guaranteed to always have -- there's no reason a missing trailer
+ * viewer should ever take down Detail with an uncaught
+ * ActivityNotFoundException.
+ */
+private fun openYouTubeTrailer(context: Context, youtubeVideoId: String) {
+    val intent = Intent(Intent.ACTION_VIEW, Uri.parse("https://www.youtube.com/watch?v=$youtubeVideoId"))
+    try {
+        context.startActivity(intent)
+    } catch (e: ActivityNotFoundException) {
+        Toast.makeText(context, "No app available to play the trailer", Toast.LENGTH_SHORT).show()
     }
 }
 
@@ -93,6 +131,7 @@ private fun DetailContent(
     onToggleMyList: () -> Unit,
     resumeEntry: ContinueWatchingEntry?,
     lastStreamIdFor: (season: Int?, episode: Int?) -> String?,
+    onTrailer: (() -> Unit)?,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -236,6 +275,7 @@ private fun DetailContent(
                     onWatched = {},
                     onWatchlist = onToggleMyList,
                     isInMyList = isInMyList,
+                    onTrailer = onTrailer,
                     onMore = {},
                     navUpFocusRequester = navFocusRequester,
                     // Deliberately NOT returnToHero() -- that re-focuses the

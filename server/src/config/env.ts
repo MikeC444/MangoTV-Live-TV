@@ -35,3 +35,14 @@ export const env = {
 export function getApiBaseUrl(): string {
   return required("API_BASE_URL");
 }
+
+// Deliberately optional, unlike every required() value above: trailers
+// are a nice-to-have on top of the core app, not something that should
+// stop the whole server from booting in an environment where nobody's
+// gotten around to configuring a TMDB key yet. trailerService.ts reads
+// this per-lookup (not once at startup) and treats null the same as "no
+// trailer found" -- the Detail screen just doesn't show a Trailer button.
+export function getTmdbReadAccessToken(): string | null {
+  const value = process.env.TMDB_READ_ACCESS_TOKEN;
+  return value && value.trim() !== "" ? value : null;
+}
