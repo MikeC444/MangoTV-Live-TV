@@ -31,6 +31,21 @@ object ApkInstaller {
         }
     }
 
+    // Fallback for buildUnknownSourcesSettingsIntent: API < 26 (no per-app
+    // unknown-sources screen exists pre-Oreo), or a device/OS build (a
+    // customized Fire OS release, say) that doesn't resolve that intent the
+    // same way stock Android does. ACTION_APPLICATION_DETAILS_SETTINGS has
+    // existed since API 9 and is about as universally implemented as any
+    // settings intent gets -- the per-app install-unknown-apps toggle is
+    // still reachable from the App info screen it opens, just one more tap
+    // away instead of a direct deep link.
+    fun buildAppDetailsSettingsIntent(context: Context): Intent {
+        return Intent(
+            Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+            Uri.parse("package:${context.packageName}")
+        ).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+    }
+
     fun launchInstall(context: Context, apkFile: File) {
         val authority = "${BuildConfig.APPLICATION_ID}.fileprovider"
         val uri = FileProvider.getUriForFile(context, authority, apkFile)

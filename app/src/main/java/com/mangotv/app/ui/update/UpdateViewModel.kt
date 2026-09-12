@@ -146,6 +146,10 @@ class UpdateViewModel(application: Application) : AndroidViewModel(application) 
 
     fun openUnknownSourcesSettings() {
         val context = getApplication<Application>()
-        ApkInstaller.buildUnknownSourcesSettingsIntent(context)?.let(context::startActivity)
+        val primaryIntent = ApkInstaller.buildUnknownSourcesSettingsIntent(context)
+        val launchedPrimary = primaryIntent != null && runCatching { context.startActivity(primaryIntent) }.isSuccess
+        if (!launchedPrimary) {
+            runCatching { context.startActivity(ApkInstaller.buildAppDetailsSettingsIntent(context)) }
+        }
     }
 }
