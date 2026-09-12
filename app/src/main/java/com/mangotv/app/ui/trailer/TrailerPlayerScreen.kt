@@ -40,21 +40,29 @@ private const val TAG = "TrailerPlayerScreen"
  * custom MangoTV one -- the closest legitimate approximation of "plays
  * inside the app" available here.
  *
- * The embed is loaded as a real <iframe> on a minimal wrapper page, not
- * as a direct top-level navigation to the embed URL itself -- YouTube's
- * embedded player is built to run *inside* an iframe (it talks to a
- * parent page via postMessage for its own internal state), and loading
- * the embed URL directly as this WebView's own top-level document means
- * there's no parent frame for it to find. That mismatch is what actually
- * surfaced as "video player configuration error" in testing, not
- * anything specific to this video/device.
+ * Loaded as a direct top-level navigation to the plain /embed/ URL --
+ * exactly what a real device sees visiting that URL on its own, with no
+ * synthetic wrapper page or nested iframe in between. Deliberately no
+ * `enablejsapi=1` either: this screen never calls into the player's JS
+ * API (no postMessage, no play/pause-by-script), and that flag requires
+ * a matching `origin` param to pass YouTube's own security handshake --
+ * set without one, it's a known way to get the player to refuse to
+ * initialize with a generic error rather than actually play. Omitting it
+ * sidesteps that whole handshake instead of trying to satisfy it.
+ *
+ * The user agent string has its "; wv" WebView marker stripped for the
+ * same reason Chrome Custom Tabs exist for Google sign-in: Google
+ * properties, YouTube included, are known to treat traffic that
+ * self-identifies as an embedded WebView differently (and more
+ * restrictively) than an ordinary browser. Presenting an ordinary-looking
+ * Chrome UA avoids that distinction entirely.
  *
  * The global BackHandler in MangoNavHost already pops this route like
  * any other on BACK (this screen has no menus/overlays of its own that
  * would need first-press-closes-that, later-press-exits handling the way
  * PlayerScreen does), so nothing extra is wired here for that.
  */
-@SuppressLint("SetJavaScriptEnabled") // Only ever loads a fixed, locally-built wrapper page embedding a server-verified youtube.com video id, never arbitrary/user-supplied HTML.
+@SuppressLint("SetJavaScriptEnabled") // Only ever loads a fixed youtube.com/embed/ URL for a server-verified video id, never arbitrary/user-supplied HTML.
 @Composable
 fun TrailerPlayerScreen(videoId: String) {
     var isLoading by remember { mutableStateOf(true) }
@@ -88,6 +96,10 @@ fun TrailerPlayerScreen(videoId: String) {
                     // own paused thumbnail forever, never actually
                     // starting on its own.
                     settings.mediaPlaybackRequiresUserGesture = false
+                    // See this file's own kdoc -- makes this WebView look
+                    // like an ordinary browser to YouTube rather than an
+                    // embedded WebView.
+                    settings.userAgentString = settings.userAgentString.replace("; wv", "")
                     webChromeClient = object : WebChromeClient() {
                         override fun onShowCustomView(view: View, callback: CustomViewCallback) {
                             if (customView != null) {
@@ -127,26 +139,8 @@ fun TrailerPlayerScreen(videoId: String) {
                         }
                     }
                     val embedUrl = "https://www.youtube.com/embed/$videoId" +
-                        "?autoplay=1&playsinline=1&modestbranding=1&rel=0&fs=0&enablejsapi=1"
-                    val wrapperHtml = """
-                        <!DOCTYPE html>
-                        <html>
-                        <head>
-                        <style>
-                          html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
-                          iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
-                        </style>
-                        </head>
-                        <body>
-                        <iframe src="$embedUrl" allow="autoplay; encrypted-media" allowfullscreen></iframe>
-                        </body>
-                        </html>
-                    """.trimIndent()
-                    // baseUrl is youtube.com itself (not this app, and not
-                    // blank) so the nested iframe's own real youtube.com
-                    // content isn't treated as cross-origin from a
-                    // mismatched or missing origin.
-                    loadDataWithBaseURL("https://www.youtube.com", wrapperHtml, "text/html", "utf-8", null)
+                        "?autoplay=1&playsinline=1&modestbranding=1&rel=0&fs=0"
+                    loadUrl(embedUrl)
                 }
             },
             onRelease = { it.destroy() }
