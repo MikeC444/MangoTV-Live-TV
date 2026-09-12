@@ -27,8 +27,8 @@ class YoutubeChunkedDataSourceFactory(
 
     companion object {
         private const val TAG = "YTChunkedDS"
-        /** 10 MB chunks -- large enough to avoid too many requests, small enough to dodge throttling. */
-        private const val CHUNK_SIZE = 10L * 1024 * 1024
+        /** 2 MB chunks -- smaller than the original 10 MB to stay further under whatever size/rate threshold triggers YouTube's own throttling. */
+        private const val CHUNK_SIZE = 2L * 1024 * 1024
     }
 
     override fun createDataSource(): DataSource {
@@ -52,6 +52,11 @@ class YoutubeChunkedDataSourceFactory(
         private var currentChunkEnd = 0L
         private var bytesReadInChunk = 0L
         private var originalDataSpec: DataSpec? = null
+
+        // Diagnostics only -- logs at most once/second so a slow trickle of
+        // data is visible in Logcat as a rate over time, without flooding it
+        // on a fast connection where read() can be called many times/second.
+        private var lastProgressLogAt = 0L
 
         override fun addTransferListener(transferListener: TransferListener) {
             upstream.addTransferListener(transferListener)
@@ -138,6 +143,11 @@ class YoutubeChunkedDataSourceFactory(
             }
 
             bytesReadInChunk += bytesRead
+            val now = System.currentTimeMillis()
+            if (now - lastProgressLogAt >= 1_000L) {
+                lastProgressLogAt = now
+                Log.w(TAG, "reading chunk at $currentChunkStart: $bytesReadInChunk bytes so far")
+            }
             return bytesRead
         }
 
