@@ -6,19 +6,26 @@ import androidx.media3.common.C
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.datasource.DataSource
 import androidx.media3.datasource.DataSpec
-import androidx.media3.datasource.DefaultHttpDataSource
 import androidx.media3.datasource.TransferListener
+import androidx.media3.datasource.okhttp.OkHttpDataSource
+import okhttp3.OkHttpClient
+import java.util.concurrent.TimeUnit
 
 /**
- * A DataSource.Factory that wraps DefaultHttpDataSource and appends YouTube's
- * own `&range=start-end` query parameter on each request. YouTube throttles
- * (and eventually kills) connections that try to download a full adaptive
- * stream in one shot, but serves chunked range-param requests at full speed
- * -- this is how YouTube's own web/app players fetch adaptive video, not a
- * MangoTV-specific workaround.
+ * A DataSource.Factory that wraps an OkHttp-backed data source and appends
+ * YouTube's own `&range=start-end` query parameter on each request. YouTube
+ * throttles (and eventually kills) connections that try to download a full
+ * adaptive stream in one shot, but serves chunked range-param requests at
+ * full speed -- this is how YouTube's own web/app players fetch adaptive
+ * video, not a MangoTV-specific workaround.
+ *
+ * OkHttp rather than Media3's own DefaultHttpDataSource (HttpURLConnection-
+ * based) specifically to match [com.mangotv.app.ui.player.buildExoPlayer],
+ * the main player's own proven-working data source on this same device --
+ * no other part of this app's networking uses HttpURLConnection at all.
  *
  * Only activates for googlevideo.com URLs; every other URL passes through
- * to the plain upstream DefaultHttpDataSource untouched.
+ * to the plain upstream data source untouched.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory(
@@ -29,19 +36,25 @@ class YoutubeChunkedDataSourceFactory(
         private const val TAG = "YTChunkedDS"
         /** 2 MB chunks -- smaller than the original 10 MB to stay further under whatever size/rate threshold triggers YouTube's own throttling. */
         private const val CHUNK_SIZE = 2L * 1024 * 1024
+
+        // Shared across every createDataSource() call (video + audio tracks
+        // both need one) rather than a fresh client per track -- an
+        // OkHttpClient is meant to be reused for its connection pool.
+        private val sharedHttpClient by lazy {
+            OkHttpClient.Builder()
+                .connectTimeout(15, TimeUnit.SECONDS)
+                .readTimeout(15, TimeUnit.SECONDS)
+                .build()
+        }
     }
 
     override fun createDataSource(): DataSource {
-        val upstream = DefaultHttpDataSource.Factory()
-            .setConnectTimeoutMs(15_000)
-            .setReadTimeoutMs(15_000)
-            .setAllowCrossProtocolRedirects(true)
-            .createDataSource()
+        val upstream = OkHttpDataSource.Factory(sharedHttpClient).createDataSource()
         return YoutubeChunkedDataSource(upstream, chunkSizeBytes)
     }
 
     private class YoutubeChunkedDataSource(
-        private val upstream: DefaultHttpDataSource,
+        private val upstream: DataSource,
         private val chunkSize: Long
     ) : DataSource {
 
