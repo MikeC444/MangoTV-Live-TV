@@ -168,21 +168,23 @@ fun TrailerPlayerScreen(videoId: String) {
 @OptIn(UnstableApi::class)
 private fun buildTrailerExoPlayer(context: Context, source: TrailerPlaybackSource): ExoPlayer {
     val player = ExoPlayer.Builder(context).build()
+    // Always routed through YoutubeChunkedDataSourceFactory, even when
+    // source.audioUrl is null -- a null audioUrl doesn't mean "safe combined
+    // stream", it can just as easily mean "adaptive video resolved fine but
+    // the separate adaptive audio track didn't", which is still a lone
+    // googlevideo.com adaptive URL YouTube throttles/kills without the
+    // chunked treatment. Only a non-googlevideo.com host (an HLS manifest
+    // hosted elsewhere, if that ever happens) would actually skip chunking,
+    // and the factory itself already handles that by host-sniffing -- so
+    // using it unconditionally here is never wrong, just sometimes a no-op.
+    val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
     val audioUrl = source.audioUrl
     if (!audioUrl.isNullOrBlank()) {
-        // Separate adaptive video/audio streams -- both googlevideo.com URLs
-        // that YouTube throttles unless fetched in range-limited chunks, and
-        // merged into one playable timeline. See YoutubeChunkedDataSourceFactory's
-        // own kdoc for why the chunking is needed at all.
-        val mediaSourceFactory = DefaultMediaSourceFactory(YoutubeChunkedDataSourceFactory())
         val videoSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(source.videoUrl))
         val audioSource = mediaSourceFactory.createMediaSource(MediaItem.fromUri(audioUrl))
         player.setMediaSource(MergingMediaSource(videoSource, audioSource))
     } else {
-        // Either an HLS manifest (already segmented, so no throttling risk
-        // to work around) or a combined progressive video+audio URL --
-        // either way a single MediaItem is enough.
-        player.setMediaItem(MediaItem.fromUri(source.videoUrl))
+        player.setMediaSource(mediaSourceFactory.createMediaSource(MediaItem.fromUri(source.videoUrl)))
     }
     player.prepare()
     player.playWhenReady = true
