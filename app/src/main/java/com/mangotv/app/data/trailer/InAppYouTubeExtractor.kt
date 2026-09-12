@@ -2,15 +2,10 @@ package com.mangotv.app.data.trailer
 
 import android.net.Uri
 import android.util.Log
-import kotlinx.coroutines.CompletableDeferred
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.cancel
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.withTimeout
 import okhttp3.Headers
 import okhttp3.OkHttpClient
@@ -767,55 +762,24 @@ class InAppYouTubeExtractor {
     }
 
     /**
-     * Probes CDN nodes for the given googlevideo URL and returns the first reachable one.
-     * Returns null if no CDN node responds successfully (all return 403/timeout).
+     * Verifies the given googlevideo URL is actually reachable before
+     * committing to it, returning it unchanged if so or null if not.
+     *
+     * This used to also construct alternate-CDN-mirror candidates from the
+     * URL's own "mn" parameter (a list of alternate server ids YouTube
+     * includes) and race them against the original, on the theory that the
+     * specific server a URL is issued for can itself reject requests. In
+     * testing that backfired: a host-swapped candidate passed this exact
+     * probe and was then rejected with a real HTTP 403 the moment actual
+     * playback requested the real content range, for a URL where YouTube's
+     * own originally-issued host worked fine. A probe response evidently
+     * doesn't guarantee the same host is authorized for the real, larger
+     * request -- so this only verifies the URL YouTube actually issued,
+     * never substitutes a different host for it.
      */
     private suspend fun resolveReachableUrl(url: String): String? {
         if (!url.contains("googlevideo.com")) return url
-        val uri = Uri.parse(url)
-        val mnParam = uri.getQueryParameter("mn") ?: return url
-        val servers = mnParam.split(",").map { it.trim() }.filter { it.isNotBlank() }
-        if (servers.size < 2) return url
-
-        val candidates = mutableListOf(url)
-        for (server in servers) {
-            val mviIndex = servers.indexOf(server)
-            val altHost = uri.host?.replaceFirst(
-                Regex("^rr\\d+---"),
-                "rr${mviIndex + 1}---"
-            )?.replaceFirst(
-                Regex("sn-[a-z0-9]+-[a-z0-9]+"),
-                server
-            ) ?: continue
-            if (altHost == uri.host) continue
-            candidates += url.replace(uri.host!!, altHost)
-        }
-
-        if (candidates.size == 1) {
-            // Single candidate -- verify it's reachable
-            return if (isUrlReachable(candidates[0])) candidates[0] else null
-        }
-
-        val result = CompletableDeferred<String>()
-        val probeScope = CoroutineScope(Dispatchers.IO)
-        candidates.forEach { candidate ->
-            probeScope.launch {
-                val reachable = isUrlReachable(candidate)
-                if (reachable) result.complete(candidate)
-            }
-        }
-        return try {
-            // 2s here previously rejected a confirmed-valid 4K adaptive
-            // candidate outright, forcing a fallback all the way down to the
-            // old progressive format -- this network's connections to
-            // googlevideo.com can genuinely take several seconds just to
-            // get a first response, which isn't the same thing as the URL
-            // being unreachable. 6s gives that room without meaningfully
-            // slowing down extraction's overall ~30s budget.
-            withTimeoutOrNull(PROBE_TIMEOUT_MS) { result.await() }
-        } finally {
-            probeScope.cancel()
-        }
+        return if (isUrlReachable(url)) url else null
     }
 
     private val probeClient by lazy {
