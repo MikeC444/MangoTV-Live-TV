@@ -199,6 +199,7 @@ private fun UpdateUnknownSourcesOverlay(onOpenSettings: () -> Unit, onDismiss: (
                     icon = Icons.Filled.Settings,
                     onClick = onOpenSettings,
                     style = MangoButtonStyle.FILLED,
+                    backgroundOverride = Color.White,
                     focusRequester = openSettingsFocusRequester
                 )
                 Spacer(modifier = Modifier.padding(start = 12.dp))

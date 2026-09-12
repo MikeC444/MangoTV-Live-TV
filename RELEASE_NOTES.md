@@ -15,6 +15,8 @@ run the release workflow for that version.
 ## Unreleased
 
 - Update banner's Update button is now white instead of amber
+- Fixed the Close/Open Settings buttons on the update overlays being unselectable
+- Allow-installing-updates overlay's Open Settings button is now white instead of orange
 
 ## 0.1.1
 
