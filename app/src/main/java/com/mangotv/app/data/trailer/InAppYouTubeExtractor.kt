@@ -2,7 +2,6 @@ package com.mangotv.app.data.trailer
 
 import android.net.Uri
 import android.util.Log
-import com.mangotv.app.BuildConfig
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -424,10 +423,16 @@ class InAppYouTubeExtractor {
                         )
                     }
                 }
+
+                Log.w(
+                    TAG,
+                    "Client ${client.key}: status=$status hls=${!hlsManifestUrl.isNullOrBlank()} " +
+                        "progressive=${progressive.count { it.client == client.key }} " +
+                        "adaptiveVideo=${adaptiveVideo.count { it.client == client.key }} " +
+                        "adaptiveAudio=${adaptiveAudio.count { it.client == client.key }}"
+                )
             } catch (error: Exception) {
-                if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Client ${client.key} failed: ${error.message}")
-                }
+                Log.w(TAG, "Client ${client.key} failed: ${error.message}")
             }
         }
 
@@ -437,6 +442,12 @@ class InAppYouTubeExtractor {
             invalidateConfig()
             return null
         }
+
+        Log.w(
+            TAG,
+            "Totals across all clients: manifests=${manifestUrls.size} progressive=${progressive.size} " +
+                "adaptiveVideo=${adaptiveVideo.size} adaptiveAudio=${adaptiveAudio.size}"
+        )
 
         if (manifestUrls.isEmpty() && progressive.isEmpty() && adaptiveVideo.isEmpty() && adaptiveAudio.isEmpty()) {
             return null
@@ -462,19 +473,25 @@ class InAppYouTubeExtractor {
                     bestManifest = candidate
                 }
             } catch (error: Exception) {
-                if (BuildConfig.DEBUG) {
-                    Log.w(TAG, "Manifest parse failed: ${error.message}")
-                }
+                Log.w(TAG, "Manifest parse failed: ${error.message}")
             }
         }
 
         val bestProgressive = sortCandidates(progressive).firstOrNull()
         val bestVideo = pickBestForClient(adaptiveVideo, PREFERRED_SEPARATE_CLIENT)
         val bestAudio = pickBestForClient(adaptiveAudio, PREFERRED_SEPARATE_CLIENT)
+        Log.w(
+            TAG,
+            "Best candidates: bestVideo=${bestVideo?.let { "${it.itag}@${it.height}p" }} " +
+                "bestAudio=${bestAudio?.itag} bestManifest=${bestManifest != null} bestProgressive=${bestProgressive?.itag}"
+        )
 
         // Try adaptive video + audio first (best quality, separate streams)
         kotlinx.coroutines.yield()
         val resolvedVideo = bestVideo?.url?.let { resolveReachableUrl(it) }
+        if (bestVideo != null) {
+            Log.w(TAG, "resolveReachableUrl(bestVideo) -> ${resolvedVideo != null}")
+        }
         val resolvedAudio = if (resolvedVideo != null) bestAudio?.url?.let { resolveReachableUrl(it) } else null
 
         if (resolvedVideo != null) {
