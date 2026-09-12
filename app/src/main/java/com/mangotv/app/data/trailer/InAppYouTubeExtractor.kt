@@ -829,14 +829,25 @@ class InAppYouTubeExtractor {
 
     private fun isUrlReachable(url: String): Boolean {
         return runCatching {
+            // Probes with YouTube's own &range= query parameter -- the same
+            // mechanism YoutubeChunkedDataSourceFactory actually uses for
+            // real playback -- rather than a standard HTTP Range header.
+            // Those aren't necessarily treated the same by this CDN: a probe
+            // built on the standard header was timing out completely (even
+            // for a candidate later proven reachable by the real chunked
+            // download succeeding against it), which looks like the CDN
+            // just not answering that request shape the same way.
+            val rangedUrl = Uri.parse(url).buildUpon()
+                .appendQueryParameter("range", "0-1")
+                .build()
+                .toString()
             val request = Request.Builder()
-                .url(url)
+                .url(rangedUrl)
                 .get()
-                .header("Range", "bytes=0-0")
                 .headers(buildHeaders(DEFAULT_HEADERS))
                 .build()
             probeClient.newCall(request).execute().use { response ->
-                response.code == 200 || response.code == 206
+                response.isSuccessful
             }
         }.getOrDefault(false)
     }
