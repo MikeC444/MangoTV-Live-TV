@@ -1,8 +1,10 @@
 package com.mangotv.app.ui.trailer
 
 import android.annotation.SuppressLint
+import android.util.Log
 import android.view.View
 import android.view.ViewGroup
+import android.webkit.ConsoleMessage
 import android.webkit.WebChromeClient
 import android.webkit.WebView
 import android.webkit.WebViewClient
@@ -21,6 +23,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.viewinterop.AndroidView
 import com.mangotv.app.ui.theme.MangoAmber
 
+private const val TAG = "TrailerPlayerScreen"
+
 /**
  * Plays a trailer inside the app via YouTube's own official embedded web
  * player (its IFrame Player), reached from Detail's Trailer button
@@ -36,24 +40,30 @@ import com.mangotv.app.ui.theme.MangoAmber
  * custom MangoTV one -- the closest legitimate approximation of "plays
  * inside the app" available here.
  *
+ * The embed is loaded as a real <iframe> on a minimal wrapper page, not
+ * as a direct top-level navigation to the embed URL itself -- YouTube's
+ * embedded player is built to run *inside* an iframe (it talks to a
+ * parent page via postMessage for its own internal state), and loading
+ * the embed URL directly as this WebView's own top-level document means
+ * there's no parent frame for it to find. That mismatch is what actually
+ * surfaced as "video player configuration error" in testing, not
+ * anything specific to this video/device.
+ *
  * The global BackHandler in MangoNavHost already pops this route like
  * any other on BACK (this screen has no menus/overlays of its own that
  * would need first-press-closes-that, later-press-exits handling the way
  * PlayerScreen does), so nothing extra is wired here for that.
  */
-@SuppressLint("SetJavaScriptEnabled") // Only ever loads a fixed youtube.com/embed/ URL built from a server-verified video id, never arbitrary/user-supplied HTML.
+@SuppressLint("SetJavaScriptEnabled") // Only ever loads a fixed, locally-built wrapper page embedding a server-verified youtube.com video id, never arbitrary/user-supplied HTML.
 @Composable
 fun TrailerPlayerScreen(videoId: String) {
     var isLoading by remember { mutableStateOf(true) }
     // YouTube's HTML5 player promotes its <video> element into a
     // Chromium "custom view" for actual playback -- a bare
     // WebChromeClient() (no onShowCustomView/onHideCustomView override)
-    // has nowhere to attach that view, which can surface as the player
-    // itself erroring out (reported as "video player configuration
-    // error") instead of quietly falling back to inline playback, even
-    // with playsinline=1 set. Holding the callback's own view here and
-    // layering it in a second AndroidView above the WebView is the
-    // standard fix: give Chromium a real place to put it.
+    // has nowhere to attach that view. Holding the callback's own view
+    // here and layering it in a second AndroidView above the WebView is
+    // the standard fix: give Chromium a real place to put it.
     var customView by remember { mutableStateOf<View?>(null) }
     var customViewCallback by remember { mutableStateOf<WebChromeClient.CustomViewCallback?>(null) }
 
@@ -93,16 +103,50 @@ fun TrailerPlayerScreen(videoId: String) {
                             customView = null
                             customViewCallback = null
                         }
+
+                        // Forwards the embedded page's own JS console into
+                        // Logcat -- an error the player shows purely as
+                        // on-page HTML/JS text (like "video player
+                        // configuration error" was) otherwise leaves no
+                        // trace anywhere adb logcat can see, since it was
+                        // never an Android-level log message to begin
+                        // with. Filter logcat on this class's own tag to
+                        // find it.
+                        override fun onConsoleMessage(consoleMessage: ConsoleMessage): Boolean {
+                            Log.d(
+                                TAG,
+                                "console: ${consoleMessage.message()} " +
+                                    "(${consoleMessage.sourceId()}:${consoleMessage.lineNumber()})"
+                            )
+                            return true
+                        }
                     }
                     webViewClient = object : WebViewClient() {
                         override fun onPageFinished(view: WebView?, url: String?) {
                             isLoading = false
                         }
                     }
-                    loadUrl(
-                        "https://www.youtube.com/embed/$videoId" +
-                            "?autoplay=1&playsinline=1&modestbranding=1&rel=0&fs=0"
-                    )
+                    val embedUrl = "https://www.youtube.com/embed/$videoId" +
+                        "?autoplay=1&playsinline=1&modestbranding=1&rel=0&fs=0&enablejsapi=1"
+                    val wrapperHtml = """
+                        <!DOCTYPE html>
+                        <html>
+                        <head>
+                        <style>
+                          html, body { margin: 0; padding: 0; background: #000; overflow: hidden; }
+                          iframe { position: fixed; top: 0; left: 0; width: 100%; height: 100%; border: 0; }
+                        </style>
+                        </head>
+                        <body>
+                        <iframe src="$embedUrl" allow="autoplay; encrypted-media" allowfullscreen></iframe>
+                        </body>
+                        </html>
+                    """.trimIndent()
+                    // baseUrl is youtube.com itself (not this app, and not
+                    // blank) so the nested iframe's own real youtube.com
+                    // content isn't treated as cross-origin from a
+                    // mismatched or missing origin.
+                    loadDataWithBaseURL("https://www.youtube.com", wrapperHtml, "text/html", "utf-8", null)
                 }
             },
             onRelease = { it.destroy() }
