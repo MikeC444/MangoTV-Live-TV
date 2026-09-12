@@ -1,6 +1,7 @@
 package com.mangotv.app.ui.loading
 
 import android.net.Uri
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.Composable
@@ -11,9 +12,6 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.media3.common.MediaItem
@@ -27,9 +25,6 @@ import coil.request.ImageRequest
 import com.mangotv.app.ui.home.HomeUiState
 import com.mangotv.app.ui.home.HomeViewModel
 import com.mangotv.app.ui.player.PlayerSurface
-import com.mangotv.app.ui.theme.MangoAmber
-import com.mangotv.app.ui.theme.MangoBackground
-import com.mangotv.app.ui.theme.MangoCoral
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -75,13 +70,14 @@ private const val BOOT_VIDEO_ASSET = "newboot1.mp4"
  * separate sound wiring needed, and no interaction with the nav/click
  * sound system (UiSoundPlayer) at all.
  *
- * Falls back to a plain branded background with no video and no extra
- * wait if [BOOT_VIDEO_ASSET] isn't present (see hasVideoAsset below), so a
+ * Falls back to a plain black background with no video and no extra wait
+ * if [BOOT_VIDEO_ASSET] isn't present (see hasVideoAsset below), so a
  * build with no video file dropped in yet still boots normally instead of
- * showing a broken or endlessly loading screen. The same plain background
- * also covers the window before the video's first frame decodes, and
- * again once playback ends, for as long as reveal is still waiting on data
- * readiness.
+ * showing a broken or endlessly loading screen. The same plain black
+ * background also covers the window before the video's first frame
+ * decodes, and again once playback ends, for as long as reveal is still
+ * waiting on data readiness -- pure black rather than any branded color
+ * so there's no visible flash at either seam against the video itself.
  *
  * Reveal ([onReady]) waits on BOTH the video reaching its natural end (or
  * erroring out, or simply not existing) AND [homeViewModel] having its
@@ -124,7 +120,7 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
     // hierarchy, and covering it with an ordinary sibling composable
     // doesn't reliably win that layering (it can keep showing through as
     // black). Fully unmounting it sidesteps that question rather than
-    // depending on it: with nothing left to conflict with, the branded
+    // depending on it: with nothing left to conflict with, the plain black
     // background drawn in its place is guaranteed to actually show.
     var videoEnded by remember { mutableStateOf(!hasVideoAsset) }
 
@@ -222,7 +218,7 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
             // to it -- both before the first frame (see showVideo) and
             // while actively playing -- then removed entirely the moment
             // videoEnded flips. See videoEnded's own doc for why full
-            // removal, not just covering, is what makes the branded
+            // removal, not just covering, is what makes the plain black
             // background below reliably show once playback ends.
             //
             // ZOOM rather than PlayerSurface's own FIT default -- a
@@ -236,33 +232,17 @@ fun BootVideoScreen(homeViewModel: HomeViewModel, onReady: () -> Unit) {
             )
         }
         if (exoPlayer == null || !showVideo) {
-            // Plain branded background -- shown before the video's first
-            // frame decodes, once playback ends, and outright when there's
-            // no video asset at all.
+            // Pure black -- shown before the video's first frame decodes,
+            // once playback ends, and outright when there's no video asset
+            // at all. Matches the video's own black background/letterboxing
+            // so there's no visible color flash right at either seam;
+            // doesn't touch any of the timing/readiness logic above, so
+            // this is a purely visual change with no effect on how long
+            // boot actually takes.
             Box(
                 modifier = Modifier
                     .fillMaxSize()
-                    .drawBehind {
-                        // Solid MangoBackground with two soft brand-color
-                        // glows in opposite corners, matching the reference
-                        // design.
-                        drawRect(MangoBackground)
-                        val glowRadius = size.minDimension * 0.7f
-                        listOf(
-                            Offset(0f, 0f) to MangoAmber,
-                            Offset(size.width, size.height) to MangoCoral
-                        ).forEach { (corner, color) ->
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colors = listOf(color.copy(alpha = 0.30f), Color.Transparent),
-                                    center = corner,
-                                    radius = glowRadius
-                                ),
-                                radius = glowRadius,
-                                center = corner
-                            )
-                        }
-                    }
+                    .background(Color.Black)
             )
         }
     }
