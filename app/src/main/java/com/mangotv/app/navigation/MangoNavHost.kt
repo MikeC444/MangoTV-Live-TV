@@ -47,7 +47,6 @@ import com.mangotv.app.ui.player.PlayerScreen
 import com.mangotv.app.ui.settings.AddAddonScreen
 import com.mangotv.app.ui.settings.SettingsScreen
 import com.mangotv.app.ui.sources.SourcesScreen
-import com.mangotv.app.ui.trailer.TrailerPlayerScreen
 import com.mangotv.app.ui.components.CardActionsMenuOverlay
 import com.mangotv.app.ui.components.CardActionsMenuState
 import com.mangotv.app.ui.components.LocalCardActionsMenu
@@ -395,10 +394,6 @@ fun MangoNavHost() {
                             }
                         )
                     }
-                }
-                composable(MangoRoutes.TRAILER_PATTERN) { backStackEntry ->
-                    val videoId = URLDecoder.decode(backStackEntry.arguments?.getString("videoId").orEmpty(), "UTF-8")
-                    TrailerPlayerScreen(videoId = videoId)
                 }
             }
             } // UpdateBannerHost

@@ -29,6 +29,7 @@ import androidx.compose.ui.input.nestedscroll.NestedScrollConnection
 import androidx.compose.ui.input.nestedscroll.NestedScrollSource
 import androidx.compose.ui.input.nestedscroll.nestedScroll
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -37,6 +38,7 @@ import com.mangotv.app.data.history.ContinueWatchingEntry
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.model.HomeSection
+import com.mangotv.app.data.trailer.TrailerLauncher
 import com.mangotv.app.navigation.MangoRoutes
 import com.mangotv.app.navigation.routeForNavLabel
 import com.mangotv.app.ui.components.ContentRow
@@ -55,6 +57,7 @@ fun DetailScreen(
     viewModel: DetailViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Box(
         modifier = modifier
@@ -85,13 +88,12 @@ fun DetailScreen(
                     // Null (no button shown at all) unless a lookup has
                     // actually found one -- see DetailHeroSection's own
                     // kdoc on why this is a nullable lambda, not a
-                    // separate boolean. Navigates to an in-app screen
-                    // (TrailerPlayerScreen) rather than handing off to an
-                    // external app -- see that screen's own kdoc for why
-                    // it's a YouTube-embed WebView, not MangoTV's own
-                    // ExoPlayer-based player.
+                    // separate boolean. Hands the trailer off to whichever
+                    // app the user picks rather than playing it in-app --
+                    // see TrailerLauncher's own kdoc for why MangoTV stopped
+                    // trying to play YouTube video itself.
                     onTrailer = foundTrailer?.let { found ->
-                        { onNavigate(MangoRoutes.trailer(found.youtubeVideoId)) }
+                        { TrailerLauncher.launch(context, found.youtubeVideoId) }
                     }
                 )
             }

@@ -32,9 +32,7 @@ data class UpdateUiState(
  * Checks GitHub's own public releases API for this repo on launch (this
  * repo is public, so no token is needed) and offers to download+install a
  * newer release -- see ApkInstaller's own doc for why that still needs one
- * tap through the system installer no matter what, and TrailerPlayerScreen's
- * own kdoc / InAppYouTubeExtractor's for the general shape of "this is a
- * sideload-only app, so it can do things a Play Store listing couldn't."
+ * tap through the system installer no matter what.
  */
 class UpdateViewModel(application: Application) : AndroidViewModel(application) {
 
