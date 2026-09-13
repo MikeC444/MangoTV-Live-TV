@@ -75,6 +75,17 @@ fun ColumnScope.HomeRowsSettingsContent(
     // instead of letting them move focus.
     var grabbedRowId by remember { mutableStateOf<String?>(null) }
 
+    // Hoisted out of the LazyColumn builder below: that builder's content
+    // lambda is a plain (non-@Composable) LazyListScope DSL scope, and
+    // remember() is itself @Composable -- it can only be called here, in
+    // this function's own composable body, never from inside a `when`
+    // branch further down that isn't itself wrapped in an item{} lambda.
+    val loadedRows = (uiState as? HomeRowsUiState.Loaded)?.rows
+    val orderedRows = remember(loadedRows, preferences) {
+        loadedRows?.let { preferences.applyOrder(it) }.orEmpty()
+    }
+    val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
+
     // The intro text, the reorderable rows, and the "saved automatically"
     // footer are all items in this one LazyColumn (rather than a static
     // header/footer around a separately-scrolling list) so the whole tab
@@ -118,9 +129,6 @@ fun ColumnScope.HomeRowsSettingsContent(
                         )
                     }
                 } else {
-                    val orderedRows = remember(state.rows, preferences) { preferences.applyOrder(state.rows) }
-                    val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
-
                     itemsIndexed(orderedRows, key = { _, row -> row.id }) { index, row ->
                         val visible = row.id !in preferences.hiddenRowIds
                         HomeRowToggleRow(
