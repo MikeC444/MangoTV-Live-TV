@@ -194,7 +194,10 @@ private fun LanguageOptionRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 14.dp),
+                // Was 14.dp -- with 16 languages to scroll through via
+                // D-pad, a shorter row means more of the list is visible
+                // at once without shrinking the tap target unreasonably.
+                .padding(horizontal = 20.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
