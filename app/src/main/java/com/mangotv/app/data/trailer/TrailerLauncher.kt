@@ -28,28 +28,37 @@ object TrailerLauncher {
      * The canonical watch URL rather than YouTube's `vnd.youtube:` scheme:
      * this is deliberately not a YouTube-app-only handoff, and an https
      * youtube.com link is what every browser and every YouTube client
-     * registers for, so the chooser can offer all of them.
+     * registers for, so every one of them can offer to open it.
      */
     fun watchUrl(videoId: String): String = "https://www.youtube.com/watch?v=$videoId"
 
     /**
-     * Opens the app chooser for [videoId].
+     * Opens [videoId] in whichever app the user picks.
      *
-     * Always a chooser, never a bare ACTION_VIEW: a plain view intent goes
-     * straight to whatever the user has already set as their default handler
-     * for web links, which on a TV is usually a browser and is exactly the
-     * choice this is meant to put back in the user's hands each time.
+     * A bare ACTION_VIEW rather than `Intent.createChooser`, because the two
+     * produce different system pickers and this is the one worth having.
+     * A plain view intent with no default set yet gets the "Open with...
+     * JUST ONCE / ALWAYS" disambiguation dialog, so the user can make the
+     * choice stick and never be asked again. `createChooser` deliberately
+     * strips the ALWAYS option -- a chooser is by definition a one-off
+     * choice -- and forces its own full-screen picker in front of the user
+     * on every single trailer, forever.
+     *
+     * The trade is that once a default *is* set (by ALWAYS here, or by a
+     * verified app link, or in system settings) no picker appears at all
+     * and the trailer just opens. That's the point of ALWAYS, and the user
+     * can still change it later from the system's app settings.
      */
     fun launch(context: Context, videoId: String) {
         val view = Intent(Intent.ACTION_VIEW, Uri.parse(watchUrl(videoId)))
-        val chooser = Intent.createChooser(view, "Watch trailer with")
             .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
 
-        // The chooser itself is a system activity, so this practically never
-        // fails -- with no app able to open the link the chooser says so
-        // itself rather than throwing. The fallback is for the case where
-        // even that can't be started, so a tap on Trailer is never silent.
-        if (runCatching { context.startActivity(chooser) }.isFailure) {
+        // Reachable in a way the chooser version wasn't: without a chooser
+        // wrapped around it, a view intent no app can handle throws
+        // ActivityNotFoundException rather than landing on a system screen
+        // that explains itself. Catching it keeps a tap on Trailer from
+        // being silent.
+        if (runCatching { context.startActivity(view) }.isFailure) {
             Toast.makeText(context, "No app on this device can open trailers", Toast.LENGTH_LONG).show()
         }
     }
