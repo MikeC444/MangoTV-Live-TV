@@ -19,6 +19,7 @@ run the release workflow for that version.
 - Settings is now a two-pane layout: pick a category (Account, Addons, Home Rows, Sounds, Subtitles) on the left, its settings show on the right
 - Settings tabs are more compact and each one now scrolls as a whole, so long lists like Addons or Subtitle languages show more per screen
 - Settings' focus highlight is now white instead of amber
+- Settings > Home Rows loads faster with multiple addons installed
 - Update banner's Update button is now white instead of amber
 - Fixed the Close/Open Settings buttons on the update overlays being unselectable
 - Allow-installing-updates overlay's Open Settings button is now white instead of orange
