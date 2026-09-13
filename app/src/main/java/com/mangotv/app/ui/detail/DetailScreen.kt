@@ -72,7 +72,7 @@ fun DetailScreen(
                 val resumeEntry by viewModel.resumeEntry.collectAsStateWithLifecycle()
                 val trailerState by viewModel.trailerState.collectAsStateWithLifecycle()
                 val foundTrailer = trailerState as? TrailerState.Found
-                val releaseDate by viewModel.releaseDate.collectAsStateWithLifecycle()
+                val releaseDateState by viewModel.releaseDateState.collectAsStateWithLifecycle()
                 DetailContent(
                     content = state.content,
                     similar = state.similar,
@@ -81,7 +81,7 @@ fun DetailScreen(
                     onToggleMyList = viewModel::toggleMyList,
                     resumeEntry = resumeEntry,
                     lastStreamIdFor = viewModel::lastStreamIdFor,
-                    releaseDate = releaseDate,
+                    releaseDateState = releaseDateState,
                     // Null (no button shown at all) unless a lookup has
                     // actually found one -- see DetailHeroSection's own
                     // kdoc on why this is a nullable lambda, not a
@@ -109,7 +109,7 @@ private fun DetailContent(
     resumeEntry: ContinueWatchingEntry?,
     lastStreamIdFor: (season: Int?, episode: Int?) -> String?,
     onTrailer: (() -> Unit)?,
-    releaseDate: String?,
+    releaseDateState: ReleaseDateState,
     modifier: Modifier = Modifier
 ) {
     val listState = rememberLazyListState()
@@ -254,7 +254,7 @@ private fun DetailContent(
                     onWatchlist = onToggleMyList,
                     isInMyList = isInMyList,
                     onTrailer = onTrailer,
-                    releaseDate = releaseDate,
+                    releaseDateState = releaseDateState,
                     onMore = {},
                     navUpFocusRequester = navFocusRequester,
                     // Deliberately NOT returnToHero() -- that re-focuses the

@@ -104,11 +104,11 @@ fun DetailHeroSection(
     // DetailViewModel.TrailerState), never as a dead/no-op button for a
     // title with no trailer available.
     onTrailer: (() -> Unit)? = null,
-    // Real release date from TMDB ("YYYY-MM-DD"), shown instead of the
-    // bare addon-supplied content.year when available -- null (falls back
-    // to content.year) until DetailViewModel.loadReleaseDate resolves,
-    // isn't configured, or TMDB has no match. Movies only, for now.
-    releaseDate: String? = null,
+    // Idle/Loading hide the meta row's date slot entirely rather than
+    // showing content.year and then visibly swapping it for the real TMDB
+    // date a moment later -- see ReleaseDateState's own doc. NotFound falls
+    // back to content.year (covers "TMDB has nothing" and "not a movie").
+    releaseDateState: ReleaseDateState = ReleaseDateState.Idle,
     // Movie detail only, for now: shrinks everything except the title so
     // the whole page (hero + Cast + You May Also Like) fits on one screen
     // without scrolling. TV shows don't pass this and are unaffected.
@@ -277,7 +277,11 @@ fun DetailHeroSection(
                 val metaStyle = (if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium)
                     .copy(shadow = HeroTextShadow)
                 val leadingParts = buildList {
-                    val releaseLabel = releaseDate?.let(::formatReleaseDate) ?: content.year?.toString()
+                    val releaseLabel = when (releaseDateState) {
+                        is ReleaseDateState.Found -> formatReleaseDate(releaseDateState.releaseDate) ?: content.year?.toString()
+                        ReleaseDateState.NotFound -> content.year?.toString()
+                        ReleaseDateState.Idle, ReleaseDateState.Loading -> null
+                    }
                     releaseLabel?.let { add(it) }
                     content.runtimeMinutes?.let { add("${it / 60}h ${it % 60}m") }
                 }

@@ -34,6 +34,23 @@ sealed interface TrailerState {
     data object NotFound : TrailerState
 }
 
+/**
+ * Backs DetailHeroSection's release-date meta text -- same shape as
+ * TrailerState and for the same reason: Idle/Loading hide the slot
+ * entirely (Idle and Loading get identical treatment today, same as
+ * TrailerState's own), rather than showing content.year first and then
+ * visibly swapping it for the real date a moment later once the lookup
+ * resolves, which read as broken/flaky rather than as a normal loading-in.
+ * NotFound falls back to content.year -- covers both "TMDB has nothing for
+ * this title" and "not a movie, no lookup was even attempted."
+ */
+sealed interface ReleaseDateState {
+    data object Idle : ReleaseDateState
+    data object Loading : ReleaseDateState
+    data class Found(val releaseDate: String) : ReleaseDateState
+    data object NotFound : ReleaseDateState
+}
+
 class DetailViewModel(application: Application, private val savedStateHandle: SavedStateHandle) : AndroidViewModel(application) {
 
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
@@ -72,13 +89,8 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     private val _trailerState = MutableStateFlow<TrailerState>(TrailerState.Idle)
     val trailerState: StateFlow<TrailerState> = _trailerState.asStateFlow()
 
-    // Real release date from TMDB ("YYYY-MM-DD"), once loadReleaseDate()
-    // resolves -- unlike trailerState, there's no Idle/Loading/NotFound
-    // distinction to track: DetailHeroSection always has something to show
-    // in the meantime (the addon-supplied content.year), so a plain
-    // nullable value that starts null and gets filled in is enough.
-    private val _releaseDate = MutableStateFlow<String?>(null)
-    val releaseDate: StateFlow<String?> = _releaseDate.asStateFlow()
+    private val _releaseDateState = MutableStateFlow<ReleaseDateState>(ReleaseDateState.Idle)
+    val releaseDateState: StateFlow<ReleaseDateState> = _releaseDateState.asStateFlow()
 
     // Drives DetailHeroSection's Play -> Resume switch and which episode it
     // targets for a TV show -- reactive (not just a one-off findResumePoint
@@ -121,7 +133,7 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
         viewModelScope.launch {
             _uiState.value = DetailUiState.Loading
             _trailerState.value = TrailerState.Idle
-            _releaseDate.value = null
+            _releaseDateState.value = ReleaseDateState.Idle
 
             val provider = ProviderRegistry.activeProviders().find { it.id == providerId }
             if (provider == null) {
@@ -169,11 +181,19 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     // extra network round trip that must never delay (or be delayed by)
     // the rest of the page. Movies only -- a TV show doesn't have a single
     // "release date" the same way (first-air-date vs. a whole run still in
-    // progress), so there's nothing useful to upgrade content.year to yet.
+    // progress), so there's nothing useful to upgrade content.year to yet;
+    // NotFound is set immediately (not Idle) so DetailHeroSection shows the
+    // plain year for a TV show right away instead of waiting on a lookup
+    // that was never going to run.
     private fun loadReleaseDate(content: Content) {
-        if (content.type != ContentType.MOVIE) return
+        if (content.type != ContentType.MOVIE) {
+            _releaseDateState.value = ReleaseDateState.NotFound
+            return
+        }
+        _releaseDateState.value = ReleaseDateState.Loading
         viewModelScope.launch {
-            _releaseDate.value = releaseDateRepository.findReleaseDate(content.title, content.year)
+            val date = releaseDateRepository.findReleaseDate(content.title, content.year)
+            _releaseDateState.value = date?.let { ReleaseDateState.Found(it) } ?: ReleaseDateState.NotFound
         }
     }
 
