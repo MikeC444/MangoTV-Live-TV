@@ -23,9 +23,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.media3.common.C
 import androidx.media3.common.MediaItem
 import androidx.media3.common.PlaybackException
 import androidx.media3.common.Player
+import androidx.media3.common.Tracks
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.exoplayer.source.DefaultMediaSourceFactory
@@ -120,6 +122,39 @@ fun TrailerPlayerScreen(videoId: String) {
 
                 override fun onRenderedFirstFrame() {
                     Log.w(TAG, "onRenderedFirstFrame")
+                }
+
+                // A video track this device can't decode is not a playback
+                // error -- ExoPlayer just leaves the video renderer with
+                // nothing selected and plays the audio on over a black
+                // screen, silently. InAppYouTubeExtractor now filters those
+                // formats out before they're ever chosen, so this shouldn't
+                // fire; if some format still slips through, surface it as a
+                // failure rather than letting it look like a hung player.
+                override fun onTracksChanged(tracks: Tracks) {
+                    val videoGroups = tracks.groups.filter { it.type == C.TRACK_TYPE_VIDEO }
+                    if (videoGroups.isEmpty()) return
+
+                    Log.w(
+                        TAG,
+                        "onTracksChanged: videoGroups=${videoGroups.size} " +
+                            videoGroups.joinToString { group ->
+                                val format = if (group.length > 0) group.getTrackFormat(0) else null
+                                "${format?.codecs}@${format?.width}x${format?.height}" +
+                                    "(supported=${group.isSupported} selected=${group.isSelected})"
+                            }
+                    )
+
+                    // Both conditions, not just isSupported: that flag is
+                    // false for a format the decoder merely *exceeds* its
+                    // limits on, which the track selector still selects and
+                    // usually still plays. Nothing selected either is what
+                    // actually means no picture is coming.
+                    if (videoGroups.none { it.isSupported } && videoGroups.none { it.isSelected }) {
+                        Log.w(TAG, "No decodable video track in this trailer -- failing instead of playing audio over black")
+                        player?.pause()
+                        failed = true
+                    }
                 }
             }
         }

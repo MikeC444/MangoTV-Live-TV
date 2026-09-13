@@ -24,8 +24,9 @@ import java.util.concurrent.TimeUnit
  * the main player's own proven-working data source on this same device --
  * no other part of this app's networking uses HttpURLConnection at all.
  *
- * Only activates for googlevideo.com URLs; every other URL passes through
- * to the plain upstream data source untouched.
+ * Only activates for whole-stream googlevideo.com URLs (see
+ * `isAdaptiveGooglevideoUrl`); HLS manifests, HLS segments and every other
+ * URL pass through to the plain upstream data source untouched.
  */
 @UnstableApi
 class YoutubeChunkedDataSourceFactory(
@@ -75,10 +76,28 @@ class YoutubeChunkedDataSourceFactory(
             upstream.addTransferListener(transferListener)
         }
 
+        /**
+         * True only for the query-parameter form of a googlevideo URL --
+         * `https://<host>.googlevideo.com/videoplayback?itag=...` -- which is
+         * how YouTube issues a whole adaptive or progressive stream, the only
+         * shape `&range=` chunking applies to.
+         *
+         * Host alone isn't enough: the HLS fallback path fetches its master
+         * manifest from `manifest.googlevideo.com/api/manifest/...` and its
+         * segments from path-style `/videoplayback/.../seg.ts` URLs, and both
+         * are already bounded requests. Appending a `&range=` chunk parameter
+         * to those asks the CDN for something they don't mean, on the very
+         * path the codec-filtering fallback now relies on.
+         */
+        private fun isAdaptiveGooglevideoUrl(uri: Uri): Boolean {
+            val host = uri.host.orEmpty()
+            if (!host.contains("googlevideo.com")) return false
+            return uri.path == "/videoplayback"
+        }
+
         override fun open(dataSpec: DataSpec): Long {
             val uri = dataSpec.uri
-            val host = uri.host.orEmpty()
-            isYouTubeStream = host.contains("googlevideo.com")
+            isYouTubeStream = isAdaptiveGooglevideoUrl(uri)
 
             if (!isYouTubeStream) {
                 return upstream.open(dataSpec)
