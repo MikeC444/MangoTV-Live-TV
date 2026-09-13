@@ -16,6 +16,8 @@ run the release workflow for that version.
 
 - Trailers now open in the app of your choice (the YouTube app, a browser, whatever you have installed) instead of playing inside MangoTV, which fixes trailers playing sound over a black screen
 - Movie detail pages now show the real release date when it's available, instead of just the year
+- Settings is now a two-pane layout: pick a category (Account, Addons, Home Rows, Sounds, Subtitles) on the left, its settings show on the right
+- Settings tabs are more compact and each one now scrolls as a whole, so long lists like Addons or Subtitle languages show more per screen
 - Update banner's Update button is now white instead of amber
 - Fixed the Close/Open Settings buttons on the update overlays being unselectable
 - Allow-installing-updates overlay's Open Settings button is now white instead of orange
