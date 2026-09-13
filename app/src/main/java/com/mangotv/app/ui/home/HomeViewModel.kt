@@ -21,11 +21,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// How many items from the top of the user's first VISIBLE row (after
-// manual reordering and hidden-row filtering) feed the hero -- HeroSection
-// already rotates through whatever list it's given (see its own
-// LaunchedEffect), so this is the pool it rotates within, not a fixed set
-// of items shown at once.
+// How many random titles feed the hero -- HeroSection already rotates
+// through whatever list it's given (see its own LaunchedEffect), so this
+// is the pool it rotates within, not a fixed set of items shown at once.
+// See applyPreferences' own comment for where/how those 10 are picked.
 private const val HERO_POOL_SIZE = 10
 
 sealed interface HomeUiState {
@@ -80,6 +79,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private var continueWatchingSection: HomeSection? = null
     private var lastFetchFailed = false
     private var hasFetchedOnce = false
+
+    // The hero's random 10, locked in the first time applyPreferences() runs
+    // against real live-fetched data (see its own comment for why not
+    // during the cache-paint phase) and reused on every later call instead
+    // of reshuffling -- "randomized once per app boot", not once per batch
+    // or preference change. Null again is only reachable via a fresh
+    // ViewModel instance, i.e. an actual new boot.
+    private var randomHeroPool: List<Content>? = null
 
     // True once cold-boot cache has painted Home but before the first real
     // (network) fetch has settled. Used two ways below: (1) an empty
@@ -236,17 +243,33 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         val visibleSections = rowPreferences.applyOrder(rawSections).filterNot { it.id in rowPreferences.hiddenRowIds }
         val sections = listOfNotNull(continueWatchingSection) + visibleSections
 
-        // The hero pulls from whichever row the user actually sees first --
-        // respecting manual reordering and hidden rows the same way the row
-        // list itself does, rather than a fixed "each provider's own
-        // base/popular row" pick that ignored both and could mix items from
-        // multiple installed addons together. HeroSection (see its own
-        // LaunchedEffect) already rotates through whatever list it's given,
-        // so HERO_POOL_SIZE is the pool it rotates within, all drawn from
-        // that single top row. Deliberately drawn from visibleSections, not
-        // the Continue Watching row prepended below -- the hero stays tied
-        // to the addon-driven catalog even when Continue Watching is present.
-        val hero = visibleSections.firstOrNull()?.items?.take(HERO_POOL_SIZE) ?: emptyList()
+        // HERO_POOL_SIZE random titles drawn from every visible row (not
+        // just the first one), respecting manual reordering and hidden rows
+        // the same way the row list itself does. HeroSection (see its own
+        // LaunchedEffect) rotates through whatever list it's given, so this
+        // is the pool it rotates within, not a fixed set shown at once.
+        // Deliberately drawn from visibleSections, not the Continue
+        // Watching row prepended below -- the hero stays tied to the
+        // addon-driven catalog even when Continue Watching is present.
+        //
+        // Shuffling an already-fetched, in-memory list of a few hundred
+        // items at most costs nothing beyond the network fetch that already
+        // happened -- this can't be what makes Home feel slow.
+        //
+        // Only locked into randomHeroPool once real live data has arrived
+        // (showingCacheOnly false): applyPreferences() also runs once
+        // during the transient cold-boot cache-paint, and locking in a
+        // selection from that stale, about-to-be-replaced data would freeze
+        // the "random 10" a step too early, before the live fetch this
+        // session actually settles.
+        val hero = if (showingCacheOnly) {
+            visibleSections.flatMap { it.items }.distinctBy { it.id }.shuffled().take(HERO_POOL_SIZE)
+        } else {
+            if (randomHeroPool == null) {
+                randomHeroPool = visibleSections.flatMap { it.items }.distinctBy { it.id }.shuffled().take(HERO_POOL_SIZE)
+            }
+            randomHeroPool.orEmpty()
+        }
 
         _uiState.value = when {
             hero.isNotEmpty() || sections.isNotEmpty() -> HomeUiState.Success(hero, sections)
