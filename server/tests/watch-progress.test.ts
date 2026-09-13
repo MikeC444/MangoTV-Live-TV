@@ -149,6 +149,48 @@ describe("POST /user/watch-progress", () => {
     expect(history.body.items[0].completed).toBe(true);
   });
 
+  it("a movie past 85% of its duration is treated as completed even though the client said completed=false", async () => {
+    const session = await createTestSession();
+    const auth = { Authorization: `Bearer ${session.token}` };
+    await request(app).post("/user/watch-progress").set(auth).send(movieProgress({ watchedAt: "2025-01-01T00:00:00.000Z" }));
+
+    // 90% of the default 6,000,000ms duration -- well past the credits,
+    // but the client never saw a natural "ended" event (e.g. the user backed out).
+    const mostlyWatched = movieProgress({
+      positionMs: 5_400_000,
+      completed: false,
+      watchedAt: "2025-01-01T01:00:00.000Z",
+    });
+    const response = await request(app).post("/user/watch-progress").set(auth).send(mostlyWatched);
+    expect(response.status).toBe(200);
+    expect(response.body.historyEntry.completed).toBe(true);
+    expect(response.body.continueWatching).not.toBeNull();
+    expect(response.body.continueWatching.deletedAt).toBe("2025-01-01T01:00:00.000Z");
+
+    const cwList = await request(app).get("/user/continue-watching").set(auth);
+    expect(cwList.body.items).toEqual([]);
+  });
+
+  it("a movie at exactly 85% of its duration is not yet completed (threshold is 'more than')", async () => {
+    const session = await createTestSession();
+    const auth = { Authorization: `Bearer ${session.token}` };
+    const atThreshold = movieProgress({ positionMs: 5_100_000, completed: false }); // exactly 85% of 6,000,000ms
+    const response = await request(app).post("/user/watch-progress").set(auth).send(atThreshold);
+    expect(response.status).toBe(200);
+    expect(response.body.historyEntry.completed).toBe(false);
+    expect(response.body.continueWatching).toMatchObject({ deletedAt: null });
+  });
+
+  it("an episode past 85% of its own runtime does not clear the show's continue_watching row", async () => {
+    const session = await createTestSession();
+    const auth = { Authorization: `Bearer ${session.token}` };
+    const mostlyWatchedEpisode = episodeProgress({ positionMs: 1_400_000, completed: false }); // ~93% of 1,500,000ms
+    const response = await request(app).post("/user/watch-progress").set(auth).send(mostlyWatchedEpisode);
+    expect(response.status).toBe(200);
+    expect(response.body.historyEntry.completed).toBe(false);
+    expect(response.body.continueWatching).toMatchObject({ deletedAt: null });
+  });
+
   it("completing a title that never had a continue_watching row returns continueWatching: null", async () => {
     const session = await createTestSession();
     const response = await request(app)

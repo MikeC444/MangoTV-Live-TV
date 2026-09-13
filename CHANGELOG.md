@@ -2595,3 +2595,56 @@ in the area.
 
 **Issues fixed (this update):** see above (kdoc correction) — nothing
 functional.
+
+## Post-Milestone-18 — Auto-Remove Movies from Continue Watching Past 85% Watched
+
+**Status:** Complete.
+
+**Context:** User request: "automatically remove a movie from continue
+watching if user has watched more than 85% of the movie." Continue
+Watching was previously only ever cleared for a title when a report
+carried `completed: true`, and `PlayerScreen`'s reporting loop only sends
+that on ExoPlayer's natural `STATE_ENDED` event (`PlaybackPhase.Ended`).
+A user who backs out of a movie during the credits, or leaves the player
+a few minutes before the stream's own end, never triggers that event, so
+the title lingered in Continue Watching indefinitely despite being
+effectively finished.
+
+**Changes:**
+- `server/src/services/playbackProgressService.ts` — `recordProgress` now
+  derives its own `completed` value instead of trusting `input.completed`
+  outright: for `contentType === "MOVIE"`, crossing 85% of `durationMs`
+  (`positionMs / durationMs > 0.85`) counts as completed even when the
+  client reported `completed: false`, clearing (soft-deleting) the
+  title's `continue_watching` row and marking its `watch_history` row
+  `completed` the same way a natural end-of-playback report already did.
+  Scoped to movies only — an episode's own completed flag stays
+  per-episode, so being mostly through one episode never clears the
+  parent show's Continue Watching card out from under the next episode.
+  No client changes were needed: every existing report site (periodic
+  while playing, on pause, on stop/dispose, and on natural completion)
+  already sends real `positionMs`/`durationMs`, and the Android app's
+  `ContinueWatchingSyncRepository.reconcile()` already applies whatever
+  `continueWatching` state the server's response carries back, including
+  a non-null `deletedAt`.
+- `server/README.md`, `docs/ARCHITECTURE.md` — updated the
+  `POST /user/watch-progress` and `continue_watching` descriptions to
+  document the 85% rule alongside the existing `completed: true` one.
+
+**Tests added (`server/tests/watch-progress.test.ts`):**
+- A movie past 85% of its duration is cleared from Continue Watching (and
+  its `watch_history` row marked `completed`) even though the report
+  itself said `completed: false`.
+- A movie at exactly 85% is not yet cleared — the rule is "more than,"
+  not "at least."
+- An episode past 85% of its own runtime does not clear the parent show's
+  Continue Watching row (contentType-scoping check).
+
+**Tests performed:** Ran the full backend suite locally against a
+throwaway local Postgres 16 database (started for this session; not the
+project's Neon instance) — `npm test`: 134/134 passed. `npm run
+typecheck`: clean.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
