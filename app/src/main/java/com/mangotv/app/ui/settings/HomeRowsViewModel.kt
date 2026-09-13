@@ -8,6 +8,9 @@ import com.mangotv.app.data.model.HomeSection
 import com.mangotv.app.data.provider.CatalogProvider
 import com.mangotv.app.data.provider.HomeRowPreferences
 import com.mangotv.app.data.provider.ProviderRegistry
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -28,6 +31,14 @@ sealed interface HomeRowsUiState {
  * dragging a row doesn't wait on a network round-trip per step. Manual
  * ordering and hidden state are applied to [uiState]'s raw rows separately
  * (see [preferences]) as a cheap in-memory re-sort instead.
+ *
+ * Every provider's fetch runs concurrently (same reasoning as
+ * HomeViewModel's own fetch()), not one after another -- with N addons
+ * installed, awaiting them sequentially meant this screen's total wait was
+ * the SUM of every addon's own fetch time instead of just the slowest one.
+ * Unlike Home, this screen has no progressive reveal to preserve (it only
+ * ever wants the final, complete list), so a plain concurrent await is
+ * enough here without needing Home's own per-batch collect().
  */
 class HomeRowsViewModel(application: Application) : AndroidViewModel(application) {
 
@@ -50,13 +61,17 @@ class HomeRowsViewModel(application: Application) : AndroidViewModel(application
             return
         }
         _uiState.value = HomeRowsUiState.Loading
-        val rows = mutableListOf<HomeSection>()
-        for (provider in providers) {
-            // This screen just wants the final, complete row list (there's
-            // no progressive reveal here) -- collecting getHomeSections()'s
-            // batches to completion and flattening restores that.
-            runCatching { provider.getHomeSections().toList().flatten() }.onSuccess { rows += it }
-        }
+        // This screen just wants the final, complete row list (there's no
+        // progressive reveal here) -- collecting each provider's
+        // getHomeSections() batches to completion and flattening restores
+        // that, same as before. What's new is `async` per provider instead
+        // of a sequential loop, so every provider's own (up to ~30 request)
+        // fetch overlaps instead of stacking up back to back.
+        val rows = coroutineScope {
+            providers.map { provider ->
+                async { runCatching { provider.getHomeSections().toList().flatten() }.getOrDefault(emptyList()) }
+            }.awaitAll()
+        }.flatten()
         _uiState.value = HomeRowsUiState.Loaded(rows)
     }
 
