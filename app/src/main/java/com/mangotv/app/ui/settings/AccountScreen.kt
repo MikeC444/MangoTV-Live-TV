@@ -68,6 +68,7 @@ fun ColumnScope.AccountSettingsContent(
         focusRequester = contentFocusRequester,
         focusUp = navFocusRequester,
         focusLeft = sidebarFocusRequester,
-        compact = true
+        compact = true,
+        borderColor = TextPrimary
     )
 }

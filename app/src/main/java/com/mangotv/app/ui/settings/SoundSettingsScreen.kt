@@ -132,6 +132,7 @@ private fun NavigationVolumeRow(
             },
         shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
         backgroundColor = MangoSurface,
+        borderColor = TextPrimary,
         focusRequester = focusRequester,
         focusUp = focusUp,
         onFocusChanged = { focused = it }

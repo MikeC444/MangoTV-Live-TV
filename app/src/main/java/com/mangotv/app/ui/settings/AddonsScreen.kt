@@ -85,7 +85,8 @@ fun ColumnScope.AddonsSettingsContent(
                     focusRequester = contentFocusRequester,
                     focusUp = navFocusRequester,
                     focusLeft = sidebarFocusRequester,
-                    compact = true
+                    compact = true,
+                    borderColor = TextPrimary
                 )
             }
         }
@@ -175,7 +176,8 @@ private fun AddonRow(
         TvFocusSurface(
             onClick = onRemove,
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = MangoBackground
+            backgroundColor = MangoBackground,
+            borderColor = TextPrimary
         ) {
             Icon(
                 imageVector = Icons.Filled.Delete,

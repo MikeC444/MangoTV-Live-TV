@@ -216,6 +216,7 @@ private fun HomeRowToggleRow(
             // safely on screen for a wide element.
             focusedScale = 1.02f,
             backgroundColor = MangoSurface,
+            borderColor = TextPrimary,
             focusRequester = focusRequester,
             focusUp = focusUp,
             focusLeft = focusLeft

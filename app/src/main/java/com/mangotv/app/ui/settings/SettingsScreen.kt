@@ -165,7 +165,7 @@ private fun SettingsSidebarRow(
         // into the detail pane on the right -- independent of this
         // surface's own transient isFocused state.
         alwaysShowBorder = selected,
-        borderColor = MangoAmber,
+        borderColor = TextPrimary,
         focusRequester = focusRequester,
         focusUp = focusUp,
         focusRight = focusRight

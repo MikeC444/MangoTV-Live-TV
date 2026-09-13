@@ -165,6 +165,7 @@ private fun SubtitlesToggleRow(
         // Same wide-element-safe scale as Home Rows'/Genres' full-width rows.
         focusedScale = 1.02f,
         backgroundColor = MangoSurface,
+        borderColor = TextPrimary,
         focusRequester = focusRequester,
         focusUp = focusUp,
         focusLeft = focusLeft
@@ -201,7 +202,8 @@ private fun LanguageOptionRow(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
         focusedScale = 1.02f,
-        backgroundColor = MangoSurface
+        backgroundColor = MangoSurface,
+        borderColor = TextPrimary
     ) {
         Row(
             modifier = Modifier
