@@ -202,7 +202,7 @@ private fun HomeRowToggleRow(
                 Text(
                     text = row.title,
                     color = titleColor,
-                    style = MaterialTheme.typography.bodyLarge,
+                    style = MaterialTheme.typography.bodyMedium,
                     modifier = Modifier.weight(1f)
                 )
                 Spacer(Modifier.width(10.dp))
@@ -226,7 +226,7 @@ private fun HomeRowToggleRow(
         TvFocusSurface(
             onClick = onToggleGrabbed,
             modifier = Modifier
-                .size(40.dp)
+                .size(34.dp)
                 .onPreviewKeyEvent { event ->
                     if (grabbed && event.type == KeyEventType.KeyDown &&
                         (event.key == Key.DirectionUp || event.key == Key.DirectionDown)
@@ -248,8 +248,8 @@ private fun HomeRowToggleRow(
                 contentDescription = if (grabbed) "Stop moving ${row.title}" else "Reorder ${row.title}",
                 tint = if (grabbed) TextPrimary else TextSecondary,
                 modifier = Modifier
-                    .padding(8.dp)
-                    .size(20.dp)
+                    .padding(6.dp)
+                    .size(18.dp)
             )
         }
     }

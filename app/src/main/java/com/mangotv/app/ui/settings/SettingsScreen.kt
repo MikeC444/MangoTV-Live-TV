@@ -193,10 +193,10 @@ private fun SettingsDetailPane(
     onAddAddon: () -> Unit
 ) {
     Column(modifier = Modifier.fillMaxSize()) {
-        Text(text = category.title, color = TextPrimary, style = MaterialTheme.typography.displaySmall)
+        Text(text = category.title, color = TextPrimary, style = MaterialTheme.typography.titleLarge)
         Spacer(Modifier.height(4.dp))
-        Text(text = category.subtitle, color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
-        Spacer(Modifier.height(20.dp))
+        Text(text = category.subtitle, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
+        Spacer(Modifier.height(14.dp))
 
         when (category) {
             SettingsCategory.ACCOUNT -> AccountSettingsContent(

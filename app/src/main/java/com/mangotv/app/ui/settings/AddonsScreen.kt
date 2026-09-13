@@ -61,7 +61,7 @@ fun ColumnScope.AddonsSettingsContent(
         Text(
             text = "Stremio-compatible addons contribute their catalogs directly into Home.",
             color = TextSecondary,
-            style = MaterialTheme.typography.bodyMedium,
+            style = MaterialTheme.typography.bodySmall,
             modifier = Modifier.weight(1f)
         )
         Spacer(Modifier.width(20.dp))
@@ -72,11 +72,12 @@ fun ColumnScope.AddonsSettingsContent(
             style = MangoButtonStyle.FILLED,
             focusRequester = contentFocusRequester,
             focusUp = navFocusRequester,
-            focusLeft = sidebarFocusRequester
+            focusLeft = sidebarFocusRequester,
+            compact = true
         )
     }
 
-    Spacer(Modifier.height(28.dp))
+    Spacer(Modifier.height(16.dp))
 
     if (addons.isEmpty()) {
         EmptyAddonsHint()
@@ -106,13 +107,13 @@ private fun EmptyAddonsHint() {
         Text(
             text = "No addons installed yet",
             color = TextPrimary,
-            style = MaterialTheme.typography.titleLarge
+            style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(6.dp))
         Text(
             text = "Add a Stremio-compatible addon to bring its catalog into Mango TV.",
             color = TextSecondary,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodySmall
         )
     }
 }
@@ -127,12 +128,12 @@ private fun AddonRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(MangoSurface, RoundedCornerShape(MangoDimens.CardCornerRadius))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = addon.manifest.name, color = TextPrimary, style = MaterialTheme.typography.titleLarge)
+                Text(text = addon.manifest.name, color = TextPrimary, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.width(10.dp))
                 Text(text = "v${addon.manifest.version}", color = TextTertiary, style = MaterialTheme.typography.labelSmall)
             }
@@ -141,7 +142,7 @@ private fun AddonRow(
                 Text(
                     text = it,
                     color = TextSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )

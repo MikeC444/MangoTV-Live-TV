@@ -54,12 +54,12 @@ fun ColumnScope.AccountSettingsContent(
 
     val user = session?.user
     if (user != null) {
-        Text(text = user.displayName ?: user.email, color = TextPrimary, style = MaterialTheme.typography.titleLarge)
+        Text(text = user.displayName ?: user.email, color = TextPrimary, style = MaterialTheme.typography.titleMedium)
         if (user.displayName != null) {
-            Text(text = user.email, color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
+            Text(text = user.email, color = TextSecondary, style = MaterialTheme.typography.bodySmall)
         }
     }
-    Spacer(Modifier.height(28.dp))
+    Spacer(Modifier.height(16.dp))
     MangoButton(
         text = if (signingOut) "Signing Out…" else "Sign Out",
         icon = Icons.Filled.Logout,
@@ -67,6 +67,7 @@ fun ColumnScope.AccountSettingsContent(
         style = MangoButtonStyle.GLASS,
         focusRequester = contentFocusRequester,
         focusUp = navFocusRequester,
-        focusLeft = sidebarFocusRequester
+        focusLeft = sidebarFocusRequester,
+        compact = true
     )
 }

@@ -104,16 +104,16 @@ fun ColumnScope.SubtitleSettingsContent(
         focusLeft = sidebarFocusRequester
     )
 
-    Spacer(Modifier.height(28.dp))
+    Spacer(Modifier.height(16.dp))
 
-    Text(text = "Default Language", color = TextPrimary, style = MaterialTheme.typography.titleLarge)
+    Text(text = "Default Language", color = TextPrimary, style = MaterialTheme.typography.titleMedium)
     Spacer(Modifier.height(4.dp))
     Text(
         text = "Used to automatically pick a matching subtitle track when Subtitles is on.",
         color = TextSecondary,
-        style = MaterialTheme.typography.bodyMedium
+        style = MaterialTheme.typography.bodySmall
     )
-    Spacer(Modifier.height(14.dp))
+    Spacer(Modifier.height(10.dp))
 
     LazyColumn(
         modifier = Modifier
@@ -160,13 +160,13 @@ private fun SubtitlesToggleRow(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp),
+                .padding(horizontal = 16.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Text(
                 text = "Subtitles",
                 color = TextPrimary,
-                style = MaterialTheme.typography.titleLarge,
+                style = MaterialTheme.typography.titleMedium,
                 modifier = Modifier.weight(1f)
             )
             Switch(
@@ -203,7 +203,7 @@ private fun LanguageOptionRow(
             Text(
                 text = label,
                 color = TextPrimary,
-                style = MaterialTheme.typography.titleMedium,
+                style = MaterialTheme.typography.bodyLarge,
                 modifier = Modifier.weight(1f)
             )
             if (selected) {
