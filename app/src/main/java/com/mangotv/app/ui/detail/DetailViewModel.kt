@@ -40,6 +40,7 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
     private val lastSourceRepository = (application as MangoTvApplication).container.lastSourceRepository
     private val trailerRepository = (application as MangoTvApplication).container.trailerRepository
+    private val releaseDateRepository = (application as MangoTvApplication).container.releaseDateRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -70,6 +71,14 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
 
     private val _trailerState = MutableStateFlow<TrailerState>(TrailerState.Idle)
     val trailerState: StateFlow<TrailerState> = _trailerState.asStateFlow()
+
+    // Real release date from TMDB ("YYYY-MM-DD"), once loadReleaseDate()
+    // resolves -- unlike trailerState, there's no Idle/Loading/NotFound
+    // distinction to track: DetailHeroSection always has something to show
+    // in the meantime (the addon-supplied content.year), so a plain
+    // nullable value that starts null and gets filled in is enough.
+    private val _releaseDate = MutableStateFlow<String?>(null)
+    val releaseDate: StateFlow<String?> = _releaseDate.asStateFlow()
 
     // Drives DetailHeroSection's Play -> Resume switch and which episode it
     // targets for a TV show -- reactive (not just a one-off findResumePoint
@@ -112,6 +121,7 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
         viewModelScope.launch {
             _uiState.value = DetailUiState.Loading
             _trailerState.value = TrailerState.Idle
+            _releaseDate.value = null
 
             val provider = ProviderRegistry.activeProviders().find { it.id == providerId }
             if (provider == null) {
@@ -134,6 +144,7 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
             // moment later once it's ready.
             _uiState.value = DetailUiState.Success(detail, similar = emptyList())
             loadTrailer(detail)
+            loadReleaseDate(detail)
 
             val similar = runCatching { loadSimilar(provider, detail) }.getOrDefault(emptyList())
             if (similar.isNotEmpty()) {
@@ -151,6 +162,18 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
         viewModelScope.launch {
             val videoId = trailerRepository.findTrailer(content.title, content.year, content.type)
             _trailerState.value = videoId?.let { TrailerState.Found(it) } ?: TrailerState.NotFound
+        }
+    }
+
+    // A separate child coroutine, same reasoning as loadTrailer above: an
+    // extra network round trip that must never delay (or be delayed by)
+    // the rest of the page. Movies only -- a TV show doesn't have a single
+    // "release date" the same way (first-air-date vs. a whole run still in
+    // progress), so there's nothing useful to upgrade content.year to yet.
+    private fun loadReleaseDate(content: Content) {
+        if (content.type != ContentType.MOVIE) return
+        viewModelScope.launch {
+            _releaseDate.value = releaseDateRepository.findReleaseDate(content.title, content.year)
         }
     }
 

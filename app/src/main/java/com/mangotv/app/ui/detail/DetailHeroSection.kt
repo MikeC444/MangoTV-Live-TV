@@ -68,6 +68,8 @@ import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
+import java.text.SimpleDateFormat
+import java.util.Locale
 
 /**
  * Detail screen's hero content — title/meta/description/actions bottom-left,
@@ -102,6 +104,11 @@ fun DetailHeroSection(
     // DetailViewModel.TrailerState), never as a dead/no-op button for a
     // title with no trailer available.
     onTrailer: (() -> Unit)? = null,
+    // Real release date from TMDB ("YYYY-MM-DD"), shown instead of the
+    // bare addon-supplied content.year when available -- null (falls back
+    // to content.year) until DetailViewModel.loadReleaseDate resolves,
+    // isn't configured, or TMDB has no match. Movies only, for now.
+    releaseDate: String? = null,
     // Movie detail only, for now: shrinks everything except the title so
     // the whole page (hero + Cast + You May Also Like) fits on one screen
     // without scrolling. TV shows don't pass this and are unaffected.
@@ -270,7 +277,8 @@ fun DetailHeroSection(
                 val metaStyle = (if (compact) MaterialTheme.typography.bodyMedium else MaterialTheme.typography.titleMedium)
                     .copy(shadow = HeroTextShadow)
                 val leadingParts = buildList {
-                    content.year?.let { add(it.toString()) }
+                    val releaseLabel = releaseDate?.let(::formatReleaseDate) ?: content.year?.toString()
+                    releaseLabel?.let { add(it) }
                     content.runtimeMinutes?.let { add("${it / 60}h ${it % 60}m") }
                 }
                 if (leadingParts.isNotEmpty()) {
@@ -410,3 +418,12 @@ fun DetailHeroSection(
         }
     }
 }
+
+// java.time needs API 26+ (this app's minSdk is 23, with no core library
+// desugaring configured), so this uses the always-available SimpleDateFormat
+// instead. Returns null (falling back to the bare year) on any malformed
+// input rather than crashing the detail page over a display nicety.
+private fun formatReleaseDate(isoDate: String): String? = runCatching {
+    val parsed = requireNotNull(SimpleDateFormat("yyyy-MM-dd", Locale.US).parse(isoDate))
+    SimpleDateFormat("MMM d, yyyy", Locale.US).format(parsed)
+}.getOrNull()
