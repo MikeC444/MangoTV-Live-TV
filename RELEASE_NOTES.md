@@ -14,7 +14,7 @@ run the release workflow for that version.
 
 ## Unreleased
 
-- Fixed trailers playing sound over a black screen: the trailer player now only picks a video quality this device can actually decode
+- Trailers now open in the app of your choice (the YouTube app, a browser, whatever you have installed) instead of playing inside MangoTV, which fixes trailers playing sound over a black screen
 - Movie detail pages now show the real release date when it's available, instead of just the year
 - Update banner's Update button is now white instead of amber
 - Fixed the Close/Open Settings buttons on the update overlays being unselectable
