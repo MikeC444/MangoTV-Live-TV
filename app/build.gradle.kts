@@ -113,6 +113,17 @@ android {
         buildConfig = true
     }
 
+    // Plain JVM unit tests (app/src/test) run against the unmocked Android
+    // stub jar, where every framework method throws "not mocked" instead of
+    // doing anything -- e.g. decodableOnly()'s Log.w() call. This makes such
+    // calls return a harmless default (null/0/false) instead, which is all
+    // these tests need since none of them assert on Log output itself.
+    testOptions {
+        unitTests {
+            isReturnDefaultValues = true
+        }
+    }
+
     packaging {
         resources {
             excludes += setOf(
