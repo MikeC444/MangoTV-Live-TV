@@ -99,6 +99,7 @@ real deployment. **Never commit `.env`** (already covered by
 | `API_BASE_URL` | Yes (for anything that builds a QR activation URL) | The public HTTPS URL this API is actually reachable at — used to build `<API_BASE_URL>/activate?token=...`. Local dev: `http://localhost:3000`. Real deployment: `https://api.yourdomain.com`. Read lazily (only by the QR routes), so running a migration never needs it set. |
 | `NODE_ENV` | No (defaults to `development`) | `production` suppresses the extra `detail` field `errorHandler` otherwise includes on unexpected 500s for local debugging — never leak internals in production. |
 | `PORT` | No (defaults to `3000`) | Port the HTTP server listens on. |
+| `TMDB_READ_ACCESS_TOKEN` | No | Powers the Detail screen's Trailer button (`/user/trailer`) and its movie release-date lookup (`/user/release-date`). Both degrade gracefully without it (no button; the addon's own bare year instead of a real date) — see `server/.env.example` for where to get one. |
 
 The **Android app** reads its own, separate configuration —
 `API_BASE_URL` in `local.properties` (gitignored, developer/deployment-

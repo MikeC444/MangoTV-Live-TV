@@ -14,6 +14,7 @@ run the release workflow for that version.
 
 ## Unreleased
 
+- Movie detail pages now show the real release date when it's available, instead of just the year
 - Update banner's Update button is now white instead of amber
 - Fixed the Close/Open Settings buttons on the update overlays being unselectable
 - Allow-installing-updates overlay's Open Settings button is now white instead of orange
