@@ -2648,3 +2648,65 @@ typecheck`: clean.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-19 — Faster Source Selection (Progressive Loading)
+
+**Status:** Complete.
+
+**Context:** User report: the "Select a Source" screen was slow to load.
+`SourcesViewModel.load()` queried every active addon's `getStreams()` in
+parallel but sat on `awaitAll()` before showing anything, so the whole
+screen stayed on its loading skeleton for as long as the single slowest
+installed addon took to answer — even when every other addon had already
+responded in milliseconds. Real Stremio-style "stream" addons commonly
+scrape live sources and can genuinely take several seconds (unlike
+catalog/meta endpoints), so the picker felt sluggish with more than one
+addon installed, or even with just one that's a little slow.
+
+**Changes:**
+- `SourcesViewModel.kt` — `load()` now branches in two directions after a
+  purely local (no-network) check of whether this load can end in the
+  existing Continue-Watching "resume" shortcut:
+  - The resume path (an exact season/episode match whose last-used source
+    is still available skips straight to Player) is unchanged: it still
+    waits for every provider before deciding, since it needs the full
+    merged stream list to know whether to skip the picker at all, and
+    must never flash the interactive list first.
+  - The normal "show the picker" path now fans out every provider's
+    `getStreams()` call and publishes results as each one completes (via
+    a `Channel`, drained in completion order rather than launch order)
+    instead of waiting for `awaitAll()`. A fast addon's sources appear
+    immediately; slower addons' results are appended as they arrive.
+  - Added `SourcesUiState.Loaded.isSearchingMore`, true while any
+    provider is still outstanding.
+- `SourcesScreen.kt` — while `isSearchingMore` is true: an empty list
+  shows a new `SourcesSearchingState` ("Searching for sources…") instead
+  of the "No sources found, try installing more addons" empty state
+  (misleading before slower addons have had a chance to reply); a
+  non-empty list shows whatever's arrived so far plus a small inline
+  "Looking for more sources…" indicator, reusing the same amber
+  `CircularProgressIndicator` style `SearchScreen` already uses for its
+  own in-progress state.
+
+**Tests performed:** This sandbox has no Android SDK configured (no
+`ANDROID_HOME`, no `local.properties`), and per every prior milestone's
+own notes, fetching one from scratch here isn't realistic — so, matching
+this project's established fallback for Kotlin-only changes: a
+script-based brace/paren/bracket-balance check on both touched files; a
+full manual re-read of the new `load()` control flow (the resume-vs-picker
+split, the channel's send/receive count matching exactly, Compose
+recomposition/focus behavior around a streams list that now grows across
+multiple emissions); confirmed both `SourcesUiState.Loaded(...)`
+construction sites already use named arguments (a positional call is what
+a new field with a default value could otherwise silently break) and that
+no existing test references `SourcesViewModel`/`SourcesUiState` — this
+app has exactly one ViewModel unit test in the whole project
+(`PasswordSignInViewModelTest`), and it covers a pure function, not a
+provider-fan-out ViewModel like this one, so no existing coverage needed
+updating. **Not performed:** an actual Kotlin/Gradle compile or on-device
+verification — `build-apk.yml` (manual-dispatch only on this branch) is
+the real compile check and needs to be triggered after this is pushed.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
