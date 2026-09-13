@@ -3,6 +3,7 @@ package com.mangotv.app.ui.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +24,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -43,61 +43,56 @@ import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
 
+/** A ColumnScope extension hosted by SettingsScreen's detail pane -- see AccountSettingsContent's kdoc for why this isn't its own screen anymore. */
 @Composable
-fun AddonsScreen(
-    onNavigate: (String) -> Unit,
+fun ColumnScope.AddonsSettingsContent(
     onAddAddon: () -> Unit,
+    navFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester,
     viewModel: AddonsViewModel = viewModel()
 ) {
     val addons by viewModel.installedAddons.collectAsStateWithLifecycle()
-    val navFocusRequester = remember { FocusRequester() }
-    val addButtonFocusRequester = remember { FocusRequester() }
 
-    SettingsScaffold(
-        title = "Addons",
-        onNavigate = onNavigate,
-        navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = addButtonFocusRequester
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+        Text(
+            text = "Stremio-compatible addons contribute their catalogs directly into Home.",
+            color = TextSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+            modifier = Modifier.weight(1f)
+        )
+        Spacer(Modifier.width(20.dp))
+        MangoButton(
+            text = "Add Addon",
+            icon = Icons.Filled.Add,
+            onClick = onAddAddon,
+            style = MangoButtonStyle.FILLED,
+            focusRequester = contentFocusRequester,
+            focusUp = navFocusRequester,
+            focusLeft = sidebarFocusRequester
+        )
+    }
+
+    Spacer(Modifier.height(28.dp))
+
+    if (addons.isEmpty()) {
+        EmptyAddonsHint()
+    } else {
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
         ) {
-            Text(
-                text = "Stremio-compatible addons contribute their catalogs directly into Home.",
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(20.dp))
-            MangoButton(
-                text = "Add Addon",
-                icon = Icons.Filled.Add,
-                onClick = onAddAddon,
-                style = MangoButtonStyle.FILLED,
-                focusRequester = addButtonFocusRequester,
-                focusUp = navFocusRequester
-            )
-        }
-
-        Spacer(Modifier.height(28.dp))
-
-        if (addons.isEmpty()) {
-            EmptyAddonsHint()
-        } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                items(addons, key = { it.manifestUrl }) { addon ->
-                    AddonRow(
-                        addon = addon,
-                        onToggle = { enabled -> viewModel.setEnabled(addon.manifestUrl, enabled) },
-                        onRemove = { viewModel.remove(addon.manifestUrl) }
-                    )
-                }
+            items(addons, key = { it.manifestUrl }) { addon ->
+                AddonRow(
+                    addon = addon,
+                    onToggle = { enabled -> viewModel.setEnabled(addon.manifestUrl, enabled) },
+                    onRemove = { viewModel.remove(addon.manifestUrl) }
+                )
             }
         }
     }

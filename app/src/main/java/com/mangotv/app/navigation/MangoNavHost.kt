@@ -44,13 +44,8 @@ import com.mangotv.app.ui.mylist.MyListScreen
 import com.mangotv.app.ui.home.HomeScreen
 import com.mangotv.app.ui.home.HomeViewModel
 import com.mangotv.app.ui.player.PlayerScreen
-import com.mangotv.app.ui.settings.AccountScreen
 import com.mangotv.app.ui.settings.AddAddonScreen
-import com.mangotv.app.ui.settings.AddonsScreen
-import com.mangotv.app.ui.settings.HomeRowsScreen
 import com.mangotv.app.ui.settings.SettingsScreen
-import com.mangotv.app.ui.settings.SoundSettingsScreen
-import com.mangotv.app.ui.settings.SubtitleSettingsScreen
 import com.mangotv.app.ui.sources.SourcesScreen
 import com.mangotv.app.ui.trailer.TrailerPlayerScreen
 import com.mangotv.app.ui.components.CardActionsMenuOverlay
@@ -310,32 +305,8 @@ fun MangoNavHost() {
                 composable(MangoRoutes.SETTINGS) {
                     SettingsScreen(
                         onNavigate = ::navigateTo,
-                        onOpenAddons = { navController.navigate(MangoRoutes.SETTINGS_ADDONS) },
-                        onOpenHomeRows = { navController.navigate(MangoRoutes.SETTINGS_HOME_ROWS) },
-                        onOpenSounds = { navController.navigate(MangoRoutes.SETTINGS_SOUNDS) },
-                        onOpenSubtitles = { navController.navigate(MangoRoutes.SETTINGS_SUBTITLES) },
-                        onOpenAccount = { navController.navigate(MangoRoutes.SETTINGS_ACCOUNT) }
-                    )
-                }
-                composable(MangoRoutes.SETTINGS_HOME_ROWS) {
-                    HomeRowsScreen(
-                        onNavigate = ::navigateTo
-                    )
-                }
-                composable(MangoRoutes.SETTINGS_SOUNDS) {
-                    SoundSettingsScreen(
-                        onNavigate = ::navigateTo
-                    )
-                }
-                composable(MangoRoutes.SETTINGS_SUBTITLES) {
-                    SubtitleSettingsScreen(
-                        onNavigate = ::navigateTo
-                    )
-                }
-                composable(MangoRoutes.SETTINGS_ACCOUNT) {
-                    AccountScreen(
-                        onNavigate = ::navigateTo,
-                        onSignedOut = { navigateClearingBackStack(MangoRoutes.AUTH_START) }
+                        onSignedOut = { navigateClearingBackStack(MangoRoutes.AUTH_START) },
+                        onAddAddon = { navController.navigate(MangoRoutes.SETTINGS_ADD_ADDON) }
                     )
                 }
                 composable(MangoRoutes.MOVIES) {
@@ -366,12 +337,6 @@ fun MangoNavHost() {
                 composable(MangoRoutes.MY_LIST) {
                     MyListScreen(
                         onNavigate = ::navigateTo
-                    )
-                }
-                composable(MangoRoutes.SETTINGS_ADDONS) {
-                    AddonsScreen(
-                        onNavigate = ::navigateTo,
-                        onAddAddon = { navController.navigate(MangoRoutes.SETTINGS_ADD_ADDON) }
                     )
                 }
                 composable(MangoRoutes.SETTINGS_ADD_ADDON) {

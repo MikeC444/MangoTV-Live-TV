@@ -1,5 +1,6 @@
 package com.mangotv.app.ui.settings
 
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
@@ -9,7 +10,6 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.unit.dp
@@ -31,11 +31,17 @@ import com.mangotv.app.ui.theme.TextSecondary
  * sign in again, as the same account or a different one) without
  * clearing app data, which would otherwise be the only way back to the
  * auth screen once past it.
+ *
+ * A ColumnScope extension, not its own screen -- SettingsScreen's detail
+ * pane hosts this (and its 4 siblings) directly, so the shared top nav bar
+ * only exists once instead of once per category.
  */
 @Composable
-fun AccountScreen(
-    onNavigate: (String) -> Unit,
+fun ColumnScope.AccountSettingsContent(
     onSignedOut: () -> Unit,
+    navFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester,
     viewModel: AccountViewModel = viewModel()
 ) {
     val session by viewModel.session.collectAsStateWithLifecycle()
@@ -46,30 +52,21 @@ fun AccountScreen(
         if (signedOut) onSignedOut()
     }
 
-    val navFocusRequester = remember { FocusRequester() }
-    val signOutFocusRequester = remember { FocusRequester() }
-
-    SettingsScaffold(
-        title = "Account",
-        onNavigate = onNavigate,
-        navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = signOutFocusRequester
-    ) {
-        val user = session?.user
-        if (user != null) {
-            Text(text = user.displayName ?: user.email, color = TextPrimary, style = MaterialTheme.typography.titleLarge)
-            if (user.displayName != null) {
-                Text(text = user.email, color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
-            }
+    val user = session?.user
+    if (user != null) {
+        Text(text = user.displayName ?: user.email, color = TextPrimary, style = MaterialTheme.typography.titleLarge)
+        if (user.displayName != null) {
+            Text(text = user.email, color = TextSecondary, style = MaterialTheme.typography.bodyMedium)
         }
-        Spacer(Modifier.height(28.dp))
-        MangoButton(
-            text = if (signingOut) "Signing Out…" else "Sign Out",
-            icon = Icons.Filled.Logout,
-            onClick = viewModel::signOut,
-            style = MangoButtonStyle.GLASS,
-            focusRequester = signOutFocusRequester,
-            focusUp = navFocusRequester
-        )
     }
+    Spacer(Modifier.height(28.dp))
+    MangoButton(
+        text = if (signingOut) "Signing Out…" else "Sign Out",
+        icon = Icons.Filled.Logout,
+        onClick = viewModel::signOut,
+        style = MangoButtonStyle.GLASS,
+        focusRequester = contentFocusRequester,
+        focusUp = navFocusRequester,
+        focusLeft = sidebarFocusRequester
+    )
 }

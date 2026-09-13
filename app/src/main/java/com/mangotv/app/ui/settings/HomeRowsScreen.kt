@@ -1,6 +1,7 @@
 package com.mangotv.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -13,7 +14,6 @@ import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.GridView
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material3.CircularProgressIndicator
@@ -27,7 +27,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -49,19 +48,27 @@ import com.mangotv.app.ui.theme.MangoSurface
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
-import kotlinx.coroutines.launch
 
+/**
+ * A ColumnScope extension hosted by SettingsScreen's detail pane -- see
+ * AccountSettingsContent's kdoc for why this isn't its own screen anymore.
+ * Unlike its old standalone-screen version, there's no onNavigateDown
+ * scroll-into-view handling here: this content is fully torn down and
+ * recomposed fresh (scrolled to the top) every time its category is
+ * (re)selected in the sidebar, since only the selected category's content
+ * is ever composed -- so firstRowFocusRequester's target (index 0) is
+ * always present the moment it could possibly be requested.
+ */
 @Composable
-fun HomeRowsScreen(
-    onNavigate: (String) -> Unit,
+fun ColumnScope.HomeRowsSettingsContent(
+    navFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester,
     viewModel: HomeRowsViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
-    val navFocusRequester = remember { FocusRequester() }
-    val firstRowFocusRequester = remember { FocusRequester() }
     val listState = rememberLazyListState()
-    val coroutineScope = rememberCoroutineScope()
 
     // Which row is currently "picked up" for reordering, keyed by its id —
     // null means no row is being moved. While a row is grabbed, its drag
@@ -69,102 +76,72 @@ fun HomeRowsScreen(
     // instead of letting them move focus.
     var grabbedRowId by remember { mutableStateOf<String?>(null) }
 
-    // See TopNavBar's kdoc on onNavigateDown / GenresScreen's identical fix:
-    // firstRowFocusRequester below is pinned to only the list's very first
-    // row, which this LazyColumn stops composing once it's scrolled out of
-    // view -- an addon set with enough home rows to scroll makes that the
-    // common case. Scrolling back to item 0 first, then focusing, guarantees
-    // the target exists before it's used instead of crashing on DOWN from
-    // the nav bar.
-    val hasRows = (uiState as? HomeRowsUiState.Loaded)?.rows?.isNotEmpty() == true
-    val onNavigateDown: (() -> Unit)? = if (hasRows) {
-        {
-            coroutineScope.launch {
-                val alreadyVisible = listState.layoutInfo.visibleItemsInfo.any { it.index == 0 }
-                if (!alreadyVisible) {
-                    listState.animateScrollToItem(0)
-                }
-                runCatching { firstRowFocusRequester.requestFocus() }
-            }
-        }
-    } else {
-        null
-    }
+    Text(
+        text = "Toggle categories on or off, and use the handle to reorder them.",
+        color = TextSecondary,
+        style = MaterialTheme.typography.bodySmall
+    )
+    Spacer(Modifier.height(8.dp))
 
-    SettingsScaffold(
-        title = "Home Rows",
-        onNavigate = onNavigate,
-        navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = firstRowFocusRequester,
-        titleIcon = Icons.Filled.GridView,
-        onNavigateDown = onNavigateDown
-    ) {
-        Text(
-            text = "Toggle categories on or off, and use the handle to reorder them.",
+    when (val state = uiState) {
+        is HomeRowsUiState.Loading -> CircularProgressIndicator(color = MangoAmber)
+        is HomeRowsUiState.NoAddons -> Text(
+            text = "Install an addon first — its rows will show up here once it's added.",
             color = TextSecondary,
-            style = MaterialTheme.typography.bodySmall
+            style = MaterialTheme.typography.bodyMedium
         )
-        Spacer(Modifier.height(8.dp))
+        is HomeRowsUiState.Loaded -> {
+            if (state.rows.isEmpty()) {
+                Text(
+                    text = "Your installed addons aren't reporting any rows right now.",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodyMedium
+                )
+            } else {
+                val orderedRows = remember(state.rows, preferences) { preferences.applyOrder(state.rows) }
+                val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
 
-        when (val state = uiState) {
-            is HomeRowsUiState.Loading -> CircularProgressIndicator(color = MangoAmber)
-            is HomeRowsUiState.NoAddons -> Text(
-                text = "Install an addon first — its rows will show up here once it's added.",
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyMedium
-            )
-            is HomeRowsUiState.Loaded -> {
-                if (state.rows.isEmpty()) {
-                    Text(
-                        text = "Your installed addons aren't reporting any rows right now.",
-                        color = TextSecondary,
-                        style = MaterialTheme.typography.bodyMedium
+                LazyColumn(
+                    state = listState,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f),
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
+                ) {
+                    itemsIndexed(orderedRows, key = { _, row -> row.id }) { index, row ->
+                        val visible = row.id !in preferences.hiddenRowIds
+                        HomeRowToggleRow(
+                            row = row,
+                            visible = visible,
+                            grabbed = grabbedRowId == row.id,
+                            onToggleVisible = { viewModel.setRowVisible(row.id, !visible) },
+                            onToggleGrabbed = {
+                                grabbedRowId = if (grabbedRowId == row.id) null else row.id
+                            },
+                            onMove = { delta -> viewModel.moveRow(displayOrder, row.id, delta) },
+                            onHandleFocusLost = { if (grabbedRowId == row.id) grabbedRowId = null },
+                            focusRequester = if (index == 0) contentFocusRequester else null,
+                            focusUp = if (index == 0) navFocusRequester else null,
+                            focusLeft = if (index == 0) sidebarFocusRequester else null
+                        )
+                    }
+                }
+
+                HorizontalDivider(color = TextTertiary.copy(alpha = 0.2f))
+                Spacer(Modifier.height(8.dp))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Icon(
+                        imageVector = Icons.Filled.Info,
+                        contentDescription = null,
+                        tint = TextTertiary,
+                        modifier = Modifier.size(14.dp)
                     )
-                } else {
-                    val orderedRows = remember(state.rows, preferences) { preferences.applyOrder(state.rows) }
-                    val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
-
-                    LazyColumn(
-                        state = listState,
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .weight(1f),
-                        verticalArrangement = Arrangement.spacedBy(4.dp)
-                    ) {
-                        itemsIndexed(orderedRows, key = { _, row -> row.id }) { index, row ->
-                            val visible = row.id !in preferences.hiddenRowIds
-                            HomeRowToggleRow(
-                                row = row,
-                                visible = visible,
-                                grabbed = grabbedRowId == row.id,
-                                onToggleVisible = { viewModel.setRowVisible(row.id, !visible) },
-                                onToggleGrabbed = {
-                                    grabbedRowId = if (grabbedRowId == row.id) null else row.id
-                                },
-                                onMove = { delta -> viewModel.moveRow(displayOrder, row.id, delta) },
-                                onHandleFocusLost = { if (grabbedRowId == row.id) grabbedRowId = null },
-                                focusRequester = if (index == 0) firstRowFocusRequester else null,
-                                focusUp = if (index == 0) navFocusRequester else null
-                            )
-                        }
-                    }
-
-                    HorizontalDivider(color = TextTertiary.copy(alpha = 0.2f))
-                    Spacer(Modifier.height(8.dp))
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Icon(
-                            imageVector = Icons.Filled.Info,
-                            contentDescription = null,
-                            tint = TextTertiary,
-                            modifier = Modifier.size(14.dp)
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = "Changes are saved automatically",
-                            color = TextTertiary,
-                            style = MaterialTheme.typography.labelSmall
-                        )
-                    }
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = "Changes are saved automatically",
+                        color = TextTertiary,
+                        style = MaterialTheme.typography.labelSmall
+                    )
                 }
             }
         }
@@ -186,7 +163,8 @@ private fun HomeRowToggleRow(
     onMove: (Int) -> Unit,
     onHandleFocusLost: () -> Unit,
     focusRequester: FocusRequester? = null,
-    focusUp: FocusRequester? = null
+    focusUp: FocusRequester? = null,
+    focusLeft: FocusRequester? = null
 ) {
     val titleColor = if (visible) TextPrimary else TextTertiary
     val subtitleColor = if (visible) TextSecondary else TextTertiary
@@ -212,7 +190,8 @@ private fun HomeRowToggleRow(
             focusedScale = 1.02f,
             backgroundColor = MangoSurface,
             focusRequester = focusRequester,
-            focusUp = focusUp
+            focusUp = focusUp,
+            focusLeft = focusLeft
         ) {
             Row(
                 modifier = Modifier

@@ -99,7 +99,10 @@ fun SourcesScreen(
                     SourcesContent(
                         state = state,
                         onBack = onBack,
-                        onManageAddons = { onNavigate(MangoRoutes.SETTINGS_ADDONS) },
+                        // Addons is now a tab inside the unified Settings
+                        // screen rather than its own route -- this lands on
+                        // Settings' default tab, not Addons specifically.
+                        onManageAddons = { onNavigate(MangoRoutes.SETTINGS) },
                         onSelectSource = { stream ->
                             state.content.providerId?.let { pid ->
                                 onNavigate(

@@ -1,6 +1,7 @@
 package com.mangotv.app.ui.settings
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -13,7 +14,6 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
-import androidx.compose.material.icons.filled.Subtitles
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Switch
@@ -21,7 +21,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -73,6 +72,9 @@ val SubtitleLanguageOptions: List<SubtitleLanguageOption> = listOf(
  * in-player Subtitles menu can still override either one once a video is
  * actually playing (see PlayerEngine.buildExoPlayer's own kdoc).
  *
+ * A ColumnScope extension hosted by SettingsScreen's detail pane -- see
+ * AccountSettingsContent's kdoc for why this isn't its own screen anymore.
+ *
  * The language list below is deliberately NOT given any
  * focusRequester/focusUp/focusDown wiring of its own (unlike e.g.
  * GenresScreen's genre list) — it relies entirely on Compose's default
@@ -83,62 +85,55 @@ val SubtitleLanguageOptions: List<SubtitleLanguageOption> = listOf(
  * exact failure), and unlike those two screens, nothing here needs a
  * guaranteed-stable seam between the nav bar and this list -- the
  * Subtitles toggle row above it (always composed, never scrolls) is what
- * firstContentFocusRequester below points to instead.
+ * contentFocusRequester below points to instead.
  */
 @Composable
-fun SubtitleSettingsScreen(
-    onNavigate: (String) -> Unit,
+fun ColumnScope.SubtitleSettingsContent(
+    navFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester,
     viewModel: SubtitleSettingsViewModel = viewModel()
 ) {
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
-    val navFocusRequester = remember { FocusRequester() }
-    val subtitlesToggleFocusRequester = remember { FocusRequester() }
 
-    SettingsScaffold(
-        title = "Subtitles",
-        onNavigate = onNavigate,
-        navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = subtitlesToggleFocusRequester,
-        titleIcon = Icons.Filled.Subtitles
+    SubtitlesToggleRow(
+        enabled = preferences.subtitlesEnabled,
+        onToggle = viewModel::setSubtitlesEnabled,
+        focusRequester = contentFocusRequester,
+        focusUp = navFocusRequester,
+        focusLeft = sidebarFocusRequester
+    )
+
+    Spacer(Modifier.height(28.dp))
+
+    Text(text = "Default Language", color = TextPrimary, style = MaterialTheme.typography.titleLarge)
+    Spacer(Modifier.height(4.dp))
+    Text(
+        text = "Used to automatically pick a matching subtitle track when Subtitles is on.",
+        color = TextSecondary,
+        style = MaterialTheme.typography.bodyMedium
+    )
+    Spacer(Modifier.height(14.dp))
+
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f),
+        // LazyColumn clips to its own bounds, and each row below fills
+        // its full width with no margin of its own -- so a row's focus
+        // scale-up (TvFocusSurface) had nowhere to grow into and got
+        // clipped flush against the list's left/right edges. Same fix
+        // as TopNavBar/SourcesScreen/SoundSettingsScreen: reserve a
+        // little headroom via contentPadding for the scale to grow into.
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        SubtitlesToggleRow(
-            enabled = preferences.subtitlesEnabled,
-            onToggle = viewModel::setSubtitlesEnabled,
-            focusRequester = subtitlesToggleFocusRequester,
-            focusUp = navFocusRequester
-        )
-
-        Spacer(Modifier.height(28.dp))
-
-        Text(text = "Default Language", color = TextPrimary, style = MaterialTheme.typography.titleLarge)
-        Spacer(Modifier.height(4.dp))
-        Text(
-            text = "Used to automatically pick a matching subtitle track when Subtitles is on.",
-            color = TextSecondary,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        Spacer(Modifier.height(14.dp))
-
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            // LazyColumn clips to its own bounds, and each row below fills
-            // its full width with no margin of its own -- so a row's focus
-            // scale-up (TvFocusSurface) had nowhere to grow into and got
-            // clipped flush against the list's left/right edges. Same fix
-            // as TopNavBar/SourcesScreen/SoundSettingsScreen: reserve a
-            // little headroom via contentPadding for the scale to grow into.
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            items(SubtitleLanguageOptions, key = { it.code ?: "system_default" }) { option ->
-                LanguageOptionRow(
-                    label = option.label,
-                    selected = option.code == preferences.defaultSubtitleLanguage,
-                    onClick = { viewModel.setDefaultSubtitleLanguage(option.code) }
-                )
-            }
+        items(SubtitleLanguageOptions, key = { it.code ?: "system_default" }) { option ->
+            LanguageOptionRow(
+                label = option.label,
+                selected = option.code == preferences.defaultSubtitleLanguage,
+                onClick = { viewModel.setDefaultSubtitleLanguage(option.code) }
+            )
         }
     }
 }
@@ -148,7 +143,8 @@ private fun SubtitlesToggleRow(
     enabled: Boolean,
     onToggle: (Boolean) -> Unit,
     focusRequester: FocusRequester? = null,
-    focusUp: FocusRequester? = null
+    focusUp: FocusRequester? = null,
+    focusLeft: FocusRequester? = null
 ) {
     TvFocusSurface(
         onClick = { onToggle(!enabled) },
@@ -158,7 +154,8 @@ private fun SubtitlesToggleRow(
         focusedScale = 1.02f,
         backgroundColor = MangoSurface,
         focusRequester = focusRequester,
-        focusUp = focusUp
+        focusUp = focusUp,
+        focusLeft = focusLeft
     ) {
         Row(
             modifier = Modifier

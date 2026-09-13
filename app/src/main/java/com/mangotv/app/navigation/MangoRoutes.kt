@@ -11,12 +11,12 @@ object MangoRoutes {
     const val AUTH_PASSWORD_PATTERN = "auth/password/{intent}"
     const val HOME = "home"
     const val SETTINGS = "settings"
-    const val SETTINGS_ADDONS = "settings/addons"
+    // Account/Addons/Home Rows/Sounds/Subtitles no longer have their own
+    // routes -- SettingsScreen now hosts all 5 inline as a single
+    // master/detail layout. SETTINGS_ADD_ADDON stays: adding an addon is
+    // still a genuinely separate flow, reached from within the inline
+    // Addons pane.
     const val SETTINGS_ADD_ADDON = "settings/addons/add"
-    const val SETTINGS_HOME_ROWS = "settings/home_rows"
-    const val SETTINGS_ACCOUNT = "settings/account"
-    const val SETTINGS_SOUNDS = "settings/sounds"
-    const val SETTINGS_SUBTITLES = "settings/subtitles"
     const val MOVIES = "movies"
     const val TV_SHOWS = "tv_shows"
     const val GENRES = "genres"
