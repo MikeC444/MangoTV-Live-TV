@@ -6,7 +6,6 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -75,17 +74,19 @@ val SubtitleLanguageOptions: List<SubtitleLanguageOption> = listOf(
  * A ColumnScope extension hosted by SettingsScreen's detail pane -- see
  * AccountSettingsContent's kdoc for why this isn't its own screen anymore.
  *
- * The language list below is deliberately NOT given any
- * focusRequester/focusUp/focusDown wiring of its own (unlike e.g.
- * GenresScreen's genre list) — it relies entirely on Compose's default
- * spatial focus search, the same as AddonsScreen's own addon list. That's
- * a deliberate choice, not an oversight: pinning a FocusRequester to a
- * scrollable list's first item crashes the moment that item scrolls out
- * of composition (see GenresScreen/HomeRowsScreen's own fix for this
- * exact failure), and unlike those two screens, nothing here needs a
- * guaranteed-stable seam between the nav bar and this list -- the
- * Subtitles toggle row above it (always composed, never scrolls) is what
- * contentFocusRequester below points to instead.
+ * The toggle row, header, and language options are all items of one
+ * LazyColumn (see the comment on it below for why), with the toggle row
+ * pinned first -- contentFocusRequester/navFocusRequester/sidebarFocusRequester
+ * are wired onto it, not any language row, so this is safe the same way
+ * HomeRowsSettingsContent's own first-item wiring is safe (see its kdoc):
+ * only the selected category is ever composed at all, so switching into
+ * this tab always recomposes fresh at scroll position 0, guaranteeing the
+ * toggle row (item 0) is present the moment focus could land on it. The
+ * language rows themselves still get no FocusRequester of their own (unlike
+ * e.g. GenresScreen's genre list) -- pinning one to a row that can scroll
+ * out of composition is what actually crashes (see GenresScreen/HomeRowsScreen's
+ * own fix for that failure), and nothing here needs a guaranteed seam
+ * beyond the one the toggle row already provides.
  */
 @Composable
 fun ColumnScope.SubtitleSettingsContent(
@@ -96,25 +97,12 @@ fun ColumnScope.SubtitleSettingsContent(
 ) {
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
 
-    SubtitlesToggleRow(
-        enabled = preferences.subtitlesEnabled,
-        onToggle = viewModel::setSubtitlesEnabled,
-        focusRequester = contentFocusRequester,
-        focusUp = navFocusRequester,
-        focusLeft = sidebarFocusRequester
-    )
-
-    Spacer(Modifier.height(16.dp))
-
-    Text(text = "Default Language", color = TextPrimary, style = MaterialTheme.typography.titleMedium)
-    Spacer(Modifier.height(4.dp))
-    Text(
-        text = "Used to automatically pick a matching subtitle track when Subtitles is on.",
-        color = TextSecondary,
-        style = MaterialTheme.typography.bodySmall
-    )
-    Spacer(Modifier.height(10.dp))
-
+    // The toggle row, "Default Language" header, and the language list are
+    // all items in this one LazyColumn (rather than a static header above a
+    // separately-scrolling list) so the whole tab scrolls as a unit -- the
+    // header scrolls away with everything else instead of permanently
+    // reserving space at the top, leaving more of the screen for language
+    // rows once scrolled.
     LazyColumn(
         modifier = Modifier
             .fillMaxWidth()
@@ -128,6 +116,30 @@ fun ColumnScope.SubtitleSettingsContent(
         contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
+        item(key = "toggle") {
+            SubtitlesToggleRow(
+                enabled = preferences.subtitlesEnabled,
+                onToggle = viewModel::setSubtitlesEnabled,
+                focusRequester = contentFocusRequester,
+                focusUp = navFocusRequester,
+                focusLeft = sidebarFocusRequester
+            )
+        }
+        item(key = "language_title") {
+            Text(
+                text = "Default Language",
+                color = TextPrimary,
+                style = MaterialTheme.typography.titleMedium,
+                modifier = Modifier.padding(top = 12.dp)
+            )
+        }
+        item(key = "language_description") {
+            Text(
+                text = "Used to automatically pick a matching subtitle track when Subtitles is on.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall
+            )
+        }
         items(SubtitleLanguageOptions, key = { it.code ?: "system_default" }) { option ->
             LanguageOptionRow(
                 label = option.label,

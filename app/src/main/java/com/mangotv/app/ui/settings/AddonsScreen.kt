@@ -54,40 +54,45 @@ fun ColumnScope.AddonsSettingsContent(
 ) {
     val addons by viewModel.installedAddons.collectAsStateWithLifecycle()
 
-    Row(
-        modifier = Modifier.fillMaxWidth(),
-        verticalAlignment = Alignment.CenterVertically
+    // The "Add Addon" header and the addon list are both items in this one
+    // LazyColumn (rather than a static header above a separately-scrolling
+    // list) so the whole tab scrolls as a unit -- the header scrolls away
+    // with everything else instead of permanently reserving space at the
+    // top, leaving more of the screen for addon rows once scrolled.
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Text(
-            text = "Stremio-compatible addons contribute their catalogs directly into Home.",
-            color = TextSecondary,
-            style = MaterialTheme.typography.bodySmall,
-            modifier = Modifier.weight(1f)
-        )
-        Spacer(Modifier.width(20.dp))
-        MangoButton(
-            text = "Add Addon",
-            icon = Icons.Filled.Add,
-            onClick = onAddAddon,
-            style = MangoButtonStyle.FILLED,
-            focusRequester = contentFocusRequester,
-            focusUp = navFocusRequester,
-            focusLeft = sidebarFocusRequester,
-            compact = true
-        )
-    }
+        item(key = "header") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Stremio-compatible addons contribute their catalogs directly into Home.",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(20.dp))
+                MangoButton(
+                    text = "Add Addon",
+                    icon = Icons.Filled.Add,
+                    onClick = onAddAddon,
+                    style = MangoButtonStyle.FILLED,
+                    focusRequester = contentFocusRequester,
+                    focusUp = navFocusRequester,
+                    focusLeft = sidebarFocusRequester,
+                    compact = true
+                )
+            }
+        }
 
-    Spacer(Modifier.height(16.dp))
-
-    if (addons.isEmpty()) {
-        EmptyAddonsHint()
-    } else {
-        LazyColumn(
-            modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f),
-            verticalArrangement = Arrangement.spacedBy(14.dp)
-        ) {
+        if (addons.isEmpty()) {
+            item(key = "empty") { EmptyAddonsHint() }
+        } else {
             items(addons, key = { it.manifestUrl }) { addon ->
                 AddonRow(
                     addon = addon,

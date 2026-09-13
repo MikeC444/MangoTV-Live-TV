@@ -183,6 +183,17 @@ private fun SettingsSidebarRow(
     }
 }
 
+/**
+ * Convention for any category with more content than fits on screen
+ * (Addons, Home Rows, Subtitles today): put everything -- header text,
+ * toggle rows, list items, footers -- into ONE LazyColumn as items, rather
+ * than a static header/footer around a separately-scrolling inner list.
+ * That way the whole tab scrolls as a unit instead of permanently pinning
+ * a header/footer that eats into the space available for actual list
+ * content. A future category with a scrollable list should follow the
+ * same shape (see AddonsSettingsContent/SubtitleSettingsContent for the
+ * pattern) rather than reintroducing a fixed header above a nested list.
+ */
 @Composable
 private fun SettingsDetailPane(
     category: SettingsCategory,

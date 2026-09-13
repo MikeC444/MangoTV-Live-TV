@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -76,38 +75,52 @@ fun ColumnScope.HomeRowsSettingsContent(
     // instead of letting them move focus.
     var grabbedRowId by remember { mutableStateOf<String?>(null) }
 
-    Text(
-        text = "Toggle categories on or off, and use the handle to reorder them.",
-        color = TextSecondary,
-        style = MaterialTheme.typography.bodySmall
-    )
-    Spacer(Modifier.height(8.dp))
+    // The intro text, the reorderable rows, and the "saved automatically"
+    // footer are all items in this one LazyColumn (rather than a static
+    // header/footer around a separately-scrolling list) so the whole tab
+    // scrolls as a unit -- both scroll away with everything else instead of
+    // permanently reserving space, leaving more of the screen for rows once
+    // scrolled.
+    LazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
+    ) {
+        item(key = "header") {
+            Text(
+                text = "Toggle categories on or off, and use the handle to reorder them.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 4.dp)
+            )
+        }
 
-    when (val state = uiState) {
-        is HomeRowsUiState.Loading -> CircularProgressIndicator(color = MangoAmber)
-        is HomeRowsUiState.NoAddons -> Text(
-            text = "Install an addon first — its rows will show up here once it's added.",
-            color = TextSecondary,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        is HomeRowsUiState.Loaded -> {
-            if (state.rows.isEmpty()) {
+        when (val state = uiState) {
+            is HomeRowsUiState.Loading -> item(key = "loading") {
+                CircularProgressIndicator(color = MangoAmber)
+            }
+            is HomeRowsUiState.NoAddons -> item(key = "no_addons") {
                 Text(
-                    text = "Your installed addons aren't reporting any rows right now.",
+                    text = "Install an addon first — its rows will show up here once it's added.",
                     color = TextSecondary,
                     style = MaterialTheme.typography.bodyMedium
                 )
-            } else {
-                val orderedRows = remember(state.rows, preferences) { preferences.applyOrder(state.rows) }
-                val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
+            }
+            is HomeRowsUiState.Loaded -> {
+                if (state.rows.isEmpty()) {
+                    item(key = "no_rows") {
+                        Text(
+                            text = "Your installed addons aren't reporting any rows right now.",
+                            color = TextSecondary,
+                            style = MaterialTheme.typography.bodyMedium
+                        )
+                    }
+                } else {
+                    val orderedRows = remember(state.rows, preferences) { preferences.applyOrder(state.rows) }
+                    val displayOrder = remember(orderedRows) { orderedRows.map { it.id } }
 
-                LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(4.dp)
-                ) {
                     itemsIndexed(orderedRows, key = { _, row -> row.id }) { index, row ->
                         val visible = row.id !in preferences.hiddenRowIds
                         HomeRowToggleRow(
@@ -125,23 +138,29 @@ fun ColumnScope.HomeRowsSettingsContent(
                             focusLeft = if (index == 0) sidebarFocusRequester else null
                         )
                     }
-                }
 
-                HorizontalDivider(color = TextTertiary.copy(alpha = 0.2f))
-                Spacer(Modifier.height(8.dp))
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        imageVector = Icons.Filled.Info,
-                        contentDescription = null,
-                        tint = TextTertiary,
-                        modifier = Modifier.size(14.dp)
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = "Changes are saved automatically",
-                        color = TextTertiary,
-                        style = MaterialTheme.typography.labelSmall
-                    )
+                    item(key = "footer") {
+                        HorizontalDivider(color = TextTertiary.copy(alpha = 0.2f))
+                    }
+                    item(key = "footer_text") {
+                        Row(
+                            modifier = Modifier.padding(top = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Icon(
+                                imageVector = Icons.Filled.Info,
+                                contentDescription = null,
+                                tint = TextTertiary,
+                                modifier = Modifier.size(14.dp)
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = "Changes are saved automatically",
+                                color = TextTertiary,
+                                style = MaterialTheme.typography.labelSmall
+                            )
+                        }
+                    }
                 }
             }
         }
