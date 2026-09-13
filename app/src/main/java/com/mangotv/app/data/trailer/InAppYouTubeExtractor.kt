@@ -29,6 +29,7 @@ private val VIDEO_ID_REGEX = Regex("^[a-zA-Z0-9_-]{11}$")
 private val API_KEY_REGEX = Regex("\"INNERTUBE_API_KEY\":\"([^\"]+)\"")
 private val VISITOR_DATA_REGEX = Regex("\"VISITOR_DATA\":\"([^\"]+)\"")
 private val QUALITY_LABEL_REGEX = Regex("(\\d{2,4})p")
+private val CODECS_REGEX = Regex("codecs\\s*=\\s*\"([^\"]+)\"")
 
 private data class YouTubeClient(
     val key: String,
@@ -54,6 +55,12 @@ internal data class StreamCandidate(
     val height: Int,
     val fps: Int,
     val ext: String,
+    // Pixel width and the RFC 6381 codecs string ("avc1.640028", "vp09.00.40.08",
+    // "av01.0.05M.08"...) parsed out of the format's mimeType. Only meaningful for
+    // video/progressive candidates, and only used to rule out formats this device
+    // has no decoder for -- see [VideoFormatSupport].
+    val width: Int = 0,
+    val codecs: String = "",
     // Only meaningful for audio candidates: false means this format is an
     // alternate-language dub track, not the video's original/default audio.
     // Always true for video/progressive candidates, so it never affects them.
@@ -159,7 +166,13 @@ private val CLIENTS = listOf(
  * same way Nuvio's own sideload-only build accepts it (its Play Store
  * build disables in-app trailer playback entirely rather than ship this).
  */
-class InAppYouTubeExtractor {
+class InAppYouTubeExtractor(
+    /**
+     * Injectable so selection can be unit-tested off-device; production
+     * callers always want the real, device-backed answer.
+     */
+    private val videoFormatSupport: VideoFormatSupport = DeviceVideoFormatSupport
+) {
     private val httpClient by lazy {
         OkHttpClient.Builder()
             .connectTimeout(20, TimeUnit.SECONDS)
@@ -364,7 +377,9 @@ class InAppYouTubeExtractor {
                         itag = format.stringValue("itag").orEmpty(),
                         height = height,
                         fps = fps,
-                        ext = if (mimeType.contains("webm")) "webm" else "mp4"
+                        ext = if (mimeType.contains("webm")) "webm" else "mp4",
+                        width = (format.numberValue("width") ?: 0.0).toInt(),
+                        codecs = parseCodecs(mimeType)
                     )
                 }
 
@@ -392,7 +407,9 @@ class InAppYouTubeExtractor {
                             itag = format.stringValue("itag").orEmpty(),
                             height = height,
                             fps = fps,
-                            ext = if (mimeType.contains("webm")) "webm" else "mp4"
+                            ext = if (mimeType.contains("webm")) "webm" else "mp4",
+                            width = (format.numberValue("width") ?: 0.0).toInt(),
+                            codecs = parseCodecs(mimeType)
                         )
                     } else if (hasAudio) {
                         val bitrate = format.numberValue("bitrate")
@@ -474,12 +491,22 @@ class InAppYouTubeExtractor {
             }
         }
 
-        val bestProgressive = sortCandidates(progressive).firstOrNull()
-        val bestVideo = pickBestForClient(adaptiveVideo, PREFERRED_SEPARATE_CLIENT)
+        // Codec filtering happens before ranking, not after: candidates are
+        // ranked by resolution first, and above 1080p YouTube only publishes
+        // VP9 and AV1 -- so on hardware without those decoders the top-ranked
+        // candidate is exactly the one that can't be played. Handing ExoPlayer
+        // such a stream doesn't raise an error, it just leaves the video
+        // renderer with no supported track to select: audio plays on over a
+        // black screen. See [VideoFormatSupport].
+        val decodableVideo = decodableOnly(adaptiveVideo, "adaptive video")
+        val decodableProgressive = decodableOnly(progressive, "progressive")
+
+        val bestProgressive = sortCandidates(decodableProgressive).firstOrNull()
+        val bestVideo = pickBestForClient(decodableVideo, PREFERRED_SEPARATE_CLIENT)
         val bestAudio = pickBestForClient(adaptiveAudio, PREFERRED_SEPARATE_CLIENT)
         Log.w(
             TAG,
-            "Best candidates: bestVideo=${bestVideo?.let { "${it.itag}@${it.height}p" }} " +
+            "Best candidates: bestVideo=${bestVideo?.let { "${it.itag}@${it.height}p/${it.codecs}" }} " +
                 "bestAudio=${bestAudio?.itag} bestManifest=${bestManifest != null} bestProgressive=${bestProgressive?.itag}"
         )
 
@@ -495,7 +522,10 @@ class InAppYouTubeExtractor {
             return TrailerPlaybackSource(videoUrl = resolvedVideo, audioUrl = resolvedAudio)
         }
 
-        // Adaptive failed (403) -- fall back to HLS manifest (1080p, usually reliable)
+        // Adaptive failed (403), or every adaptive video format needs a codec
+        // this device has no decoder for -- fall back to the HLS master
+        // manifest, where ExoPlayer picks the variant itself and its own
+        // selection *is* codec-aware, so it will land on something playable.
         if (bestManifest != null) {
             return TrailerPlaybackSource(videoUrl = bestManifest.manifestUrl, audioUrl = null)
         }
@@ -504,6 +534,25 @@ class InAppYouTubeExtractor {
         val resolvedProgressive = bestProgressive?.url?.let { resolveReachableUrl(it) }
         if (resolvedProgressive != null) {
             return TrailerPlaybackSource(videoUrl = resolvedProgressive, audioUrl = null)
+        }
+
+        // Last resort: nothing this device is known to decode resolved, so
+        // fall back to the un-filtered ranking rather than giving up outright.
+        // A device whose decoder list can't be read, or a codecs string Media3
+        // doesn't recognise, should still get the same best-effort attempt it
+        // got before this filtering existed.
+        if (decodableVideo.size != adaptiveVideo.size || decodableProgressive.size != progressive.size) {
+            Log.w(TAG, "No decodable format resolved; retrying with codec filtering off")
+            val fallbackVideo = pickBestForClient(adaptiveVideo, PREFERRED_SEPARATE_CLIENT)
+            val fallbackResolved = fallbackVideo?.url?.let { resolveReachableUrl(it) }
+            if (fallbackResolved != null) {
+                val fallbackAudio = bestAudio?.url?.let { resolveReachableUrl(it) }
+                return TrailerPlaybackSource(videoUrl = fallbackResolved, audioUrl = fallbackAudio)
+            }
+            val fallbackProgressive = sortCandidates(progressive).firstOrNull()?.url?.let { resolveReachableUrl(it) }
+            if (fallbackProgressive != null) {
+                return TrailerPlaybackSource(videoUrl = fallbackProgressive, audioUrl = null)
+            }
         }
 
         return null
@@ -733,6 +782,34 @@ class InAppYouTubeExtractor {
 
     private fun audioScore(bitrate: Double, audioSampleRate: Double): Double {
         return bitrate * 1_000_000.0 + audioSampleRate
+    }
+
+    /**
+     * Keeps only the video candidates this device actually has a decoder for,
+     * so ranking never chooses between formats that can't render. Callers
+     * handle an empty result by falling through to the HLS/progressive paths
+     * (and ultimately to unfiltered ranking) rather than failing outright.
+     */
+    internal fun decodableOnly(items: List<StreamCandidate>, label: String): List<StreamCandidate> {
+        if (items.isEmpty()) return items
+
+        val decodable = items.filter {
+            videoFormatSupport.canDecode(it.codecs, it.width, it.height, it.fps)
+        }
+        if (decodable.size != items.size) {
+            val dropped = items - decodable.toSet()
+            Log.w(
+                TAG,
+                "Dropped ${dropped.size}/${items.size} undecodable $label formats: " +
+                    dropped.joinToString { "${it.itag}@${it.height}p/${it.codecs}" }
+            )
+        }
+        return decodable
+    }
+
+    /** Pulls `avc1.640028` out of `video/mp4; codecs="avc1.640028"`. */
+    internal fun parseCodecs(mimeType: String): String {
+        return CODECS_REGEX.find(mimeType)?.groupValues?.getOrNull(1)?.trim().orEmpty()
     }
 
     internal fun sortCandidates(items: List<StreamCandidate>): List<StreamCandidate> {
