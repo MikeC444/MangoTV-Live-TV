@@ -64,6 +64,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         .map { items -> items.map { it.id }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // Ids My List has marked watched (see MyListRepository.markWatched) --
+    // plain field + init{} collector rather than a WhileSubscribed StateFlow
+    // like savedIds above, since nothing in the UI subscribes to this one
+    // directly: it only needs to be read synchronously from within
+    // applyPreferences() below, and WhileSubscribed would never start
+    // collecting without a UI subscriber.
+    private var watchedIds: Set<String> = emptySet()
+
     // Raw fetch results, cached here so a preferences-only change (row
     // order/hidden state from Settings > Home Rows) can re-apply cheaply
     // without re-hitting the network -- same "cheap in-memory re-sort of
@@ -159,6 +167,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
                 applyPreferences(homeRowPreferences.preferences.value)
             }
         }
+        // Drives the watched tick on every row's ContentCard (not just My
+        // List's own screen) -- re-applies whenever a title crosses the
+        // completion threshold (or a watched title is removed from My List)
+        // while Home is alive, same cheap local re-combine as above.
+        viewModelScope.launch {
+            myListRepository.items.collect { items ->
+                watchedIds = items.filter { it.watched }.map { it.id }.toSet()
+                applyPreferences(homeRowPreferences.preferences.value)
+            }
+        }
     }
 
     fun load() {
@@ -241,7 +259,8 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasFetchedOnce) return
 
         val visibleSections = rowPreferences.applyOrder(rawSections).filterNot { it.id in rowPreferences.hiddenRowIds }
-        val sections = listOfNotNull(continueWatchingSection) + visibleSections
+            .map { it.withWatchedFlags() }
+        val sections = listOfNotNull(continueWatchingSection?.withWatchedFlags()) + visibleSections
 
         // HERO_POOL_SIZE random titles drawn from every visible row (not
         // just the first one), respecting manual reordering and hidden rows
@@ -287,6 +306,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             style = RowStyle.CONTINUE_WATCHING
         )
     }
+
+    // Always re-derived from the pristine, never-stamped rawSections/
+    // continueWatchingSection (never from an already-stamped HomeUiState) --
+    // that way a title removed from My List after being watched correctly
+    // loses its tick on the next re-apply instead of staying stuck true.
+    private fun HomeSection.withWatchedFlags(): HomeSection = copy(items = items.map { it.withWatchedFlag() })
+
+    private fun Content.withWatchedFlag(): Content = if (id in watchedIds) copy(watched = true) else this
 
     private fun ContinueWatchingEntry.toContent(): Content = Content(
         id = contentId,

@@ -2710,3 +2710,67 @@ the real compile check and needs to be triggered after this is pushed.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-20 — Watched Tick Mark on Every Poster, Not Just My List
+
+**Status:** Complete.
+
+**Context:** The prior milestone ("Add watched tick mark and My List
+auto-add at 85% movie completion", commit `abe0b75`) added
+`Content.watched`, `ContentCard`'s green checkmark badge, and
+`MyListRepository.markWatched()` — but only `MyListViewModel.toContent()`
+ever set `watched = true` on a `Content` instance. Every other screen
+(Home, Movies, TV Shows, Genre Results, Search, Detail's Similar row)
+built its `Content` items with the field left at its `false` default, so a
+watched movie's tick only ever appeared once the user opened My List
+itself, not on the same poster anywhere else in the app.
+
+**Changes:**
+- `HomeViewModel.kt` — added a `watchedIds` field kept in sync via a new
+  `myListRepository.items` collector (mirroring the existing
+  `continueWatchingRepository.items` one already there), applied to
+  `rawSections` and `continueWatchingSection` inside `applyPreferences()`
+  via new `HomeSection.withWatchedFlags()` / `Content.withWatchedFlag()`
+  helpers.
+- `TypeBrowseViewModel.kt` (backs Movies/TV Shows), `GenreResultsViewModel.kt`
+  — same `watchedIds` + collector pattern; both now rebuild their
+  published `HomeSection` from the pristine `allItems` list (via a new
+  `currentSection()`) whenever watched status changes, not only on their
+  own `load()`/`loadMore()`.
+- `SearchViewModel.kt` — added `rawMovies`/`rawTvShows` fields (search
+  results previously lived only inside the already-emitted
+  `SearchUiState.Results`, leaving nothing pristine to re-stamp from) plus
+  the same collector, re-publishing via a new `currentResults()`.
+- `DetailViewModel.kt` — added `rawContent`/`rawSimilar` fields (the two
+  inline `DetailUiState.Success(...)` constructions in `load()` now go
+  through a new `publish()`) plus the same collector, so the Similar row's
+  cards get the tick too.
+- Every one of the above always re-derives its published list from a
+  pristine, never-stamped source (the raw fetched items, never the last
+  emitted UI state): `SavedListItem.watched` only ever flips false-to-true,
+  but a title can still leave `watchedIds` entirely if the user manually
+  removes it from My List, and re-stamping an already-stamped list can't
+  represent that going back to unwatched — re-deriving from pristine data
+  each time can.
+- Each new collector only republishes while the current UI state is
+  already a "loaded" one (`Loaded`/`Success`/`Results`), so it never
+  overwrites a `Loading` or `Error` state with stale data.
+
+**Tests performed:** This sandbox still has no route to `dl.google.com`
+(the same limitation every prior milestone's own notes describe), so a
+Gradle/AGP build isn't possible here — reconfirmed this session:
+`:app:compileDebugKotlin` fails resolving the `com.android.application`
+plugin itself, before any Kotlin source is even compiled. Fell back to
+this project's established substitute for a Kotlin-only change: a
+script-based brace/paren/bracket balance check on all five touched files
+(all clean), plus a full manual re-read of each ViewModel's control flow
+and every call site of the helpers introduced. **Not performed:** an
+actual Gradle/Kotlin compile or on-device check — `build-apk.yml` CI is
+the real compile check and should be triggered after this is pushed, then
+verified on-device (watch a movie past ~85%, confirm the tick now also
+shows on Home, Movies, TV Shows, Genre Results, Search, and Detail's
+Similar row, not only My List).
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
