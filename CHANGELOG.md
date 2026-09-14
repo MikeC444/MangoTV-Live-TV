@@ -2774,3 +2774,83 @@ Similar row, not only My List).
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-21 — Backfill Watched Status From Existing Watch History
+
+**Status:** Complete.
+
+**Context:** User question: would a movie finished *before* the
+Post-Milestone-19/20 "watched" work existed also get the tick and a My
+List entry, or only ones finished from now on? Tracing every call site of
+`markWatched()` confirmed the latter -- it fires only from
+`PlayerViewModel.reportProgress()` during live playback, and nothing (not
+`FirstLoginMigrationCoordinator`, not any sync repository) ever reads past
+watch history to backfill it. Asked the user whether that gap should be
+closed; they said yes.
+
+**Changes:**
+- `server/src/routes/history.ts`'s existing `GET /user/history` endpoint
+  is unchanged -- it already returned everything needed (`completed`,
+  `contentType`, `contentId`, `providerId`, `title`, `posterUrl`,
+  keyset-paginated on `watched_at`) and simply had no client consumer yet.
+  This entire milestone is client-only.
+- `ContinueWatchingDtos.kt` -- added `WatchHistoryListResponse`; updated
+  its file comment, which previously said `/user/history` had "no client
+  here yet."
+- `PlaybackProgressApiClient.kt` -- added `getHistory(accessToken, limit,
+  before)`, keyset-paginated the same way the server's own
+  `historyQuerySchema`/`listWatchHistory` already do (`limit` capped at
+  200 to match the schema's own max; `before` is the previous page's
+  oldest item's own `watchedAt`, matching the server's "give me rows
+  watched before this timestamp" contract exactly).
+- New `WatchedBackfillState.kt` -- a device-scoped one-time-done flag,
+  the same shape as `FirstSyncState` (`isDone()`/`markDone()`/`reset()`
+  over a boolean DataStore key), for the same reason: this needs to run
+  once, not on every sync.
+- `WatchlistSyncRepository.kt` -- new
+  `backfillWatchedFromHistoryIfNeeded()`: pages through `/user/history`
+  newest-first, filters to `contentType == MOVIE && completed == true`
+  (the server already re-derives `completed` from its own >85% rule, so
+  this matches PlayerViewModel's live threshold check exactly, not a
+  separately-invented rule), and replays each match through the existing
+  `MyListRepository.markWatched()` -- already idempotent (no-ops once an
+  item is watched=true) and already wired to push to `watchlist_items`
+  via `onLocalChange`, so no new server-side write path was needed either.
+  Only marks `WatchedBackfillState` done after a full, uninterrupted
+  pass; a network failure mid-scan leaves it not-done so the next
+  `syncAll()` simply starts over from the newest entry, rather than
+  resuming from a partial cursor.
+- `SyncManager.kt` -- `syncAll()` now calls
+  `watchlistSyncRepository.backfillWatchedFromHistoryIfNeeded()` right
+  after its existing pull+retry `.join()`, but deliberately NOT inside
+  that joined block -- fire-and-forget, so a long watch history can't add
+  perceptible delay to an otherwise-fast app launch, and it always runs
+  against the account's just-pulled My List state rather than a stale
+  local cache.
+- `AccountSwitchCoordinator.kt` -- resets `WatchedBackfillState` on
+  sign-out, mirroring `FirstSyncState`'s own reset, so a different
+  account signing in on the same device gets its own fresh backfill pass
+  instead of inheriting the previous account's "already done."
+- `AppContainer.kt` -- wires the new `WatchedBackfillState` singleton into
+  both `WatchlistSyncRepository` and `AccountSwitchCoordinator`.
+
+**Tests performed:** Same sandbox limitation as every recent milestone
+(no route to `dl.google.com`, so no Gradle/AGP build is possible here): a
+script-based brace/paren/bracket balance check on all seven touched/added
+files (all clean), a full manual re-read of the pagination loop (cursor
+direction, page-size-based termination, the idempotent replay), and
+confirmed no other call site constructs `WatchlistSyncRepository` or
+`AccountSwitchCoordinator` that would break from their new constructor
+parameter (only `AppContainer.kt` constructs either, already updated).
+Confirmed `GET /user/history`'s actual route mounting
+(`app.use("/user", historyRouter)` + `historyRouter.get("/history", ...)`)
+matches the URL the new client call uses. **Not performed:** an actual
+Gradle/Kotlin compile, or an on-device/server-integration check --
+`build-apk.yml` CI is the real compile check; on-device verification
+should specifically confirm that a movie finished *before* this shipped
+(and not rewatched since) gets its tick and a My List entry after the
+next app launch or sign-in, without noticeably slowing that launch down.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.

@@ -3,8 +3,11 @@ package com.mangotv.app.data.sync
 import android.content.Context
 import com.mangotv.app.BuildConfig
 import com.mangotv.app.data.auth.AuthRepository
+import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.network.ApiException
+import com.mangotv.app.data.network.PlaybackProgressApiClient
+import com.mangotv.app.data.network.WatchHistoryEntryDto
 import com.mangotv.app.data.network.WatchlistApiClient
 import com.mangotv.app.data.network.WatchlistItemDto
 import com.mangotv.app.data.provider.MyListRepository
@@ -47,9 +50,11 @@ import java.io.IOException
 class WatchlistSyncRepository(
     context: Context,
     private val myListRepository: MyListRepository,
-    private val authRepository: AuthRepository
+    private val authRepository: AuthRepository,
+    private val watchedBackfillState: WatchedBackfillState
 ) {
     private val apiClient = WatchlistApiClient(BuildConfig.API_BASE_URL)
+    private val historyApiClient = PlaybackProgressApiClient(BuildConfig.API_BASE_URL)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val pendingStore = PendingChangeStore(context, "mango_watchlist_pending", WatchlistItemDto.serializer())
 
@@ -118,6 +123,70 @@ class WatchlistSyncRepository(
             } catch (e: Exception) {
                 // Unexpected -- queue for retry, try the rest of the batch.
                 pendingStore.put(item.naturalKey(), dto)
+            }
+        }
+    }
+
+    /**
+     * One-time catch-up for movies finished before this device ever ran
+     * the 85%-completion "mark watched" logic live: markWatched() only
+     * ever fires from PlayerViewModel while a title is actively playing,
+     * so a movie finished in the past (and not rewatched since) would
+     * otherwise never get its tick or a My List entry.
+     *
+     * Reads this account's watch_history, oldest boundary paged via
+     * `before` (see PlaybackProgressApiClient.getHistory), and replays
+     * markWatched() for every MOVIE entry the server already considers
+     * completed -- the exact same source of truth PlayerViewModel's own
+     * live threshold check defers to (recordProgress independently
+     * re-derives ">85% of durationMs" server-side, so a history entry's
+     * own `completed` already means that, not just whatever the original
+     * client report happened to say). Each call is naturally idempotent
+     * (markWatched() no-ops once an item is already watched=true) and
+     * reuses the existing onLocalChange -> pushToServer pipeline, so a
+     * backfilled item syncs to watchlist_items the same way any other
+     * watched title does -- no separate server-side support needed.
+     *
+     * Fire-and-forget on this repository's own [scope] -- called by
+     * SyncManager.syncAll() right after the ordinary pull settles (so
+     * this runs against the account's actual current My List state, not
+     * whatever was cached locally before that pull), but never joined
+     * into syncAll()'s own return: a long watch history shouldn't add
+     * perceptible delay to an otherwise-fast app launch.
+     *
+     * Only marks [watchedBackfillState] done after a full, uninterrupted
+     * scan -- a network failure partway through leaves it not-done, so
+     * the very next syncAll() (next launch, or the next
+     * reconnect-triggered retry) simply starts over from the newest
+     * entry again rather than resuming from a partial cursor. Safe to
+     * redo in full since every step here is a cheap, already-idempotent
+     * local+network operation -- the same trade-off
+     * FirstLoginMigrationCoordinator's own cloud peek already makes.
+     */
+    fun backfillWatchedFromHistoryIfNeeded() {
+        scope.launch {
+            if (watchedBackfillState.isDone()) return@launch
+            try {
+                var before: String? = null
+                while (true) {
+                    val token = freshAccessTokenOrNull() ?: return@launch
+                    val page = historyApiClient.getHistory(token, limit = HISTORY_PAGE_SIZE, before = before)
+                    if (page.items.isEmpty()) break
+                    page.items
+                        .filter { it.contentType == ContentType.MOVIE.name && it.completed }
+                        .forEach { entry -> myListRepository.markWatched(entry.toContent()) }
+                    if (page.items.size < HISTORY_PAGE_SIZE) break
+                    before = page.items.last().watchedAt
+                }
+                watchedBackfillState.markDone()
+            } catch (e: ApiException) {
+                if (e.statusCode == 401) authRepository.clearSessionOnConfirmedUnauthorized()
+            } catch (e: IOException) {
+                // Transient -- left not-done, so the next syncAll() retries from scratch.
+            } catch (e: CancellationException) {
+                throw e
+            } catch (e: Exception) {
+                // Unexpected -- same fallback as the catches above.
             }
         }
     }
@@ -282,4 +351,24 @@ class WatchlistSyncRepository(
         watched = watched,
         updatedAt = updatedAt
     )
+
+    // watch_history carries no backdropUrl/year/rating (see
+    // WatchHistoryEntryDto) -- markWatched() only ever reads
+    // providerId/id/type/title/posterUrl off the Content it's given
+    // anyway, so those three are left null exactly like
+    // ContinueWatchingEntry.toContent() already leaves fields the source
+    // doesn't have.
+    private fun WatchHistoryEntryDto.toContent(): Content = Content(
+        id = contentId,
+        type = ContentType.valueOf(contentType),
+        title = title,
+        description = "",
+        posterUrl = posterUrl,
+        backdropUrl = null,
+        providerId = providerId
+    )
+
+    private companion object {
+        const val HISTORY_PAGE_SIZE = 200
+    }
 }
