@@ -64,8 +64,9 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         .map { items -> items.map { it.id }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
-    // Ids My List has marked watched (see MyListRepository.markWatched) --
-    // plain field + init{} collector rather than a WhileSubscribed StateFlow
+    // Ids My List has watched=true for (see MyListRepository.markWatched/
+    // toggleWatched) -- plain field + init{} collector rather than a
+    // WhileSubscribed StateFlow
     // like savedIds above, since nothing in the UI subscribes to this one
     // directly: it only needs to be read synchronously from within
     // applyPreferences() below, and WhileSubscribed would never start

@@ -78,15 +78,19 @@ sealed interface RowsBrowseUiState {
     data class Error(val message: String) : RowsBrowseUiState
 }
 
-// ROWS = the original horizontal-shelf layout (My List keeps this).
+// ROWS = the original horizontal-shelf layout. Currently unused (My List,
+// its only caller, switched to GRID so its catalogue scrolls like Movies/TV
+// Shows/Genre Results instead of sitting in one horizontal shelf) but kept
+// rather than deleted, in case a future screen wants a shelf-of-rows layout
+// again.
 // GRID = a vertical, multi-column poster grid (Movies, TV Shows, Genre
-// Results) -- see RowsBrowseGridContent for why this is built from
+// Results, My List) -- see RowsBrowseGridContent for why this is built from
 // manually-chunked Rows in the same LazyColumn rather than LazyVerticalGrid.
 enum class RowsBrowseLayout { ROWS, GRID }
 
 /**
  * Shared shell for any "stack of ContentRows under the nav bar, no hero"
- * screen — currently Movies, TV Shows, and Genre Results. Structurally
+ * screen — currently Movies, TV Shows, Genre Results, and My List. Structurally
  * HomeScreen's own HomeContent minus the hero item: same nav<->content
  * focus-seam mechanism (a navRegionFocused lock instead of Home's
  * heroRegionFocused, since there's no intermediate hero region here — the
@@ -115,10 +119,12 @@ fun RowsBrowseContent(
     // content instead of dead-ending. Defaults to a no-op so My List (ROWS
     // layout) is unaffected.
     onLoadMore: () -> Unit = {},
-    // ROWS-only (see RowsBrowseLoadedContent) -- My List's All/Watched
-    // toggle. Empty by default so Movies/TV Shows/Genre Results (which
-    // never pass these) render exactly as before: no filter bar, and none
-    // of the nav-bar-seam changes it requires.
+    // My List's All/Watched toggle -- passed through to whichever layout is
+    // active (My List uses GRID; RowsBrowseLoadedContent's own ROWS-layout
+    // support is unused today but kept, see RowsBrowseLayout's own doc).
+    // Empty by default so Movies/TV Shows/Genre Results (which never pass
+    // these) render exactly as before: no filter bar, and none of the
+    // nav-bar-seam changes it requires.
     filterOptions: List<String> = emptyList(),
     selectedFilterIndex: Int = 0,
     onFilterSelected: (Int) -> Unit = {}
@@ -145,7 +151,10 @@ fun RowsBrowseContent(
                 FullScreenErrorState(message = uiState.message, onRetry = onRetry)
             }
             is RowsBrowseUiState.Loaded -> if (layout == RowsBrowseLayout.GRID) {
-                RowsBrowseGridContent(screenTitle, navLabel, uiState.sections.flatMap { it.items }, onNavigate, emptyMessage, onLoadMore)
+                RowsBrowseGridContent(
+                    screenTitle, navLabel, uiState.sections.flatMap { it.items }, onNavigate, emptyMessage, onLoadMore,
+                    filterOptions, selectedFilterIndex, onFilterSelected
+                )
             } else {
                 RowsBrowseLoadedContent(
                     screenTitle, navLabel, uiState.sections, onNavigate, emptyMessage,
@@ -547,18 +556,26 @@ private fun CatalogSortPill(
 const val GRID_COLUMNS = 7
 
 /**
- * Vertical, multi-column poster grid -- Movies, TV Shows, and Genre Results
- * only (My List keeps RowsBrowseLoadedContent's horizontal rows). Deliberately
- * NOT LazyVerticalGrid: ContentCard sizes itself with a fixed absolute dp
- * width/height rather than filling its cell, which doesn't map cleanly onto
- * GridCells' auto-column-sizing, and this codebase has already fought real
- * "whole page shaking" stutter bugs from Compose's automatic focus-triggered
- * bring-into-view interacting with TvFocusSurface's focus-scale animation
- * (see RowsBrowseLoadedContent's doc comment and HomeScreen.kt/Motion.kt).
- * Chunking the flat item list into fixed-size rows and reusing the exact
- * same LazyColumn + explicit animateScrollBy centering machinery already
- * proven on this screen sidesteps introducing a new, untested API surface
- * into that exact scroll-on-focus scenario.
+ * Vertical, multi-column poster grid -- Movies, TV Shows, Genre Results, and
+ * My List. Deliberately NOT LazyVerticalGrid: ContentCard sizes itself with
+ * a fixed absolute dp width/height rather than filling its cell, which
+ * doesn't map cleanly onto GridCells' auto-column-sizing, and this codebase
+ * has already fought real "whole page shaking" stutter bugs from Compose's
+ * automatic focus-triggered bring-into-view interacting with TvFocusSurface's
+ * focus-scale animation (see RowsBrowseLoadedContent's doc comment and
+ * HomeScreen.kt/Motion.kt). Chunking the flat item list into fixed-size rows
+ * and reusing the exact same LazyColumn + explicit animateScrollBy centering
+ * machinery already proven on this screen sidesteps introducing a new,
+ * untested API surface into that exact scroll-on-focus scenario.
+ *
+ * My List's All/Watched filter pills occupy the exact same LazyColumn slot
+ * Movies/TV Shows/Genre Results' CatalogSortBar does (see the "sort_bar" key
+ * below) rather than adding a second row above/below it -- sort reorders an
+ * unchanging set of items, filter narrows which items exist at all, and My
+ * List has no use for the other today, so this is a slot swap, not an
+ * addition. Every offset that assumes exactly one bar item between the title
+ * and the first grid row (targetRowIndex + 2, etc.) therefore needs no
+ * changes to support this.
  */
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -568,7 +585,10 @@ private fun RowsBrowseGridContent(
     items: List<Content>,
     onNavigate: (String) -> Unit,
     emptyMessage: String,
-    onLoadMore: () -> Unit
+    onLoadMore: () -> Unit,
+    filterOptions: List<String> = emptyList(),
+    selectedFilterIndex: Int = 0,
+    onFilterSelected: (Int) -> Unit = {}
 ) {
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
@@ -576,6 +596,14 @@ private fun RowsBrowseGridContent(
     val sortBarFocusRequester = remember { FocusRequester() }
     val firstCardFocusRequester = remember { FocusRequester() }
     var hasRequestedInitialFocus by remember { mutableStateOf(false) }
+
+    val hasFilterBar = filterOptions.isNotEmpty()
+    // One per chip, so returning from the nav bar lands on whichever filter
+    // is currently selected -- unlike CatalogSortBar's single "always
+    // Featured" focus target (sorting never changes which items exist, so
+    // landing on a fixed pill there is harmless; a filter does, so this
+    // mirrors RowsBrowseLoadedContent's own filterChipFocusRequesters).
+    val filterChipFocusRequesters = remember(filterOptions.size) { List(filterOptions.size) { FocusRequester() } }
 
     // Plain remember, not rememberSaveable -- same choice SourcesContent
     // makes for its own filter/sort state, and for the same reason: a
@@ -755,14 +783,36 @@ private fun RowsBrowseGridContent(
                         )
                     }
                     item(key = "sort_bar") {
-                        CatalogSortBar(
-                            selected = selectedSort,
-                            onSelect = { selectedSort = it },
-                            modifier = Modifier.padding(bottom = MangoDimens.RowSpacing / 2),
-                            focusRequester = sortBarFocusRequester,
-                            focusUp = navFocusRequester,
-                            focusDown = firstCardFocusRequester
-                        )
+                        if (hasFilterBar) {
+                            Row(
+                                modifier = Modifier
+                                    .padding(
+                                        horizontal = MangoDimens.ScreenPaddingHorizontal,
+                                        vertical = 8.dp
+                                    ),
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                filterOptions.forEachIndexed { index, label ->
+                                    FilterPill(
+                                        label = label,
+                                        selected = index == selectedFilterIndex,
+                                        onClick = { onFilterSelected(index) },
+                                        focusRequester = filterChipFocusRequesters[index],
+                                        focusUp = navFocusRequester,
+                                        focusDown = firstCardFocusRequester
+                                    )
+                                }
+                            }
+                        } else {
+                            CatalogSortBar(
+                                selected = selectedSort,
+                                onSelect = { selectedSort = it },
+                                modifier = Modifier.padding(bottom = MangoDimens.RowSpacing / 2),
+                                focusRequester = sortBarFocusRequester,
+                                focusUp = navFocusRequester,
+                                focusDown = firstCardFocusRequester
+                            )
+                        }
                     }
                     itemsIndexed(rows, key = { index, _ -> "grid_row_$index" }) { rowIndex, rowItems ->
                         Row(
@@ -829,11 +879,16 @@ private fun RowsBrowseGridContent(
             modifier = Modifier.align(Alignment.TopCenter),
             selectedIndex = MangoNavItems.indexOf(navLabel),
             selectedItemFocusRequester = navFocusRequester,
-            // Lands on the sort bar, not directly on a card -- it's the
-            // first focusable thing below the nav bar now. CatalogSortBar's
-            // own focusDown wiring carries a second DOWN press on through to
-            // whichever card lastFocusedContentId points at.
-            contentFocusRequester = if (items.isNotEmpty()) sortBarFocusRequester else null,
+            // Lands on the sort/filter bar, not directly on a card -- it's
+            // the first focusable thing below the nav bar now. Whichever
+            // occupies that slot wires its own focusDown to carry a second
+            // DOWN press on through to whichever card lastFocusedContentId
+            // points at.
+            contentFocusRequester = when {
+                items.isEmpty() -> null
+                hasFilterBar -> filterChipFocusRequesters.getOrNull(selectedFilterIndex)
+                else -> sortBarFocusRequester
+            },
             onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) },
             onNavigateDown = if (items.isNotEmpty()) {
                 {
@@ -842,7 +897,7 @@ private fun RowsBrowseGridContent(
                         // Scrolls the remembered card into view now (same
                         // reasoning as the LaunchedEffect above, and only if
                         // it isn't already on screen) so it's already
-                        // visible by the time DOWN from the sort bar
+                        // visible by the time DOWN from the sort/filter bar
                         // reaches it. rows is never empty here -- sorting
                         // never drops items, and this whole branch is
                         // already gated on items being non-empty.
@@ -851,7 +906,13 @@ private fun RowsBrowseGridContent(
                         if (!alreadyVisible) {
                             listState.animateScrollToItem(lazyIndex)
                         }
-                        runCatching { sortBarFocusRequester.requestFocus() }
+                        runCatching {
+                            if (hasFilterBar) {
+                                filterChipFocusRequesters[selectedFilterIndex].requestFocus()
+                            } else {
+                                sortBarFocusRequester.requestFocus()
+                            }
+                        }
                     }
                 }
             } else {

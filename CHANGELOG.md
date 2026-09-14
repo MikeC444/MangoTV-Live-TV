@@ -2960,3 +2960,144 @@ watched tick appears and the title shows up in My List's Watched filter.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-24 — My List Becomes a Grid Catalogue Like Movies/TV Shows
+
+**Status:** Complete.
+
+**Context:** User request: My List should look like the Movies tab -- a
+scrollable multi-column catalogue -- instead of a single horizontal row
+you scroll sideways through (`RowsBrowseLayout.ROWS`, `My List`'s only
+consumer of that layout since it was introduced).
+
+**Changes:**
+- `RowsBrowseScreen.kt` -- `RowsBrowseGridContent` (Movies/TV Shows/Genre
+  Results' grid) gained optional `filterOptions`/`selectedFilterIndex`/
+  `onFilterSelected` params. When non-empty, they replace `CatalogSortBar`
+  in the exact same "sort_bar" LazyColumn slot with a row of `FilterPill`s,
+  rather than adding a second bar above/below it -- sort reorders an
+  unchanging set of items, filter narrows which items exist at all, and My
+  List has no use for the other today, so this is a slot swap. Every
+  index offset that assumes exactly one bar item between the title and the
+  first grid row (`targetRowIndex + 2`, etc.) needed no changes, since the
+  slot itself still holds exactly one item either way -- this is what kept
+  the change small against a screen whose focus/scroll machinery has
+  already been tuned through several rounds of real stutter bugs (see the
+  file's own doc comments). Added a `filterChipFocusRequesters` list
+  (mirroring `RowsBrowseLoadedContent`'s own, one per chip so returning
+  from the nav bar lands on whichever filter is selected) alongside the
+  existing single `sortBarFocusRequester`, and made `contentFocusRequester`/
+  the nav bar's `onNavigateDown` pick whichever the active layout needs.
+  `RowsBrowseContent`'s GRID dispatch branch now threads filterOptions
+  through to this function (previously ROWS-only).
+- `FilterPill.kt` -- added optional `focusUp`/`focusDown` params (default
+  null, so existing callers are unaffected), mirroring `CatalogSortPill`'s
+  own, so a filter pill embedded in the grid's fixed bar slot can wire the
+  same explicit up/down handoff the sort bar already needed there.
+- `MyListScreen.kt` -- passes `layout = RowsBrowseLayout.GRID`. No
+  `MyListViewModel`/data changes needed: it already produces exactly one
+  `HomeSection`, and `RowsBrowseContent` already flattens every section's
+  items before handing them to the grid, so the existing All/Watched
+  filtering logic carries over unchanged.
+- `RowsBrowseLayout.ROWS` and `RowsBrowseLoadedContent` (the original
+  horizontal-shelf renderer) are now unused -- My List was their only
+  caller. Left in place rather than deleted: removing ~140 lines of
+  focus/scroll logic I can't compile-test felt like a separate cleanup
+  decision from the layout change actually requested, not a call to make
+  unilaterally in the same pass. Updated the stale doc comments that used
+  to say "My List keeps this" so they don't mislead a future reader.
+
+**Tests performed:** Same sandbox limitation as every recent milestone (no
+route to `dl.google.com`): brace/paren/bracket balance check on all three
+touched files (clean), and a full manual re-read confirming every index
+offset in `RowsBrowseGridContent` (the two `+ 2` `LaunchedEffect`s, the
+initial-focus effect, `onNavigateDown`'s scroll target) still holds given
+the bar slot always contains exactly one item regardless of which content
+it renders. Confirmed `RowsBrowseGridContent` has no other call sites
+needing the same treatment (Movies/TV Shows/Genre Results never pass
+`filterOptions`, so they're unaffected) and that `FilterPill`'s two new
+optional params don't change its existing callers (`RowsBrowseLoadedContent`'s
+own filter bar, which doesn't pass them). **Not performed:** an actual
+Gradle/Kotlin compile or on-device check -- on-device verification should
+open My List, confirm it now scrolls as a multi-column grid, confirm the
+All/Watched filter pills still work and still restore focus correctly via
+the nav bar's DOWN key and UP from the first grid row, and confirm Movies/
+TV Shows/Genre Results are visually and behaviorally unchanged.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
+
+## Post-Milestone-25 — Remove-From-Watched, and Newest-Added-First in My List
+
+**Status:** Complete.
+
+**Context:** User request: two follow-ups to the watched-tracking work.
+(1) Every "Mark as watched" surface (Post-Milestone-22/23) only ever set
+`watched=true` -- there was no way to undo a mis-tap or change of mind,
+short of manually editing the account's data. (2) My List's new grid
+(Post-Milestone-24) still rendered items in `myListRepository.items`' own
+storage order (oldest-added first, inherited from the server's
+`added_at ASC`), rather than newest-first.
+
+**Changes:**
+- `MyListRepository.kt` -- added `toggleWatched(content)`, a bidirectional
+  sibling to the existing one-way `markWatched(content)`: adds the item
+  (watched=true) if untracked, otherwise flips `watched` in whichever
+  direction it wasn't already. `markWatched()` itself is unchanged and
+  still the only thing `PlayerViewModel`'s live auto-detection and the
+  history backfill call -- neither should ever be capable of *unwatching*
+  something just because of how a playback report or a historical row
+  happened to read, only a deliberate user action should. Only ever flips
+  the `watched` flag, never removes the item from My List entirely, which
+  stays the separate, existing `toggle()`'s job.
+- `DetailViewModel.kt` -- renamed `markWatched()` to `toggleWatched()` and
+  pointed it at the new repository method (the old name was actively
+  misleading once tapping it again could unmark); threaded the rename
+  through `DetailScreen.kt`'s `onMarkWatched` -> `onToggleWatched` param.
+- `CardActionsMenu.kt` -- its "Mark as watched" row now calls
+  `myListRepository.toggleWatched()` instead of `markWatched()`.
+- `DetailHeroSection.kt` / `CardActionsMenu.kt` -- both watched
+  buttons/rows now say "Remove from Watched" once already watched
+  (previously just "Watched"), matching the action-oriented phrasing the
+  neighboring "Add to My List"/"Remove from My List" control already uses,
+  rather than only describing the current state.
+- `Content.kt` -- updated `watched`'s own doc comment, which had drifted
+  stale twice over (still said "the player has marked watched," and still
+  said "always false outside of My List's own cards today" from before
+  Post-Milestone-20 stamped it everywhere else too).
+- `MyListViewModel.kt` -- `toSections()` now reverses the item list before
+  building the displayed `HomeSection`. `myListRepository.items` itself
+  stays oldest-first end to end (`toggle()`/`markWatched()`/
+  `toggleWatched()` all append a new item to the end and never reorder an
+  existing one in place; `WatchlistSyncRepository.pullFromServer()`/
+  `reconcile()` mirror the server's own `added_at ASC` order the same
+  way) -- reversing at display time was the only change needed, and
+  every other reader of `myListRepository.items` (`savedIds`,
+  `isInMyList`, the sync repository's own push/pull logic) is unaffected
+  since none of them depend on its order. Deliberately not sorted by
+  `SavedListItem.addedAtMillis`: that field isn't part of `WatchlistItemDto`
+  at all, so it gets reset to "now" on every server pull for every item in
+  the response -- sorting by it would have looked fine locally and then
+  silently reshuffled toward "arbitrary" after the next app launch or sync.
+
+**Tests performed:** Same sandbox limitation as every recent milestone (no
+route to `dl.google.com`): brace/paren/bracket balance check on all eight
+touched files (clean), and a full manual re-read. Specifically traced
+every existing call site of `markWatched()` (`PlayerViewModel`,
+`WatchlistSyncRepository`'s backfill) to confirm neither was accidentally
+repointed at `toggleWatched()`, and traced `myListRepository.items`'
+write sites (`toggle`, `markWatched`, `toggleWatched`,
+`WatchlistSyncRepository.reconcile`/`pullFromServer`) to confirm the
+"append new, never reorder existing" invariant the reversed display
+depends on actually holds everywhere the list is written. **Not
+performed:** an actual Gradle/Kotlin compile or on-device check --
+on-device verification should mark a title watched, confirm the tick
+appears, tap the same control again, confirm the tick disappears and the
+title drops out of My List's Watched filter (while staying in All); and
+should add several titles to My List and confirm the most recently added
+one appears first in the grid.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.

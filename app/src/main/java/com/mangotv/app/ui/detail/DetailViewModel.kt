@@ -144,25 +144,26 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     }
 
     /**
-     * Backs the three-dot menu's "Mark as watched" button -- the same
-     * MyListRepository.markWatched() the player already calls
-     * automatically once a movie crosses the completion threshold, just
-     * user-triggered here instead of playback-triggered. Works for a TV
-     * show too: the movie-only scoping lives in PlayerViewModel's own
-     * caller logic (a single episode crossing 85% shouldn't auto-mark a
-     * whole show watched), not in markWatched() itself, which has no type
-     * restriction -- a user explicitly marking a show they finished is a
-     * distinct, deliberate action, not that same auto-detection rule
-     * applied more broadly.
+     * Backs the three-dot menu's "Mark as watched"/"Watched" button --
+     * MyListRepository.toggleWatched(), not the player's own one-way
+     * markWatched(): this button flips watched in either direction on each
+     * tap, the same way the neighboring Watchlist button toggles list
+     * membership, so a title marked watched by mistake (or one the user no
+     * longer considers finished) can be flipped back. Works for a TV show
+     * too: the movie-only scoping lives in PlayerViewModel's own live
+     * auto-detection logic (a single episode crossing 85% shouldn't
+     * auto-mark a whole show watched), not in toggleWatched() itself, which
+     * has no type restriction -- a user explicitly toggling a show they
+     * finished (or didn't) is a distinct, deliberate action.
      *
-     * Non-suspend: markWatched() already fires fire-and-forget on
+     * Non-suspend: toggleWatched() already fires fire-and-forget on
      * MyListRepository's own long-lived scope, so no viewModelScope.launch
      * wrapper is needed (unlike toggleMyList() above, whose toggle() call
      * is genuinely suspend).
      */
-    fun markWatched() {
+    fun toggleWatched() {
         val content = (uiState.value as? DetailUiState.Success)?.content ?: return
-        myListRepository.markWatched(content)
+        myListRepository.toggleWatched(content)
     }
 
     init {

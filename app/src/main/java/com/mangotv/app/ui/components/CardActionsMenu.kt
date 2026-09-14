@@ -222,12 +222,14 @@ fun CardActionsMenuOverlay(
                 )
                 CardActionRow(
                     icon = if (isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
-                    label = if (isWatched) "Watched" else "Mark as watched",
+                    label = if (isWatched) "Remove from Watched" else "Mark as watched",
                     onClick = {
-                        // Non-suspend: markWatched() already fires
+                        // Non-suspend: toggleWatched() already fires
                         // fire-and-forget on MyListRepository's own
-                        // long-lived scope, unlike toggle() above.
-                        myListRepository.markWatched(content)
+                        // long-lived scope, unlike toggle() above. Unlike
+                        // the player's own one-way markWatched(), this
+                        // flips watched in either direction on each tap.
+                        myListRepository.toggleWatched(content)
                         state.dismiss()
                     }
                 )
