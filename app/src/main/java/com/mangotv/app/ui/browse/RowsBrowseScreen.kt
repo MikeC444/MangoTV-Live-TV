@@ -55,6 +55,7 @@ import com.mangotv.app.navigation.MangoRoutes
 import com.mangotv.app.navigation.routeForNavLabel
 import com.mangotv.app.ui.components.ContentCard
 import com.mangotv.app.ui.components.ContentRow
+import com.mangotv.app.ui.components.FilterPill
 import com.mangotv.app.ui.components.FullScreenErrorState
 import com.mangotv.app.ui.components.GridLoadingSkeleton
 import com.mangotv.app.ui.components.RowsLoadingSkeleton
@@ -113,7 +114,14 @@ fun RowsBrowseContent(
     // near the bottom so Movies/TV Shows/Genre Results can page in more
     // content instead of dead-ending. Defaults to a no-op so My List (ROWS
     // layout) is unaffected.
-    onLoadMore: () -> Unit = {}
+    onLoadMore: () -> Unit = {},
+    // ROWS-only (see RowsBrowseLoadedContent) -- My List's All/Watched
+    // toggle. Empty by default so Movies/TV Shows/Genre Results (which
+    // never pass these) render exactly as before: no filter bar, and none
+    // of the nav-bar-seam changes it requires.
+    filterOptions: List<String> = emptyList(),
+    selectedFilterIndex: Int = 0,
+    onFilterSelected: (Int) -> Unit = {}
 ) {
     Box(Modifier.fillMaxSize().background(MangoBackground)) {
         when (uiState) {
@@ -139,7 +147,10 @@ fun RowsBrowseContent(
             is RowsBrowseUiState.Loaded -> if (layout == RowsBrowseLayout.GRID) {
                 RowsBrowseGridContent(screenTitle, navLabel, uiState.sections.flatMap { it.items }, onNavigate, emptyMessage, onLoadMore)
             } else {
-                RowsBrowseLoadedContent(screenTitle, navLabel, uiState.sections, onNavigate, emptyMessage)
+                RowsBrowseLoadedContent(
+                    screenTitle, navLabel, uiState.sections, onNavigate, emptyMessage,
+                    filterOptions, selectedFilterIndex, onFilterSelected
+                )
             }
         }
     }
@@ -174,8 +185,17 @@ private fun RowsBrowseLoadedContent(
     navLabel: String,
     sections: List<HomeSection>,
     onNavigate: (String) -> Unit,
-    emptyMessage: String
+    emptyMessage: String,
+    filterOptions: List<String> = emptyList(),
+    selectedFilterIndex: Int = 0,
+    onFilterSelected: (Int) -> Unit = {}
 ) {
+    val hasFilterBar = filterOptions.isNotEmpty()
+    // One per chip, so returning from the nav bar can land on whichever
+    // filter is currently selected rather than always the first -- same
+    // "restore exactly where the user was" spirit as lastFocusedItemIndex
+    // below, just for the filter row instead of the card row.
+    val filterChipFocusRequesters = remember(filterOptions.size) { List(filterOptions.size) { FocusRequester() } }
     val listState = rememberLazyListState()
     val coroutineScope = rememberCoroutineScope()
     val navFocusRequester = remember { FocusRequester() }
@@ -260,7 +280,12 @@ private fun RowsBrowseLoadedContent(
     }
 
     Box(Modifier.fillMaxSize()) {
-        if (sections.isEmpty()) {
+        // A filter bar with zero matching items (e.g. "Watched" before
+        // anything's finished) still needs to render and stay reachable --
+        // so only the plain "nothing at all" case bypasses the LazyColumn
+        // entirely; the filter bar itself is instead handled as its own
+        // item below, alongside an in-list empty message.
+        if (sections.isEmpty() && !hasFilterBar) {
             Text(
                 text = emptyMessage,
                 color = TextSecondary,
@@ -289,33 +314,101 @@ private fun RowsBrowseLoadedContent(
                             )
                         )
                     }
-                    itemsIndexed(sections, key = { _, section -> section.id }) { index, section ->
-                        ContentRow(
-                            section = section,
-                            onItemClick = ::navigateToContent,
-                            modifier = Modifier.padding(bottom = MangoDimens.RowSpacing),
-                            posterScale = 0.75f,
-                            onFocusChanged = { hasFocus -> if (hasFocus) focusedRowIndex = index },
-                            firstItemFocusRequester = if (index == 0) firstCardFocusRequester else null,
-                            targetItemIndex = if (index == 0) clampedFocusedItemIndex else 0,
-                            onItemFocusChanged = if (index == 0) {
-                                { itemIndex -> lastFocusedItemIndex = itemIndex }
-                            } else {
-                                {}
-                            },
-                            listState = if (index == 0) firstRowListState else rememberLazyListState(),
-                            onNavigateUpPastRow = if (index == 0) {
-                                {
-                                    navRegionFocused = true
-                                    coroutineScope.launch {
-                                        listState.scrollToItem(0, 0)
-                                        runCatching { navFocusRequester.requestFocus() }
-                                    }
+                    if (hasFilterBar) {
+                        item(key = "filter_bar") {
+                            Row(
+                                modifier = Modifier
+                                    .padding(
+                                        horizontal = MangoDimens.ScreenPaddingHorizontal,
+                                        vertical = 8.dp
+                                    )
+                                    // This bar sits where row 0 used to sit
+                                    // right below the nav bar -- same seam,
+                                    // so it needs the same explicit
+                                    // scroll-then-focus handoff as row 0's
+                                    // own onNavigateUpPastRow below (the nav
+                                    // bar is a fixed overlay outside this
+                                    // LazyColumn's own scrolled content, not
+                                    // reliably reachable via default focus
+                                    // search -- see this screen's own kdoc).
+                                    // DOWN into the first card needs no such
+                                    // handling: both are ordinary adjacent
+                                    // LazyColumn siblings, the same as any
+                                    // other row-to-row move in this list.
+                                    .onPreviewKeyEvent { event ->
+                                        if (event.key == Key.DirectionUp) {
+                                            if (event.type == KeyEventType.KeyDown) {
+                                                navRegionFocused = true
+                                                coroutineScope.launch {
+                                                    listState.scrollToItem(0, 0)
+                                                    runCatching { navFocusRequester.requestFocus() }
+                                                }
+                                            }
+                                            true
+                                        } else {
+                                            false
+                                        }
+                                    },
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                filterOptions.forEachIndexed { index, label ->
+                                    FilterPill(
+                                        label = label,
+                                        selected = index == selectedFilterIndex,
+                                        onClick = { onFilterSelected(index) },
+                                        focusRequester = filterChipFocusRequesters[index]
+                                    )
                                 }
-                            } else {
-                                null
                             }
-                        )
+                        }
+                    }
+                    if (sections.isEmpty()) {
+                        item(key = "empty_message") {
+                            Text(
+                                text = emptyMessage,
+                                color = TextSecondary,
+                                style = MaterialTheme.typography.bodyLarge,
+                                modifier = Modifier.padding(
+                                    horizontal = MangoDimens.ScreenPaddingHorizontal,
+                                    vertical = 32.dp
+                                )
+                            )
+                        }
+                    } else {
+                        itemsIndexed(sections, key = { _, section -> section.id }) { index, section ->
+                            ContentRow(
+                                section = section,
+                                onItemClick = ::navigateToContent,
+                                modifier = Modifier.padding(bottom = MangoDimens.RowSpacing),
+                                posterScale = 0.75f,
+                                onFocusChanged = { hasFocus -> if (hasFocus) focusedRowIndex = index },
+                                firstItemFocusRequester = if (index == 0) firstCardFocusRequester else null,
+                                targetItemIndex = if (index == 0) clampedFocusedItemIndex else 0,
+                                onItemFocusChanged = if (index == 0) {
+                                    { itemIndex -> lastFocusedItemIndex = itemIndex }
+                                } else {
+                                    {}
+                                },
+                                listState = if (index == 0) firstRowListState else rememberLazyListState(),
+                                // Only wired when nothing sits above row 0 --
+                                // with a filter bar present, default focus
+                                // search already carries UP from row 0 to it
+                                // (ordinary adjacent LazyColumn siblings), so
+                                // this special-case handoff would only skip
+                                // past the filter bar straight to the nav bar.
+                                onNavigateUpPastRow = if (index == 0 && !hasFilterBar) {
+                                    {
+                                        navRegionFocused = true
+                                        coroutineScope.launch {
+                                            listState.scrollToItem(0, 0)
+                                            runCatching { navFocusRequester.requestFocus() }
+                                        }
+                                    }
+                                } else {
+                                    null
+                                }
+                            )
+                        }
                     }
                     item(key = "bottom_spacer") {
                         Spacer(Modifier.height(48.dp))
@@ -329,27 +422,35 @@ private fun RowsBrowseLoadedContent(
             modifier = Modifier.align(Alignment.TopCenter),
             selectedIndex = MangoNavItems.indexOf(navLabel),
             selectedItemFocusRequester = navFocusRequester,
-            contentFocusRequester = if (sections.isNotEmpty()) firstCardFocusRequester else null,
+            contentFocusRequester = when {
+                hasFilterBar -> filterChipFocusRequesters.getOrNull(selectedFilterIndex)
+                sections.isNotEmpty() -> firstCardFocusRequester
+                else -> null
+            },
             onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) },
-            onNavigateDown = if (sections.isNotEmpty()) {
+            onNavigateDown = if (sections.isNotEmpty() || hasFilterBar) {
                 {
                     navRegionFocused = false
                     coroutineScope.launch {
                         listState.scrollToItem(0, 0)
-                        // Only move the row's own horizontal scroll if the
-                        // remembered card isn't already on screen -- its
-                        // position was never touched while the user was
-                        // away, so it usually already is. Calling
-                        // scrollToItem unconditionally snaps the target to
-                        // the very start of the viewport even when it
-                        // didn't need to move at all, which read as the
-                        // row jarringly jumping on every single return.
-                        val alreadyVisible = firstRowListState.layoutInfo.visibleItemsInfo
-                            .any { it.index == clampedFocusedItemIndex }
-                        if (!alreadyVisible) {
-                            firstRowListState.animateScrollToItem(clampedFocusedItemIndex)
+                        if (hasFilterBar) {
+                            runCatching { filterChipFocusRequesters[selectedFilterIndex].requestFocus() }
+                        } else {
+                            // Only move the row's own horizontal scroll if the
+                            // remembered card isn't already on screen -- its
+                            // position was never touched while the user was
+                            // away, so it usually already is. Calling
+                            // scrollToItem unconditionally snaps the target to
+                            // the very start of the viewport even when it
+                            // didn't need to move at all, which read as the
+                            // row jarringly jumping on every single return.
+                            val alreadyVisible = firstRowListState.layoutInfo.visibleItemsInfo
+                                .any { it.index == clampedFocusedItemIndex }
+                            if (!alreadyVisible) {
+                                firstRowListState.animateScrollToItem(clampedFocusedItemIndex)
+                            }
+                            runCatching { firstCardFocusRequester.requestFocus() }
                         }
-                        runCatching { firstCardFocusRequester.requestFocus() }
                     }
                 }
             } else {

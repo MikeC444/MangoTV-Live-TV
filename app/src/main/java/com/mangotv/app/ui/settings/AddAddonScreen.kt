@@ -135,7 +135,8 @@ fun AddAddonScreen(
                     text = "Install",
                     icon = Icons.Filled.CloudUpload,
                     onClick = { viewModel.installAddon(manualUrl) },
-                    style = MangoButtonStyle.FILLED
+                    style = MangoButtonStyle.FILLED,
+                    borderColor = TextPrimary
                 )
 
                 Spacer(Modifier.height(24.dp))

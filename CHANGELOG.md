@@ -2595,3 +2595,368 @@ in the area.
 
 **Issues fixed (this update):** see above (kdoc correction) — nothing
 functional.
+
+## Post-Milestone-18 — Auto-Remove Movies from Continue Watching Past 85% Watched
+
+**Status:** Complete.
+
+**Context:** User request: "automatically remove a movie from continue
+watching if user has watched more than 85% of the movie." Continue
+Watching was previously only ever cleared for a title when a report
+carried `completed: true`, and `PlayerScreen`'s reporting loop only sends
+that on ExoPlayer's natural `STATE_ENDED` event (`PlaybackPhase.Ended`).
+A user who backs out of a movie during the credits, or leaves the player
+a few minutes before the stream's own end, never triggers that event, so
+the title lingered in Continue Watching indefinitely despite being
+effectively finished.
+
+**Changes:**
+- `server/src/services/playbackProgressService.ts` — `recordProgress` now
+  derives its own `completed` value instead of trusting `input.completed`
+  outright: for `contentType === "MOVIE"`, crossing 85% of `durationMs`
+  (`positionMs / durationMs > 0.85`) counts as completed even when the
+  client reported `completed: false`, clearing (soft-deleting) the
+  title's `continue_watching` row and marking its `watch_history` row
+  `completed` the same way a natural end-of-playback report already did.
+  Scoped to movies only — an episode's own completed flag stays
+  per-episode, so being mostly through one episode never clears the
+  parent show's Continue Watching card out from under the next episode.
+  No client changes were needed: every existing report site (periodic
+  while playing, on pause, on stop/dispose, and on natural completion)
+  already sends real `positionMs`/`durationMs`, and the Android app's
+  `ContinueWatchingSyncRepository.reconcile()` already applies whatever
+  `continueWatching` state the server's response carries back, including
+  a non-null `deletedAt`.
+- `server/README.md`, `docs/ARCHITECTURE.md` — updated the
+  `POST /user/watch-progress` and `continue_watching` descriptions to
+  document the 85% rule alongside the existing `completed: true` one.
+
+**Tests added (`server/tests/watch-progress.test.ts`):**
+- A movie past 85% of its duration is cleared from Continue Watching (and
+  its `watch_history` row marked `completed`) even though the report
+  itself said `completed: false`.
+- A movie at exactly 85% is not yet cleared — the rule is "more than,"
+  not "at least."
+- An episode past 85% of its own runtime does not clear the parent show's
+  Continue Watching row (contentType-scoping check).
+
+**Tests performed:** Ran the full backend suite locally against a
+throwaway local Postgres 16 database (started for this session; not the
+project's Neon instance) — `npm test`: 134/134 passed. `npm run
+typecheck`: clean.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
+
+## Post-Milestone-19 — Faster Source Selection (Progressive Loading)
+
+**Status:** Complete.
+
+**Context:** User report: the "Select a Source" screen was slow to load.
+`SourcesViewModel.load()` queried every active addon's `getStreams()` in
+parallel but sat on `awaitAll()` before showing anything, so the whole
+screen stayed on its loading skeleton for as long as the single slowest
+installed addon took to answer — even when every other addon had already
+responded in milliseconds. Real Stremio-style "stream" addons commonly
+scrape live sources and can genuinely take several seconds (unlike
+catalog/meta endpoints), so the picker felt sluggish with more than one
+addon installed, or even with just one that's a little slow.
+
+**Changes:**
+- `SourcesViewModel.kt` — `load()` now branches in two directions after a
+  purely local (no-network) check of whether this load can end in the
+  existing Continue-Watching "resume" shortcut:
+  - The resume path (an exact season/episode match whose last-used source
+    is still available skips straight to Player) is unchanged: it still
+    waits for every provider before deciding, since it needs the full
+    merged stream list to know whether to skip the picker at all, and
+    must never flash the interactive list first.
+  - The normal "show the picker" path now fans out every provider's
+    `getStreams()` call and publishes results as each one completes (via
+    a `Channel`, drained in completion order rather than launch order)
+    instead of waiting for `awaitAll()`. A fast addon's sources appear
+    immediately; slower addons' results are appended as they arrive.
+  - Added `SourcesUiState.Loaded.isSearchingMore`, true while any
+    provider is still outstanding.
+- `SourcesScreen.kt` — while `isSearchingMore` is true: an empty list
+  shows a new `SourcesSearchingState` ("Searching for sources…") instead
+  of the "No sources found, try installing more addons" empty state
+  (misleading before slower addons have had a chance to reply); a
+  non-empty list shows whatever's arrived so far plus a small inline
+  "Looking for more sources…" indicator, reusing the same amber
+  `CircularProgressIndicator` style `SearchScreen` already uses for its
+  own in-progress state.
+
+**Tests performed:** This sandbox has no Android SDK configured (no
+`ANDROID_HOME`, no `local.properties`), and per every prior milestone's
+own notes, fetching one from scratch here isn't realistic — so, matching
+this project's established fallback for Kotlin-only changes: a
+script-based brace/paren/bracket-balance check on both touched files; a
+full manual re-read of the new `load()` control flow (the resume-vs-picker
+split, the channel's send/receive count matching exactly, Compose
+recomposition/focus behavior around a streams list that now grows across
+multiple emissions); confirmed both `SourcesUiState.Loaded(...)`
+construction sites already use named arguments (a positional call is what
+a new field with a default value could otherwise silently break) and that
+no existing test references `SourcesViewModel`/`SourcesUiState` — this
+app has exactly one ViewModel unit test in the whole project
+(`PasswordSignInViewModelTest`), and it covers a pure function, not a
+provider-fan-out ViewModel like this one, so no existing coverage needed
+updating. **Not performed:** an actual Kotlin/Gradle compile or on-device
+verification — `build-apk.yml` (manual-dispatch only on this branch) is
+the real compile check and needs to be triggered after this is pushed.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
+
+## Post-Milestone-20 — Watched Tick Mark on Every Poster, Not Just My List
+
+**Status:** Complete.
+
+**Context:** The prior milestone ("Add watched tick mark and My List
+auto-add at 85% movie completion", commit `abe0b75`) added
+`Content.watched`, `ContentCard`'s green checkmark badge, and
+`MyListRepository.markWatched()` — but only `MyListViewModel.toContent()`
+ever set `watched = true` on a `Content` instance. Every other screen
+(Home, Movies, TV Shows, Genre Results, Search, Detail's Similar row)
+built its `Content` items with the field left at its `false` default, so a
+watched movie's tick only ever appeared once the user opened My List
+itself, not on the same poster anywhere else in the app.
+
+**Changes:**
+- `HomeViewModel.kt` — added a `watchedIds` field kept in sync via a new
+  `myListRepository.items` collector (mirroring the existing
+  `continueWatchingRepository.items` one already there), applied to
+  `rawSections` and `continueWatchingSection` inside `applyPreferences()`
+  via new `HomeSection.withWatchedFlags()` / `Content.withWatchedFlag()`
+  helpers.
+- `TypeBrowseViewModel.kt` (backs Movies/TV Shows), `GenreResultsViewModel.kt`
+  — same `watchedIds` + collector pattern; both now rebuild their
+  published `HomeSection` from the pristine `allItems` list (via a new
+  `currentSection()`) whenever watched status changes, not only on their
+  own `load()`/`loadMore()`.
+- `SearchViewModel.kt` — added `rawMovies`/`rawTvShows` fields (search
+  results previously lived only inside the already-emitted
+  `SearchUiState.Results`, leaving nothing pristine to re-stamp from) plus
+  the same collector, re-publishing via a new `currentResults()`.
+- `DetailViewModel.kt` — added `rawContent`/`rawSimilar` fields (the two
+  inline `DetailUiState.Success(...)` constructions in `load()` now go
+  through a new `publish()`) plus the same collector, so the Similar row's
+  cards get the tick too.
+- Every one of the above always re-derives its published list from a
+  pristine, never-stamped source (the raw fetched items, never the last
+  emitted UI state): `SavedListItem.watched` only ever flips false-to-true,
+  but a title can still leave `watchedIds` entirely if the user manually
+  removes it from My List, and re-stamping an already-stamped list can't
+  represent that going back to unwatched — re-deriving from pristine data
+  each time can.
+- Each new collector only republishes while the current UI state is
+  already a "loaded" one (`Loaded`/`Success`/`Results`), so it never
+  overwrites a `Loading` or `Error` state with stale data.
+
+**Tests performed:** This sandbox still has no route to `dl.google.com`
+(the same limitation every prior milestone's own notes describe), so a
+Gradle/AGP build isn't possible here — reconfirmed this session:
+`:app:compileDebugKotlin` fails resolving the `com.android.application`
+plugin itself, before any Kotlin source is even compiled. Fell back to
+this project's established substitute for a Kotlin-only change: a
+script-based brace/paren/bracket balance check on all five touched files
+(all clean), plus a full manual re-read of each ViewModel's control flow
+and every call site of the helpers introduced. **Not performed:** an
+actual Gradle/Kotlin compile or on-device check — `build-apk.yml` CI is
+the real compile check and should be triggered after this is pushed, then
+verified on-device (watch a movie past ~85%, confirm the tick now also
+shows on Home, Movies, TV Shows, Genre Results, Search, and Detail's
+Similar row, not only My List).
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
+
+## Post-Milestone-21 — Backfill Watched Status From Existing Watch History
+
+**Status:** Complete.
+
+**Context:** User question: would a movie finished *before* the
+Post-Milestone-19/20 "watched" work existed also get the tick and a My
+List entry, or only ones finished from now on? Tracing every call site of
+`markWatched()` confirmed the latter -- it fires only from
+`PlayerViewModel.reportProgress()` during live playback, and nothing (not
+`FirstLoginMigrationCoordinator`, not any sync repository) ever reads past
+watch history to backfill it. Asked the user whether that gap should be
+closed; they said yes.
+
+**Changes:**
+- `server/src/routes/history.ts`'s existing `GET /user/history` endpoint
+  is unchanged -- it already returned everything needed (`completed`,
+  `contentType`, `contentId`, `providerId`, `title`, `posterUrl`,
+  keyset-paginated on `watched_at`) and simply had no client consumer yet.
+  This entire milestone is client-only.
+- `ContinueWatchingDtos.kt` -- added `WatchHistoryListResponse`; updated
+  its file comment, which previously said `/user/history` had "no client
+  here yet."
+- `PlaybackProgressApiClient.kt` -- added `getHistory(accessToken, limit,
+  before)`, keyset-paginated the same way the server's own
+  `historyQuerySchema`/`listWatchHistory` already do (`limit` capped at
+  200 to match the schema's own max; `before` is the previous page's
+  oldest item's own `watchedAt`, matching the server's "give me rows
+  watched before this timestamp" contract exactly).
+- New `WatchedBackfillState.kt` -- a device-scoped one-time-done flag,
+  the same shape as `FirstSyncState` (`isDone()`/`markDone()`/`reset()`
+  over a boolean DataStore key), for the same reason: this needs to run
+  once, not on every sync.
+- `WatchlistSyncRepository.kt` -- new
+  `backfillWatchedFromHistoryIfNeeded()`: pages through `/user/history`
+  newest-first, filters to `contentType == MOVIE && completed == true`
+  (the server already re-derives `completed` from its own >85% rule, so
+  this matches PlayerViewModel's live threshold check exactly, not a
+  separately-invented rule), and replays each match through the existing
+  `MyListRepository.markWatched()` -- already idempotent (no-ops once an
+  item is watched=true) and already wired to push to `watchlist_items`
+  via `onLocalChange`, so no new server-side write path was needed either.
+  Only marks `WatchedBackfillState` done after a full, uninterrupted
+  pass; a network failure mid-scan leaves it not-done so the next
+  `syncAll()` simply starts over from the newest entry, rather than
+  resuming from a partial cursor.
+- `SyncManager.kt` -- `syncAll()` now calls
+  `watchlistSyncRepository.backfillWatchedFromHistoryIfNeeded()` right
+  after its existing pull+retry `.join()`, but deliberately NOT inside
+  that joined block -- fire-and-forget, so a long watch history can't add
+  perceptible delay to an otherwise-fast app launch, and it always runs
+  against the account's just-pulled My List state rather than a stale
+  local cache.
+- `AccountSwitchCoordinator.kt` -- resets `WatchedBackfillState` on
+  sign-out, mirroring `FirstSyncState`'s own reset, so a different
+  account signing in on the same device gets its own fresh backfill pass
+  instead of inheriting the previous account's "already done."
+- `AppContainer.kt` -- wires the new `WatchedBackfillState` singleton into
+  both `WatchlistSyncRepository` and `AccountSwitchCoordinator`.
+
+**Tests performed:** Same sandbox limitation as every recent milestone
+(no route to `dl.google.com`, so no Gradle/AGP build is possible here): a
+script-based brace/paren/bracket balance check on all seven touched/added
+files (all clean), a full manual re-read of the pagination loop (cursor
+direction, page-size-based termination, the idempotent replay), and
+confirmed no other call site constructs `WatchlistSyncRepository` or
+`AccountSwitchCoordinator` that would break from their new constructor
+parameter (only `AppContainer.kt` constructs either, already updated).
+Confirmed `GET /user/history`'s actual route mounting
+(`app.use("/user", historyRouter)` + `historyRouter.get("/history", ...)`)
+matches the URL the new client call uses. **Not performed:** an actual
+Gradle/Kotlin compile, or an on-device/server-integration check --
+`build-apk.yml` CI is the real compile check; on-device verification
+should specifically confirm that a movie finished *before* this shipped
+(and not rewatched since) gets its tick and a My List entry after the
+next app launch or sign-in, without noticeably slowing that launch down.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
+
+## Post-Milestone-22 — Wire Up Detail's "Mark As Watched" Button
+
+**Status:** Complete.
+
+**Context:** User request: the three-dot menu on a movie/TV show's Detail
+page already had a "Mark as watched" button (`DetailHeroSection`'s
+`Icons.Outlined.CheckCircle` `HeroIconButton`, revealed by tapping the
+three-dot "More options" button next to Play) -- but `DetailScreen.kt`
+wired its `onWatched` callback to a literal no-op (`onWatched = {}`), so
+tapping it did nothing. This button predates every "watched" work this
+session did.
+
+**Changes:**
+- `DetailViewModel.kt` -- added `markWatched()`: reads the current
+  `DetailUiState.Success.content` and calls the existing
+  `MyListRepository.markWatched(content)` directly (non-suspend, since
+  `markWatched()` already fires fire-and-forget on its own scope --
+  no `viewModelScope.launch` needed, unlike `toggleMyList()`). Works for a
+  TV show, not just a movie: `markWatched()` itself has no type
+  restriction -- the movie-only scoping the rest of this feature uses
+  lives in `PlayerViewModel`'s own auto-detection logic (a single episode
+  crossing 85% shouldn't auto-mark a whole show), which doesn't apply to
+  a user's own explicit, deliberate choice here.
+- `DetailScreen.kt` -- threaded a new `onMarkWatched: () -> Unit` through
+  `DetailContent` (wired to `viewModel::markWatched`), replacing the
+  `onWatched = {}` stub with `onWatched = onMarkWatched`, and passing the
+  already-available `content.watched` through as `DetailHeroSection`'s
+  new `isWatched` parameter.
+- `DetailHeroSection.kt` -- added `isWatched: Boolean = false`; the
+  button's icon/description now swap to a filled checkmark / "Watched"
+  once true, the same way its neighboring Watchlist button already swaps
+  Add/Check on `isInMyList` -- without this, a tap would silently update
+  `MyListRepository` with no visible confirmation on a button whose
+  neighbor already sets that visual-feedback expectation. Deliberately
+  stays a one-way action (no "unmark" tap), matching
+  `MyListRepository.markWatched()`'s own false-to-true-only contract used
+  everywhere else this session.
+
+**Tests performed:** Same sandbox limitation as every recent milestone
+(no route to `dl.google.com`): brace/paren/bracket balance check on all
+three touched files (clean), full manual re-read, and confirmed
+`DetailHeroSection` has exactly one call site (`DetailScreen.kt`) so no
+other caller needed updating. `Icons.Filled.CheckCircle` was added
+alongside the file's existing `Icons.Outlined.CheckCircle` import --
+confident (not verified by compiling) this doesn't collide, since Kotlin
+resolves same-named extension properties by their differing receiver
+type (`Icons.Filled` vs `Icons.Outlined`), the same pattern already used
+elsewhere in this codebase (e.g. `Icons.Filled.Check` alongside other
+icon families). **Not performed:** an actual Gradle/Kotlin compile or
+on-device check -- `build-apk.yml` CI is the real compile check; on-device
+verification should open a movie and a TV show's Detail page, tap the
+three dots, tap "Mark as watched," and confirm the icon switches to
+filled immediately and the title appears in My List's Watched filter.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
+
+## Post-Milestone-23 — "Mark As Watched" On The Long-Press Menu Too
+
+**Status:** Complete.
+
+**Context:** User request: add the same "Mark as watched" action to a
+poster's long-press quick-actions menu (`CardActionsMenu.kt`), not only
+Detail's three-dot menu (Post-Milestone-22). This menu already renders
+once at the NavHost root for every `ContentCard` in the app (Home's rows,
+My List, Movies/TV Shows/Genre grids, Detail's Similar row -- see its own
+kdoc), so this one change reaches every poster, not just certain screens.
+
+**Changes:**
+- `CardActionsMenu.kt` -- added a `CardActionRow` for "Mark as watched"
+  right after the existing "Add/Remove My List" row (both concern My
+  List status), calling `myListRepository.markWatched(content)` directly
+  (non-suspend -- no `coroutineScope.launch` needed, unlike the
+  neighboring "Add/Remove My List" row's `toggle()` call, which is
+  suspend). Works for a movie or TV show, same reasoning as
+  Post-Milestone-22's Detail button: `markWatched()` itself has no type
+  restriction.
+- Added a new `isWatched` local val, derived from the already-collected
+  `savedIds` (`myListRepository.items`) the exact same way the existing
+  `isInMyList` is -- not from `content.watched` -- so the row's
+  icon/label are correct regardless of which screen's `Content` this menu
+  happened to be opened from (some screens stamp `watched` onto `Content`
+  by now; this reads the single source of truth directly instead of
+  trusting that every caller does). Filled `CheckCircle` + "Watched" once
+  true, outlined `CheckCircle` + "Mark as watched" otherwise -- same
+  swap Post-Milestone-22 already established for Detail's own button.
+  Every row here already calls `state.dismiss()` right after its action,
+  so (unlike Detail's button) there's no expectation of watching the icon
+  change live in an still-open menu -- it just closes immediately either
+  way.
+
+**Tests performed:** Same sandbox limitation as every recent milestone
+(no route to `dl.google.com`): brace/paren/bracket balance check (clean)
+and a full manual re-read. `Icons.Filled.CheckCircle` alongside
+`Icons.Outlined.CheckCircle` in the same file -- confident (not
+compiled) this doesn't collide, same reasoning and precedent as
+Post-Milestone-22. **Not performed:** an actual Gradle/Kotlin compile or
+on-device check -- on-device verification should long-press a poster on
+Home (or any grid), tap "Mark as watched," and confirm the poster's own
+watched tick appears and the title shows up in My List's Watched filter.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.

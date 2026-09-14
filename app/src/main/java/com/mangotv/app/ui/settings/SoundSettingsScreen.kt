@@ -4,6 +4,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -15,7 +16,6 @@ import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.MusicNote
 import androidx.compose.material.icons.filled.VolumeUp
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -52,49 +52,51 @@ import kotlin.math.roundToInt
 // silent to full.
 private const val VOLUME_STEP = 0.1f
 
+/**
+ * A ColumnScope extension hosted by SettingsScreen's detail pane -- see
+ * AccountSettingsContent's kdoc for why this isn't its own screen anymore.
+ * No sidebarFocusRequester param (unlike its siblings) -- see the
+ * focusLeft comment on the volume row below for why it'd never be reached.
+ */
 @Composable
-fun SoundSettingsScreen(
-    onNavigate: (String) -> Unit,
+fun ColumnScope.SoundSettingsContent(
+    navFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
     viewModel: SoundSettingsViewModel = viewModel()
 ) {
     val preferences by viewModel.preferences.collectAsStateWithLifecycle()
-    val navFocusRequester = remember { FocusRequester() }
-    val volumeRowFocusRequester = remember { FocusRequester() }
 
-    SettingsScaffold(
-        title = "Sounds",
-        onNavigate = onNavigate,
-        navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = volumeRowFocusRequester,
-        titleIcon = Icons.Filled.MusicNote
+    LazyColumn(
+        modifier = Modifier.weight(1f),
+        // LazyColumn clips to its own bounds, and every row below fills
+        // its full width with no margin of its own -- so a row's focus
+        // scale-up (TvFocusSurface, 1.08x) had nowhere to grow into and
+        // got clipped flush against the list's left/right edges, and the
+        // last row's bottom edge the same way against the list's bottom
+        // edge. Same fix as TopNavBar/SourcesScreen: reserve a little
+        // headroom via contentPadding for the scale to grow into.
+        contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp)
     ) {
-        LazyColumn(
-            // LazyColumn clips to its own bounds, and every row below fills
-            // its full width with no margin of its own -- so a row's focus
-            // scale-up (TvFocusSurface, 1.08x) had nowhere to grow into and
-            // got clipped flush against the list's left/right edges, and the
-            // last row's bottom edge the same way against the list's bottom
-            // edge. Same fix as TopNavBar/SourcesScreen: reserve a little
-            // headroom via contentPadding for the scale to grow into.
-            contentPadding = PaddingValues(horizontal = 8.dp, vertical = 8.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp)
-        ) {
-            item(key = "volume_header") {
-                Text(
-                    text = "Applies to the navigation and click sounds.",
-                    color = TextSecondary,
-                    style = MaterialTheme.typography.bodySmall,
-                    modifier = Modifier.padding(bottom = 8.dp)
-                )
-            }
-            item(key = "volume_row") {
-                NavigationVolumeRow(
-                    volume = preferences.navigationVolume,
-                    onVolumeChange = viewModel::setNavigationVolume,
-                    focusRequester = volumeRowFocusRequester,
-                    focusUp = navFocusRequester
-                )
-            }
+        item(key = "volume_header") {
+            Text(
+                text = "Applies to the navigation and click sounds.",
+                color = TextSecondary,
+                style = MaterialTheme.typography.bodySmall,
+                modifier = Modifier.padding(bottom = 8.dp)
+            )
+        }
+        item(key = "volume_row") {
+            // No focusLeft wired here (unlike this pane's siblings) --
+            // NavigationVolumeRow's own onPreviewKeyEvent below already
+            // consumes DirectionLeft to lower the volume, so a focusLeft
+            // override would never actually be reached.
+            NavigationVolumeRow(
+                volume = preferences.navigationVolume,
+                onVolumeChange = viewModel::setNavigationVolume,
+                focusRequester = contentFocusRequester,
+                focusUp = navFocusRequester
+            )
         }
     }
 }
@@ -130,6 +132,7 @@ private fun NavigationVolumeRow(
             },
         shape = RoundedCornerShape(MangoDimens.CardCornerRadius),
         backgroundColor = MangoSurface,
+        borderColor = TextPrimary,
         focusRequester = focusRequester,
         focusUp = focusUp,
         onFocusChanged = { focused = it }
@@ -137,7 +140,7 @@ private fun NavigationVolumeRow(
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(horizontal = 20.dp, vertical = 16.dp)
+                .padding(horizontal = 16.dp, vertical = 10.dp)
         ) {
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Icon(imageVector = Icons.Filled.VolumeUp, contentDescription = null, tint = labelColor)
@@ -145,16 +148,16 @@ private fun NavigationVolumeRow(
                 Text(
                     text = "Navigation Volume",
                     color = labelColor,
-                    style = MaterialTheme.typography.titleMedium,
+                    style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f)
                 )
                 Text(
                     text = "${(volume * 100).roundToInt()}%",
                     color = TextSecondary,
-                    style = MaterialTheme.typography.labelLarge
+                    style = MaterialTheme.typography.labelMedium
                 )
             }
-            Spacer(Modifier.height(12.dp))
+            Spacer(Modifier.height(8.dp))
             Box(
                 modifier = Modifier
                     .fillMaxWidth()

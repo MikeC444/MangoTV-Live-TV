@@ -76,15 +76,33 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
     // load() below still runs and overwrites this with real data (or an
     // Error) once it resolves, so a missing/stale entry (e.g. a deep link)
     // just falls back to today's Loading-first behavior.
+    // Captured once (PendingDetailCache.consume is consume-once) and reused
+    // for both the initial _uiState value below and rawContent, rather than
+    // calling consume() twice and losing the preview the second time.
+    private val pendingPreview: Content? = PendingDetailCache.consume(contentId)
+
     private val _uiState = MutableStateFlow<DetailUiState>(
-        PendingDetailCache.consume(contentId)?.let { DetailUiState.Success(it, similar = emptyList()) }
-            ?: DetailUiState.Loading
+        pendingPreview?.let { DetailUiState.Success(it, similar = emptyList()) } ?: DetailUiState.Loading
     )
     val uiState: StateFlow<DetailUiState> = _uiState.asStateFlow()
 
     val isInMyList: StateFlow<Boolean> = myListRepository.items
         .map { items -> items.any { it.id == contentId } }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), false)
+
+    // Pristine (never-stamped) content/similar backing whatever's currently
+    // published -- publish() always re-derives from these rather than from
+    // _uiState's own last value, so a title removed from My List after being
+    // watched correctly loses its tick on the next re-publish instead of
+    // staying stuck true.
+    private var rawContent: Content? = pendingPreview
+    private var rawSimilar: List<Content> = emptyList()
+
+    // Ids My List has marked watched -- drives the watched tick on the
+    // Similar row's ContentCards too, not just My List's own screen. Plain
+    // field + collector (not a StateFlow) since it only needs to feed
+    // publish() below.
+    private var watchedIds: Set<String> = emptySet()
 
     private val _trailerState = MutableStateFlow<TrailerState>(TrailerState.Idle)
     val trailerState: StateFlow<TrailerState> = _trailerState.asStateFlow()
@@ -125,8 +143,49 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
         viewModelScope.launch { myListRepository.toggle(content) }
     }
 
+    /**
+     * Backs the three-dot menu's "Mark as watched" button -- the same
+     * MyListRepository.markWatched() the player already calls
+     * automatically once a movie crosses the completion threshold, just
+     * user-triggered here instead of playback-triggered. Works for a TV
+     * show too: the movie-only scoping lives in PlayerViewModel's own
+     * caller logic (a single episode crossing 85% shouldn't auto-mark a
+     * whole show watched), not in markWatched() itself, which has no type
+     * restriction -- a user explicitly marking a show they finished is a
+     * distinct, deliberate action, not that same auto-detection rule
+     * applied more broadly.
+     *
+     * Non-suspend: markWatched() already fires fire-and-forget on
+     * MyListRepository's own long-lived scope, so no viewModelScope.launch
+     * wrapper is needed (unlike toggleMyList() above, whose toggle() call
+     * is genuinely suspend).
+     */
+    fun markWatched() {
+        val content = (uiState.value as? DetailUiState.Success)?.content ?: return
+        myListRepository.markWatched(content)
+    }
+
     init {
         load()
+        // Re-publishes the current content/similar whenever watched status
+        // changes, so a title crossing the completion threshold (or being
+        // removed from My List) ticks/unticks on the Similar row immediately
+        // even while this screen just sits on the back stack. Guarded to
+        // Success only so a Loading/Error state (e.g. a load() in flight or
+        // a failed fetch) is never clobbered back to a stale Success.
+        viewModelScope.launch {
+            myListRepository.items.collect { items ->
+                watchedIds = items.filter { it.watched }.map { it.id }.toSet()
+                if (_uiState.value is DetailUiState.Success) publish()
+            }
+        }
+    }
+
+    private fun Content.withWatchedFlag(): Content = if (id in watchedIds) copy(watched = true) else this
+
+    private fun publish() {
+        val content = rawContent ?: return
+        _uiState.value = DetailUiState.Success(content.withWatchedFlag(), rawSimilar.map { it.withWatchedFlag() })
     }
 
     fun load() {
@@ -154,13 +213,16 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
             // sequential ones and making every detail page open noticeably
             // slower than it needed to. The row itself just pops in a
             // moment later once it's ready.
-            _uiState.value = DetailUiState.Success(detail, similar = emptyList())
+            rawContent = detail
+            rawSimilar = emptyList()
+            publish()
             loadTrailer(detail)
             loadReleaseDate(detail)
 
             val similar = runCatching { loadSimilar(provider, detail) }.getOrDefault(emptyList())
             if (similar.isNotEmpty()) {
-                _uiState.value = DetailUiState.Success(detail, similar)
+                rawSimilar = similar
+                publish()
             }
         }
     }

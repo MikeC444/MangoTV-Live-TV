@@ -3,6 +3,7 @@ package com.mangotv.app.ui.search
 import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import com.mangotv.app.MangoTvApplication
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.ContentType
 import com.mangotv.app.data.provider.ProviderRegistry
@@ -28,8 +29,43 @@ sealed interface SearchUiState {
  */
 class SearchViewModel(application: Application) : AndroidViewModel(application) {
 
+    private val myListRepository = (application as MangoTvApplication).container.myListRepository
+
     private val _uiState = MutableStateFlow<SearchUiState>(SearchUiState.Idle)
     val uiState: StateFlow<SearchUiState> = _uiState.asStateFlow()
+
+    // Pristine (never-stamped) results from the last search() call --
+    // currentResults() always re-derives from these rather than from
+    // whatever's already in _uiState, so a title removed from My List after
+    // being watched correctly loses its tick on the next re-publish instead
+    // of staying stuck true.
+    private var rawMovies: List<Content> = emptyList()
+    private var rawTvShows: List<Content> = emptyList()
+
+    // Ids My List has marked watched -- drives the poster tick on search
+    // results too, not just My List's own screen. Plain field + collector
+    // (not a StateFlow) since it only needs to feed currentResults() below.
+    private var watchedIds: Set<String> = emptySet()
+
+    init {
+        // Re-publishes the last results whenever watched status changes, so
+        // a title crossing the completion threshold (or being removed from
+        // My List) ticks/unticks immediately even if the user is still
+        // looking at old results rather than searching again.
+        viewModelScope.launch {
+            myListRepository.items.collect { items ->
+                watchedIds = items.filter { it.watched }.map { it.id }.toSet()
+                if (_uiState.value is SearchUiState.Results) {
+                    _uiState.value = currentResults()
+                }
+            }
+        }
+    }
+
+    private fun Content.withWatchedFlag(): Content = if (id in watchedIds) copy(watched = true) else this
+
+    private fun currentResults(): SearchUiState.Results =
+        SearchUiState.Results(rawMovies.map { it.withWatchedFlag() }, rawTvShows.map { it.withWatchedFlag() })
 
     fun search(query: String) {
         if (query.isBlank()) return
@@ -51,10 +87,10 @@ class SearchViewModel(application: Application) : AndroidViewModel(application) 
             }
 
             val merged = interleave(perProvider).distinctBy { it.id }
-            val movies = merged.filter { it.type == ContentType.MOVIE }
-            val tvShows = merged.filter { it.type == ContentType.TV_SHOW }
+            rawMovies = merged.filter { it.type == ContentType.MOVIE }
+            rawTvShows = merged.filter { it.type == ContentType.TV_SHOW }
             _uiState.value = when {
-                movies.isNotEmpty() || tvShows.isNotEmpty() -> SearchUiState.Results(movies, tvShows)
+                rawMovies.isNotEmpty() || rawTvShows.isNotEmpty() -> currentResults()
                 anyProviderFailed -> SearchUiState.Error("Couldn't reach your installed addons. Check your connection and try again.")
                 else -> SearchUiState.NoResults(query)
             }

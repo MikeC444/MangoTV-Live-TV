@@ -38,6 +38,7 @@ fun MangoButton(
     focusRequester: FocusRequester? = null,
     focusUp: FocusRequester? = null,
     focusDown: FocusRequester? = null,
+    focusLeft: FocusRequester? = null,
     bringIntoViewOnFocus: Boolean = true,
     // Used by the movie detail page to fit its whole layout on one screen
     // without scrolling — every other caller leaves this false, so their
@@ -93,6 +94,7 @@ fun MangoButton(
         focusRequester = focusRequester,
         focusUp = focusUp,
         focusDown = focusDown,
+        focusLeft = focusLeft,
         borderColor = borderColor,
         bringIntoViewOnFocus = bringIntoViewOnFocus,
         clickSound = clickSound

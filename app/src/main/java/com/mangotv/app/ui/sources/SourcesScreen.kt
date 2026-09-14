@@ -23,6 +23,7 @@ import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.SearchOff
 import androidx.compose.material.icons.filled.Security
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -51,6 +52,7 @@ import com.mangotv.app.ui.components.MangoButtonStyle
 import com.mangotv.app.ui.components.ShimmerBox
 import com.mangotv.app.ui.components.rememberOpaqueImageRequest
 import com.mangotv.app.ui.theme.DividerSubtle
+import com.mangotv.app.ui.theme.MangoAmber
 import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoDimens
 import com.mangotv.app.ui.theme.TextPrimary
@@ -99,7 +101,10 @@ fun SourcesScreen(
                     SourcesContent(
                         state = state,
                         onBack = onBack,
-                        onManageAddons = { onNavigate(MangoRoutes.SETTINGS_ADDONS) },
+                        // Addons is now a tab inside the unified Settings
+                        // screen rather than its own route -- this lands on
+                        // Settings' default tab, not Addons specifically.
+                        onManageAddons = { onNavigate(MangoRoutes.SETTINGS) },
                         onSelectSource = { stream ->
                             state.content.providerId?.let { pid ->
                                 onNavigate(
@@ -295,25 +300,47 @@ private fun SourcesContent(
 
                 Spacer(Modifier.height(14.dp))
 
-                if (sorted.isEmpty()) {
-                    SourcesEmptyState(onManageAddons = onManageAddons, modifier = Modifier.weight(1f))
-                } else {
-                    LazyColumn(
-                        modifier = Modifier.weight(1f),
-                        // Top padding so the "Recommended" badge — which floats
-                        // above its row via a negative offset — has room to
-                        // show fully instead of being clipped by the list's own
-                        // top edge when that row is first/near the top.
-                        contentPadding = PaddingValues(top = 10.dp),
-                        verticalArrangement = Arrangement.spacedBy(10.dp)
-                    ) {
-                        itemsIndexed(sorted, key = { _, stream -> stream.id }) { index, stream ->
-                            SourceRow(
-                                stream = stream,
-                                isRecommended = stream.id == state.recommendedStreamId,
-                                onClick = { onSelectSource(stream) },
-                                focusRequester = if (index == 0) firstSourceFocusRequester else null
-                            )
+                when {
+                    // Nothing yet, but other providers still haven't answered
+                    // -- this is not the same as "no sources found," so don't
+                    // show that empty state's "try installing more addons"
+                    // prompt before they've had a chance to reply.
+                    sorted.isEmpty() && state.isSearchingMore ->
+                        SourcesSearchingState(modifier = Modifier.weight(1f))
+                    sorted.isEmpty() ->
+                        SourcesEmptyState(onManageAddons = onManageAddons, modifier = Modifier.weight(1f))
+                    else -> Column(modifier = Modifier.weight(1f)) {
+                        if (state.isSearchingMore) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                modifier = Modifier.padding(bottom = 10.dp)
+                            ) {
+                                CircularProgressIndicator(modifier = Modifier.size(16.dp), color = MangoAmber, strokeWidth = 2.dp)
+                                Spacer(Modifier.width(8.dp))
+                                Text(
+                                    text = "Looking for more sources…",
+                                    color = TextSecondary,
+                                    style = MaterialTheme.typography.labelMedium
+                                )
+                            }
+                        }
+                        LazyColumn(
+                            modifier = Modifier.weight(1f),
+                            // Top padding so the "Recommended" badge — which floats
+                            // above its row via a negative offset — has room to
+                            // show fully instead of being clipped by the list's own
+                            // top edge when that row is first/near the top.
+                            contentPadding = PaddingValues(top = 10.dp),
+                            verticalArrangement = Arrangement.spacedBy(10.dp)
+                        ) {
+                            itemsIndexed(sorted, key = { _, stream -> stream.id }) { index, stream ->
+                                SourceRow(
+                                    stream = stream,
+                                    isRecommended = stream.id == state.recommendedStreamId,
+                                    onClick = { onSelectSource(stream) },
+                                    focusRequester = if (index == 0) firstSourceFocusRequester else null
+                                )
+                            }
                         }
                     }
                 }
@@ -358,6 +385,36 @@ private fun SourcesEmptyState(onManageAddons: () -> Unit, modifier: Modifier = M
             icon = Icons.Filled.Extension,
             onClick = onManageAddons,
             style = MangoButtonStyle.GLASS
+        )
+    }
+}
+
+/**
+ * Shown in place of [SourcesEmptyState] while at least one active provider's
+ * getStreams() call is still outstanding and nothing has come back yet --
+ * distinct from "no sources found" (which reads as final and prompts
+ * installing more addons) since providers still in flight may yet answer.
+ */
+@Composable
+private fun SourcesSearchingState(modifier: Modifier = Modifier) {
+    Column(
+        modifier = modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+        verticalArrangement = Arrangement.Center
+    ) {
+        CircularProgressIndicator(modifier = Modifier.size(32.dp), color = MangoAmber, strokeWidth = 3.dp)
+        Spacer(Modifier.height(16.dp))
+        Text(
+            text = "Searching for sources…",
+            color = TextPrimary,
+            style = MaterialTheme.typography.titleLarge
+        )
+        Spacer(Modifier.height(6.dp))
+        Text(
+            text = "Checking your installed addons for this title.",
+            color = TextSecondary,
+            style = MaterialTheme.typography.bodyMedium,
+            textAlign = TextAlign.Center
         )
     }
 }

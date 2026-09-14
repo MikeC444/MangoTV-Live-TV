@@ -21,11 +21,10 @@ import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
-// How many items from the top of the user's first VISIBLE row (after
-// manual reordering and hidden-row filtering) feed the hero -- HeroSection
-// already rotates through whatever list it's given (see its own
-// LaunchedEffect), so this is the pool it rotates within, not a fixed set
-// of items shown at once.
+// How many random titles feed the hero -- HeroSection already rotates
+// through whatever list it's given (see its own LaunchedEffect), so this
+// is the pool it rotates within, not a fixed set of items shown at once.
+// See applyPreferences' own comment for where/how those 10 are picked.
 private const val HERO_POOL_SIZE = 10
 
 sealed interface HomeUiState {
@@ -65,6 +64,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         .map { items -> items.map { it.id }.toSet() }
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), emptySet())
 
+    // Ids My List has marked watched (see MyListRepository.markWatched) --
+    // plain field + init{} collector rather than a WhileSubscribed StateFlow
+    // like savedIds above, since nothing in the UI subscribes to this one
+    // directly: it only needs to be read synchronously from within
+    // applyPreferences() below, and WhileSubscribed would never start
+    // collecting without a UI subscriber.
+    private var watchedIds: Set<String> = emptySet()
+
     // Raw fetch results, cached here so a preferences-only change (row
     // order/hidden state from Settings > Home Rows) can re-apply cheaply
     // without re-hitting the network -- same "cheap in-memory re-sort of
@@ -80,6 +87,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
     private var continueWatchingSection: HomeSection? = null
     private var lastFetchFailed = false
     private var hasFetchedOnce = false
+
+    // The hero's random 10, locked in the first time applyPreferences() runs
+    // against real live-fetched data (see its own comment for why not
+    // during the cache-paint phase) and reused on every later call instead
+    // of reshuffling -- "randomized once per app boot", not once per batch
+    // or preference change. Null again is only reachable via a fresh
+    // ViewModel instance, i.e. an actual new boot.
+    private var randomHeroPool: List<Content>? = null
 
     // True once cold-boot cache has painted Home but before the first real
     // (network) fetch has settled. Used two ways below: (1) an empty
@@ -149,6 +164,16 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         viewModelScope.launch {
             continueWatchingRepository.items.collect { entries ->
                 continueWatchingSection = entries.toHomeSectionOrNull()
+                applyPreferences(homeRowPreferences.preferences.value)
+            }
+        }
+        // Drives the watched tick on every row's ContentCard (not just My
+        // List's own screen) -- re-applies whenever a title crosses the
+        // completion threshold (or a watched title is removed from My List)
+        // while Home is alive, same cheap local re-combine as above.
+        viewModelScope.launch {
+            myListRepository.items.collect { items ->
+                watchedIds = items.filter { it.watched }.map { it.id }.toSet()
                 applyPreferences(homeRowPreferences.preferences.value)
             }
         }
@@ -234,19 +259,36 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
         if (!hasFetchedOnce) return
 
         val visibleSections = rowPreferences.applyOrder(rawSections).filterNot { it.id in rowPreferences.hiddenRowIds }
-        val sections = listOfNotNull(continueWatchingSection) + visibleSections
+            .map { it.withWatchedFlags() }
+        val sections = listOfNotNull(continueWatchingSection?.withWatchedFlags()) + visibleSections
 
-        // The hero pulls from whichever row the user actually sees first --
-        // respecting manual reordering and hidden rows the same way the row
-        // list itself does, rather than a fixed "each provider's own
-        // base/popular row" pick that ignored both and could mix items from
-        // multiple installed addons together. HeroSection (see its own
-        // LaunchedEffect) already rotates through whatever list it's given,
-        // so HERO_POOL_SIZE is the pool it rotates within, all drawn from
-        // that single top row. Deliberately drawn from visibleSections, not
-        // the Continue Watching row prepended below -- the hero stays tied
-        // to the addon-driven catalog even when Continue Watching is present.
-        val hero = visibleSections.firstOrNull()?.items?.take(HERO_POOL_SIZE) ?: emptyList()
+        // HERO_POOL_SIZE random titles drawn from every visible row (not
+        // just the first one), respecting manual reordering and hidden rows
+        // the same way the row list itself does. HeroSection (see its own
+        // LaunchedEffect) rotates through whatever list it's given, so this
+        // is the pool it rotates within, not a fixed set shown at once.
+        // Deliberately drawn from visibleSections, not the Continue
+        // Watching row prepended below -- the hero stays tied to the
+        // addon-driven catalog even when Continue Watching is present.
+        //
+        // Shuffling an already-fetched, in-memory list of a few hundred
+        // items at most costs nothing beyond the network fetch that already
+        // happened -- this can't be what makes Home feel slow.
+        //
+        // Only locked into randomHeroPool once real live data has arrived
+        // (showingCacheOnly false): applyPreferences() also runs once
+        // during the transient cold-boot cache-paint, and locking in a
+        // selection from that stale, about-to-be-replaced data would freeze
+        // the "random 10" a step too early, before the live fetch this
+        // session actually settles.
+        val hero = if (showingCacheOnly) {
+            visibleSections.flatMap { it.items }.distinctBy { it.id }.shuffled().take(HERO_POOL_SIZE)
+        } else {
+            if (randomHeroPool == null) {
+                randomHeroPool = visibleSections.flatMap { it.items }.distinctBy { it.id }.shuffled().take(HERO_POOL_SIZE)
+            }
+            randomHeroPool.orEmpty()
+        }
 
         _uiState.value = when {
             hero.isNotEmpty() || sections.isNotEmpty() -> HomeUiState.Success(hero, sections)
@@ -264,6 +306,14 @@ class HomeViewModel(application: Application) : AndroidViewModel(application) {
             style = RowStyle.CONTINUE_WATCHING
         )
     }
+
+    // Always re-derived from the pristine, never-stamped rawSections/
+    // continueWatchingSection (never from an already-stamped HomeUiState) --
+    // that way a title removed from My List after being watched correctly
+    // loses its tick on the next re-apply instead of staying stuck true.
+    private fun HomeSection.withWatchedFlags(): HomeSection = copy(items = items.map { it.withWatchedFlag() })
+
+    private fun Content.withWatchedFlag(): Content = if (id in watchedIds) copy(watched = true) else this
 
     private fun ContinueWatchingEntry.toContent(): Content = Content(
         id = contentId,

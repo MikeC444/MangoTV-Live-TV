@@ -103,6 +103,18 @@ export async function recordProgress(
     const seasonNumber = input.seasonNumber ?? null;
     const episodeNumber = input.episodeNumber ?? null;
 
+    // A movie past this fraction of its runtime is treated as finished
+    // even when the client reports completed=false -- e.g. the user backs
+    // out during the credits instead of letting playback hit a natural
+    // "ended" event, which is the only case the client itself ever sets
+    // completed=true for. Scoped to MOVIE: an episode's completed flag is
+    // per-episode, and being mostly through one episode shouldn't clear
+    // the whole show's continue_watching row out from under the next one.
+    const MOVIE_COMPLETION_FRACTION = 0.85;
+    const isMovieMostlyWatched =
+      input.contentType === "MOVIE" && input.durationMs > 0 && input.positionMs / input.durationMs > MOVIE_COMPLETION_FRACTION;
+    const completed = input.completed || isMovieMostlyWatched;
+
     const historyResult = await client.query<WatchHistoryRow>(
       `INSERT INTO watch_history (user_id, provider_id, content_id, content_type, season_number, episode_number, episode_title, title, poster_url, position_ms, duration_ms, completed, watched_at, updated_at)
        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $13)
@@ -129,7 +141,7 @@ export async function recordProgress(
         input.posterUrl ?? null,
         input.positionMs,
         input.durationMs,
-        input.completed,
+        completed,
         watchedAt,
       ]
     );
@@ -138,7 +150,7 @@ export async function recordProgress(
       : await getHistoryEntry(client, userId, input.providerId, input.contentId, input.contentType, seasonNumber, episodeNumber);
 
     let continueWatching: ContinueWatchingEntry | null;
-    if (input.completed) {
+    if (completed) {
       const deleteResult = await client.query<ContinueWatchingRow>(
         `UPDATE continue_watching
          SET deleted_at = $5, updated_at = $5

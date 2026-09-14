@@ -11,12 +11,12 @@ object MangoRoutes {
     const val AUTH_PASSWORD_PATTERN = "auth/password/{intent}"
     const val HOME = "home"
     const val SETTINGS = "settings"
-    const val SETTINGS_ADDONS = "settings/addons"
+    // Account/Addons/Home Rows/Sounds/Subtitles no longer have their own
+    // routes -- SettingsScreen now hosts all 5 inline as a single
+    // master/detail layout. SETTINGS_ADD_ADDON stays: adding an addon is
+    // still a genuinely separate flow, reached from within the inline
+    // Addons pane.
     const val SETTINGS_ADD_ADDON = "settings/addons/add"
-    const val SETTINGS_HOME_ROWS = "settings/home_rows"
-    const val SETTINGS_ACCOUNT = "settings/account"
-    const val SETTINGS_SOUNDS = "settings/sounds"
-    const val SETTINGS_SUBTITLES = "settings/subtitles"
     const val MOVIES = "movies"
     const val TV_SHOWS = "tv_shows"
     const val GENRES = "genres"
@@ -26,7 +26,6 @@ object MangoRoutes {
     const val DETAIL_PATTERN = "detail/{providerId}/{type}/{id}"
     const val SOURCES_PATTERN = "sources/{providerId}/{type}/{id}/{season}/{episode}/{skipAutoSelect}"
     const val PLAYER_PATTERN = "player/{providerId}/{type}/{id}/{season}/{episode}/{streamId}"
-    const val TRAILER_PATTERN = "trailer/{videoId}"
 
     /** [intent] is display-only ("login" or "register" — which button on AuthStartScreen was pressed), carried through AuthMethodScreen unchanged; see [authMethod]'s own kdoc for why it stays display-only here too. */
     fun authQr(intent: String): String = "auth/qr/$intent"
@@ -79,9 +78,6 @@ object MangoRoutes {
         val encodedStreamId = URLEncoder.encode(streamId, "UTF-8")
         return "player/$encodedProviderId/${type.name}/$encodedId/${season ?: -1}/${episode ?: -1}/$encodedStreamId"
     }
-
-    /** [videoId] is a bare YouTube video id (e.g. "dQw4w9WgXcQ"), not a full URL -- see TrailerPlayerScreen, which builds the actual embed URL itself. */
-    fun trailer(videoId: String): String = "trailer/${URLEncoder.encode(videoId, "UTF-8")}"
 }
 
 /** Maps a top-nav label to the route it should navigate to, or null if that section isn't built yet. */

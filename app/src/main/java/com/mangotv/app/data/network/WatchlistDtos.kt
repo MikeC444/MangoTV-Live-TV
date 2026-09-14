@@ -21,6 +21,8 @@ data class WatchlistItemDto(
     val backdropUrl: String? = null,
     val year: Int? = null,
     val rating: Double? = null,
+    /** Mirrors SavedListItem.watched -- see its own kdoc. Defaults false so a pre-this-milestone client/server on either end of the wire still round-trips cleanly. */
+    val watched: Boolean = false,
     val updatedAt: String,
     /** Non-null means this slot is currently removed -- only meaningful on a POST/DELETE response (a later write elsewhere raced this one); GET never returns a deleted item at all. */
     val deletedAt: String? = null

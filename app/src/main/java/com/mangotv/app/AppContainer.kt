@@ -19,6 +19,7 @@ import com.mangotv.app.data.sync.FirstLoginMigrationCoordinator
 import com.mangotv.app.data.sync.FirstSyncState
 import com.mangotv.app.data.sync.SettingsSyncRepository
 import com.mangotv.app.data.sync.SyncManager
+import com.mangotv.app.data.sync.WatchedBackfillState
 import com.mangotv.app.data.sync.WatchlistSyncRepository
 import com.mangotv.app.data.trailer.TrailerRepository
 import com.mangotv.app.data.update.UpdatePreferencesRepository
@@ -116,6 +117,13 @@ import com.mangotv.app.data.update.UpdateRepository
  * 12) share the exact same instance instead of each constructing their
  * own redundant wrapper around the same underlying DataStore file.
  *
+ * watchedBackfillState is a plain eager val for the exact same reason as
+ * firstSyncState just above (same kind of thin DataStore wrapper, no
+ * init{} side effect) -- eager here also lets watchlistSyncRepository
+ * (which reads it in its own constructor call, same
+ * lazy-would-be-self-defeating situation as myListRepository below) and
+ * accountSwitchCoordinator share one instance.
+ *
  * accountSwitchCoordinator (Milestone 12) is lazy for the same reason
  * firstLoginMigrationCoordinator is: nothing constructs it eagerly as a
  * constructor argument, it has no init{} side effect, and its only
@@ -146,7 +154,10 @@ class AppContainer(context: Context) {
     )
     val myListRepository: MyListRepository = MyListRepository(context)
     val homeCacheRepository: HomeCacheRepository by lazy { HomeCacheRepository(context) }
-    val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(context, myListRepository, authRepository)
+    val watchedBackfillState: WatchedBackfillState = WatchedBackfillState(context)
+    val watchlistSyncRepository: WatchlistSyncRepository = WatchlistSyncRepository(
+        context, myListRepository, authRepository, watchedBackfillState
+    )
     val continueWatchingRepository: ContinueWatchingRepository = ContinueWatchingRepository(context)
     val lastSourceRepository: LastSourceRepository = LastSourceRepository(context)
     val continueWatchingSyncRepository: ContinueWatchingSyncRepository = ContinueWatchingSyncRepository(
@@ -175,6 +186,7 @@ class AppContainer(context: Context) {
         AccountSwitchCoordinator(
             authRepository = authRepository,
             firstSyncState = firstSyncState,
+            watchedBackfillState = watchedBackfillState,
             myListRepository = myListRepository,
             continueWatchingRepository = continueWatchingRepository,
             lastSourceRepository = lastSourceRepository,

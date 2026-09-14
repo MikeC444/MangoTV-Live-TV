@@ -51,8 +51,10 @@ Endpoints:
   position report against both `watch_history` (durable per-episode log)
   and `continue_watching` (per-title resumable pointer) in a single
   transaction. `completed: true` clears the title's `continue_watching`
-  row instead of updating it. Returns `{ historyEntry, continueWatching }`
-  (`continueWatching` is `null` when there was nothing to clear).
+  row instead of updating it — and for a movie, so does crossing 85% of
+  its `durationMs`, even if the report itself says `completed: false`.
+  Returns `{ historyEntry, continueWatching }` (`continueWatching` is
+  `null` when there was nothing to clear).
 - `GET /user/continue-watching` (authenticated) — this account's active
   (resumable) titles, most recently watched first.
 - `GET /user/history?limit=&before=` (authenticated) — this account's

@@ -106,6 +106,15 @@ class SyncManager(
      * purpose so its own loading state doesn't dismiss early) working
      * exactly as before, while a caller that gets cancelled the instant
      * this returns no longer takes the sync down with it.
+     *
+     * The watched-history backfill kicked off right after the join is
+     * deliberately NOT part of the joined work above: it's a one-time
+     * (per WatchedBackfillState) catch-up that can page through a long
+     * watch history, and this method's callers all care about the
+     * ordinary four-domain pull/retry finishing promptly, not about that
+     * backfill's own completion. Placed after the join so it always runs
+     * against this account's just-pulled My List state, never
+     * whatever was cached locally before this call.
      */
     suspend fun syncAll() {
         scope.launch {
@@ -117,6 +126,7 @@ class SyncManager(
             }
             retryPendingAll()
         }.join()
+        watchlistSyncRepository.backfillWatchedFromHistoryIfNeeded()
     }
 
     /** Drains every domain's retry queue without a full pull -- what a network reconnect (or the periodic timer below) triggers, and what [syncAll] runs after its own pulls complete. */

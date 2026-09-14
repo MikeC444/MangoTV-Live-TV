@@ -16,6 +16,10 @@ export const watchlistItemBodySchema = z.object({
   backdropUrl: z.string().max(2000).nullable().optional(),
   year: z.number().int().min(0).max(9999).nullable().optional(),
   rating: z.number().min(0).max(100).nullable().optional(),
+  // Defaults false so an older client that's never heard of this field
+  // still upserts cleanly -- same "an old caller's absence isn't malice"
+  // reasoning every other optional column here already follows.
+  watched: z.boolean().optional().default(false),
   updatedAt: z.iso.datetime("updatedAt must be an ISO-8601 UTC timestamp"),
 });
 export type WatchlistItemInput = z.infer<typeof watchlistItemBodySchema>;

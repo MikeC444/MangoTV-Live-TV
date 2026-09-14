@@ -15,19 +15,14 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.mangotv.app.data.model.ResolutionTier
+import com.mangotv.app.ui.components.FilterPill
 import com.mangotv.app.ui.components.TvFocusSurface
-import com.mangotv.app.ui.theme.MangoAmber
-import com.mangotv.app.ui.theme.MangoBackground
 import com.mangotv.app.ui.theme.MangoSurfaceHigh
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
@@ -88,33 +83,6 @@ fun SourceFilterBar(
         SortPill(
             sort = selectedSort,
             onClick = { onSortChange(selectedSort.next()) }
-        )
-    }
-}
-
-@Composable
-private fun FilterPill(label: String, selected: Boolean, onClick: () -> Unit) {
-    var focused by remember { mutableStateOf(false) }
-    val contentColor = when {
-        selected -> MangoBackground
-        focused -> TextPrimary
-        else -> TextSecondary
-    }
-    TvFocusSurface(
-        onClick = onClick,
-        shape = RoundedCornerShape(percent = 50),
-        backgroundColor = if (selected) MangoAmber else MangoSurfaceHigh,
-        onFocusChanged = { focused = it },
-        bringIntoViewOnFocus = false
-    ) {
-        Text(
-            text = label,
-            color = contentColor,
-            fontWeight = if (focused || selected) FontWeight.Bold else FontWeight.Medium,
-            style = MaterialTheme.typography.labelSmall,
-            maxLines = 1,
-            overflow = TextOverflow.Clip,
-            modifier = Modifier.padding(horizontal = 11.dp, vertical = 6.dp)
         )
     }
 }

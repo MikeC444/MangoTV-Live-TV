@@ -97,7 +97,10 @@ private fun HomeEmptyScreen(onNavigate: (String) -> Unit) {
             onItemClick = { label -> routeForNavLabel(label)?.let(onNavigate) }
         )
         HomeEmptyState(
-            onBrowseAddons = { onNavigate(MangoRoutes.SETTINGS_ADDONS) },
+            // Addons is now a tab inside the unified Settings screen rather
+            // than its own route -- this lands on Settings' default tab,
+            // not Addons specifically.
+            onBrowseAddons = { onNavigate(MangoRoutes.SETTINGS) },
             modifier = Modifier.weight(1f),
             buttonFocusRequester = buttonFocusRequester,
             buttonFocusUp = navFocusRequester

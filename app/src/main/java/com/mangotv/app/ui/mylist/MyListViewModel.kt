@@ -10,8 +10,16 @@ import com.mangotv.app.data.provider.SavedListItem
 import com.mangotv.app.ui.browse.RowsBrowseUiState
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
+
+/** My List's own filter, independent of RowsBrowseContent's generic filter bar plumbing. ALL mixes manually-added and watched titles together (the default) -- WATCHED narrows to only titles the player has marked watched. */
+enum class MyListFilter(val label: String) {
+    ALL("All"),
+    WATCHED("Watched")
+}
 
 /**
  * Reuses RowsBrowseUiState/RowsBrowseContent (the same shell Movies, TV
@@ -24,9 +32,17 @@ class MyListViewModel(application: Application) : AndroidViewModel(application) 
 
     private val myListRepository = (application as MangoTvApplication).container.myListRepository
 
-    val uiState: StateFlow<RowsBrowseUiState> = myListRepository.items
-        .map { items -> RowsBrowseUiState.Loaded(sections = items.toSections()) }
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RowsBrowseUiState.Loading)
+    private val _selectedFilter = MutableStateFlow(MyListFilter.ALL)
+    val selectedFilter: StateFlow<MyListFilter> = _selectedFilter.asStateFlow()
+
+    val uiState: StateFlow<RowsBrowseUiState> = combine(myListRepository.items, _selectedFilter) { items, filter ->
+        val filtered = if (filter == MyListFilter.WATCHED) items.filter { it.watched } else items
+        RowsBrowseUiState.Loaded(sections = filtered.toSections())
+    }.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5000), RowsBrowseUiState.Loading)
+
+    fun selectFilter(filter: MyListFilter) {
+        _selectedFilter.value = filter
+    }
 
     private fun List<SavedListItem>.toSections(): List<HomeSection> {
         if (isEmpty()) return emptyList()
@@ -48,6 +64,7 @@ class MyListViewModel(application: Application) : AndroidViewModel(application) 
         backdropUrl = backdropUrl,
         year = year,
         rating = rating,
-        providerId = providerId
+        providerId = providerId,
+        watched = watched
     )
 }

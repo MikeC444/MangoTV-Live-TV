@@ -4,6 +4,7 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.viewModelScope
+import com.mangotv.app.MangoTvApplication
 import com.mangotv.app.data.model.Content
 import com.mangotv.app.data.model.HomeSection
 import com.mangotv.app.data.provider.CatalogProvider
@@ -31,6 +32,8 @@ class GenreResultsViewModel(application: Application, savedStateHandle: SavedSta
 
     val genre: String = URLDecoder.decode(savedStateHandle.get<String>("genre").orEmpty(), "UTF-8")
 
+    private val myListRepository = (application as MangoTvApplication).container.myListRepository
+
     private val _uiState = MutableStateFlow<RowsBrowseUiState>(RowsBrowseUiState.Loading)
     val uiState: StateFlow<RowsBrowseUiState> = _uiState.asStateFlow()
 
@@ -41,9 +44,31 @@ class GenreResultsViewModel(application: Application, savedStateHandle: SavedSta
     private var hasMore = true
     private var isLoadingMore = false
 
+    // Ids My List has marked watched -- drives the poster tick on this
+    // screen's cards too, not just My List's own. Plain field + collector
+    // (not a StateFlow) since it only needs to feed currentSection() below.
+    private var watchedIds: Set<String> = emptySet()
+
     init {
         load()
+        // Re-publishes the already-loaded list whenever watched status
+        // changes, so a title crossing the completion threshold (or being
+        // removed from My List) ticks/unticks immediately even while this
+        // screen just sits on the back stack rather than actively loading.
+        viewModelScope.launch {
+            myListRepository.items.collect { items ->
+                watchedIds = items.filter { it.watched }.map { it.id }.toSet()
+                if (_uiState.value is RowsBrowseUiState.Loaded && allItems.isNotEmpty()) {
+                    _uiState.value = RowsBrowseUiState.Loaded(listOf(currentSection()))
+                }
+            }
+        }
     }
+
+    private fun Content.withWatchedFlag(): Content = if (id in watchedIds) copy(watched = true) else this
+
+    private fun currentSection(): HomeSection =
+        HomeSection(id = "genre_$genre", title = genre, items = allItems.map { it.withWatchedFlag() })
 
     fun load() {
         viewModelScope.launch {
@@ -77,7 +102,7 @@ class GenreResultsViewModel(application: Application, savedStateHandle: SavedSta
             seenIds += merged.map { it.id }
 
             _uiState.value = when {
-                allItems.isNotEmpty() -> RowsBrowseUiState.Loaded(listOf(HomeSection(id = "genre_$genre", title = genre, items = allItems.toList())))
+                allItems.isNotEmpty() -> RowsBrowseUiState.Loaded(listOf(currentSection()))
                 anyProviderFailed -> RowsBrowseUiState.Error("Couldn't reach your installed addons. Check your connection and try again.")
                 else -> RowsBrowseUiState.Loaded(emptyList())
             }
@@ -105,7 +130,7 @@ class GenreResultsViewModel(application: Application, savedStateHandle: SavedSta
                 nextPage++
                 allItems += newItems
                 seenIds += newItems.map { it.id }
-                _uiState.value = RowsBrowseUiState.Loaded(listOf(HomeSection(id = "genre_$genre", title = genre, items = allItems.toList())))
+                _uiState.value = RowsBrowseUiState.Loaded(listOf(currentSection()))
             }
             isLoadingMore = false
         }

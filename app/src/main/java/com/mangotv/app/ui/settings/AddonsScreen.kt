@@ -3,6 +3,7 @@ package com.mangotv.app.ui.settings
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -23,7 +24,6 @@ import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.focus.FocusRequester
@@ -43,61 +43,63 @@ import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
 
+/** A ColumnScope extension hosted by SettingsScreen's detail pane -- see AccountSettingsContent's kdoc for why this isn't its own screen anymore. */
 @Composable
-fun AddonsScreen(
-    onNavigate: (String) -> Unit,
+fun ColumnScope.AddonsSettingsContent(
     onAddAddon: () -> Unit,
+    navFocusRequester: FocusRequester,
+    contentFocusRequester: FocusRequester,
+    sidebarFocusRequester: FocusRequester,
     viewModel: AddonsViewModel = viewModel()
 ) {
     val addons by viewModel.installedAddons.collectAsStateWithLifecycle()
-    val navFocusRequester = remember { FocusRequester() }
-    val addButtonFocusRequester = remember { FocusRequester() }
 
-    SettingsScaffold(
-        title = "Addons",
-        onNavigate = onNavigate,
-        navFocusRequester = navFocusRequester,
-        firstContentFocusRequester = addButtonFocusRequester
+    // The "Add Addon" header and the addon list are both items in this one
+    // LazyColumn (rather than a static header above a separately-scrolling
+    // list) so the whole tab scrolls as a unit -- the header scrolls away
+    // with everything else instead of permanently reserving space at the
+    // top, leaving more of the screen for addon rows once scrolled.
+    LazyColumn(
+        modifier = Modifier
+            .fillMaxWidth()
+            .weight(1f),
+        verticalArrangement = Arrangement.spacedBy(14.dp)
     ) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            Text(
-                text = "Stremio-compatible addons contribute their catalogs directly into Home.",
-                color = TextSecondary,
-                style = MaterialTheme.typography.bodyMedium,
-                modifier = Modifier.weight(1f)
-            )
-            Spacer(Modifier.width(20.dp))
-            MangoButton(
-                text = "Add Addon",
-                icon = Icons.Filled.Add,
-                onClick = onAddAddon,
-                style = MangoButtonStyle.FILLED,
-                focusRequester = addButtonFocusRequester,
-                focusUp = navFocusRequester
-            )
+        item(key = "header") {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "Stremio-compatible addons contribute their catalogs directly into Home.",
+                    color = TextSecondary,
+                    style = MaterialTheme.typography.bodySmall,
+                    modifier = Modifier.weight(1f)
+                )
+                Spacer(Modifier.width(20.dp))
+                MangoButton(
+                    text = "Add Addon",
+                    icon = Icons.Filled.Add,
+                    onClick = onAddAddon,
+                    style = MangoButtonStyle.FILLED,
+                    focusRequester = contentFocusRequester,
+                    focusUp = navFocusRequester,
+                    focusLeft = sidebarFocusRequester,
+                    compact = true,
+                    borderColor = TextPrimary
+                )
+            }
         }
 
-        Spacer(Modifier.height(28.dp))
-
         if (addons.isEmpty()) {
-            EmptyAddonsHint()
+            item(key = "empty") { EmptyAddonsHint() }
         } else {
-            LazyColumn(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .weight(1f),
-                verticalArrangement = Arrangement.spacedBy(14.dp)
-            ) {
-                items(addons, key = { it.manifestUrl }) { addon ->
-                    AddonRow(
-                        addon = addon,
-                        onToggle = { enabled -> viewModel.setEnabled(addon.manifestUrl, enabled) },
-                        onRemove = { viewModel.remove(addon.manifestUrl) }
-                    )
-                }
+            items(addons, key = { it.manifestUrl }) { addon ->
+                AddonRow(
+                    addon = addon,
+                    onToggle = { enabled -> viewModel.setEnabled(addon.manifestUrl, enabled) },
+                    onRemove = { viewModel.remove(addon.manifestUrl) }
+                )
             }
         }
     }
@@ -111,13 +113,13 @@ private fun EmptyAddonsHint() {
         Text(
             text = "No addons installed yet",
             color = TextPrimary,
-            style = MaterialTheme.typography.titleLarge
+            style = MaterialTheme.typography.titleMedium
         )
         Spacer(Modifier.height(6.dp))
         Text(
             text = "Add a Stremio-compatible addon to bring its catalog into Mango TV.",
             color = TextSecondary,
-            style = MaterialTheme.typography.bodyMedium
+            style = MaterialTheme.typography.bodySmall
         )
     }
 }
@@ -132,12 +134,12 @@ private fun AddonRow(
         modifier = Modifier
             .fillMaxWidth()
             .background(MangoSurface, RoundedCornerShape(MangoDimens.CardCornerRadius))
-            .padding(horizontal = 20.dp, vertical = 16.dp),
+            .padding(horizontal = 16.dp, vertical = 10.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(text = addon.manifest.name, color = TextPrimary, style = MaterialTheme.typography.titleLarge)
+                Text(text = addon.manifest.name, color = TextPrimary, style = MaterialTheme.typography.titleMedium)
                 Spacer(Modifier.width(10.dp))
                 Text(text = "v${addon.manifest.version}", color = TextTertiary, style = MaterialTheme.typography.labelSmall)
             }
@@ -146,7 +148,7 @@ private fun AddonRow(
                 Text(
                     text = it,
                     color = TextSecondary,
-                    style = MaterialTheme.typography.bodyMedium,
+                    style = MaterialTheme.typography.bodySmall,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis
                 )
@@ -174,7 +176,8 @@ private fun AddonRow(
         TvFocusSurface(
             onClick = onRemove,
             shape = RoundedCornerShape(8.dp),
-            backgroundColor = MangoBackground
+            backgroundColor = MangoBackground,
+            borderColor = TextPrimary
         ) {
             Icon(
                 imageVector = Icons.Filled.Delete,

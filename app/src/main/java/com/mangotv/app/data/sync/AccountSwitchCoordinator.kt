@@ -37,6 +37,10 @@ import kotlinx.coroutines.withTimeoutOrNull
  *   first sign-in on this device gets evaluated fresh instead of being
  *   skipped as "already resolved" for a question a *previous* account,
  *   not this one, actually resolved.
+ * - [WatchedBackfillState] is reset for the same reason: a different
+ *   account's watch history is unrelated to the one just signed out of,
+ *   and needs its own fresh backfill pass on this device rather than
+ *   being skipped as already done.
  *
  * Deliberately does not touch device/session management -- viewing or
  * revoking this account's *other* active sessions via the already-built
@@ -48,6 +52,7 @@ import kotlinx.coroutines.withTimeoutOrNull
 class AccountSwitchCoordinator(
     private val authRepository: AuthRepository,
     private val firstSyncState: FirstSyncState,
+    private val watchedBackfillState: WatchedBackfillState,
     private val myListRepository: MyListRepository,
     private val continueWatchingRepository: ContinueWatchingRepository,
     private val lastSourceRepository: LastSourceRepository,
@@ -106,6 +111,7 @@ class AccountSwitchCoordinator(
             launch { continueWatchingSyncRepository.clearPending() }
             launch { addonSyncRepository.clearPending() }
             launch { firstSyncState.reset() }
+            launch { watchedBackfillState.reset() }
         }
     }
 
