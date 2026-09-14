@@ -69,6 +69,25 @@ Endpoints:
 - `DELETE /user/addons?manifestUrl=&updatedAt=` (authenticated) — remove
   one addon, same last-write-wins rule and `204`/`200` contract as
   `DELETE /user/watchlist`.
+- `GET /user/trakt` (authenticated) — this account's Trakt connection
+  status: `{ configured, connected, username, connectedAt }`.
+  `configured: false` means this server has no `TRAKT_CLIENT_ID`/
+  `TRAKT_CLIENT_SECRET` set at all (distinct from "configured but not
+  connected"). Refreshes the stored token just-in-time if it looks
+  expired; only a confirmed rejection from Trakt clears the connection —
+  see `traktService.ts`.
+- `POST /user/trakt/link` (authenticated) — starts the OAuth Device Code
+  flow: asks Trakt for a device/user code pair and returns `{ userCode,
+  verificationUrl, directVerificationUrl, expiresInSeconds,
+  intervalSeconds }`. `503` if Trakt isn't configured.
+- `GET /user/trakt/link` (authenticated) — the TV's poll endpoint, called
+  roughly every `intervalSeconds` while the pairing screen is shown.
+  Returns `{ status: "pending" | "expired" | "denied" | "not_found" }` or
+  `{ status: "connected", username }` the moment the user approves it on
+  `verificationUrl`.
+- `DELETE /user/trakt` (authenticated) — disconnects: best-effort revokes
+  the token with Trakt, then deletes the stored connection (and any
+  in-progress pairing attempt) regardless of whether the revoke succeeded.
 
 ## Setup
 

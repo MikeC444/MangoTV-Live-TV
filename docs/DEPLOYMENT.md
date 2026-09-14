@@ -100,6 +100,8 @@ real deployment. **Never commit `.env`** (already covered by
 | `NODE_ENV` | No (defaults to `development`) | `production` suppresses the extra `detail` field `errorHandler` otherwise includes on unexpected 500s for local debugging — never leak internals in production. |
 | `PORT` | No (defaults to `3000`) | Port the HTTP server listens on. |
 | `TMDB_READ_ACCESS_TOKEN` | No | Powers the Detail screen's Trailer button (`/user/trailer`) and its movie release-date lookup (`/user/release-date`). Both degrade gracefully without it (no button; the addon's own bare year instead of a real date) — see `server/.env.example` for where to get one. |
+| `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` | No (both together) | Powers Settings > Account > Trakt. Without them, that screen reports Trakt as unavailable rather than offering a Connect button that would just fail. See §7 below for registering an application. |
+| `TOKEN_ENCRYPTION_KEY` | Only if the two above are set | Encrypts this account's stored Trakt access/refresh tokens at rest. 32 random bytes, base64-encoded — generate with `openssl rand -base64 32`. See §7. |
 
 The **Android app** reads its own, separate configuration —
 `API_BASE_URL` in `local.properties` (gitignored, developer/deployment-
@@ -164,3 +166,53 @@ is correct, scanning a real QR code on a real device takes you straight
 to a working activation page with no separate frontend deployment or CORS
 configuration needed — its own `fetch()` calls to `/auth/qr/*` are
 same-origin by construction.
+
+## 7. Trakt account linking
+
+Settings > Account > Trakt lets a signed-in user connect their Trakt
+account via the OAuth **Device Code** flow — the flow Trakt itself
+recommends for TVs and other limited-input devices: the code is shown on
+the TV, but the user approves it on a phone or computer, so nothing here
+ever needs a redirect back into the app. This is optional — the app and
+backend both work fully without it, just without that one Settings
+section being usable.
+
+1. Register an application at
+   <https://trakt.tv/oauth/applications>. The registration form asks for a
+   Redirect URI even though the Device Code flow itself never uses one —
+   enter `urn:ietf:wg:oauth:2.0:oob`, the standard placeholder for an app
+   with no real web redirect. **Verify this against the form itself when
+   you get there** — this doc was written without access to a live Trakt
+   account to register a real application against, so treat the exact
+   field name/requirement as a best-effort pointer, not a confirmed
+   screenshot.
+2. Copy the application's **Client ID** and **Client Secret** into this
+   server's environment as `TRAKT_CLIENT_ID` / `TRAKT_CLIENT_SECRET` (see
+   `server/.env.example`). The client secret must only ever live here —
+   never in the Fire TV app, never committed, never logged.
+3. Generate `TOKEN_ENCRYPTION_KEY` (`openssl rand -base64 32`) and set it
+   alongside them — this is what encrypts a connected account's Trakt
+   tokens at rest in Postgres (`trakt_connections.access_token`/
+   `refresh_token`; see `src/security/crypto.ts`). Losing or rotating this
+   key later makes every already-connected account's Trakt tokens
+   unrecoverable (they'd need to reconnect) — back it up like you would
+   `DATABASE_URL`.
+4. Run `npm run migrate` if you haven't already picked up
+   `0014_trakt_connections.sql`.
+5. No redirect URI, domain, or CORS configuration is needed beyond the
+   above — unlike the QR activation page (§6), the Device Code flow has no
+   browser step served by this backend at all. The Fire TV app talks only
+   to this backend's `/user/trakt*` endpoints (§ in `server/README.md`);
+   this backend is the only thing that ever talks to `api.trakt.tv`.
+
+**Note on sourcing this section:** this sandbox's network policy blocks
+outbound access to Trakt's own documentation site, so the endpoint shapes
+`traktService.ts` implements were cross-checked against publicly available
+Trakt OAuth client library source (a PHP League OAuth2 provider, PyTrakt,
+and a Go device-auth package) rather than read directly from
+`docs.trakt.tv`. That's solid evidence but not a substitute for Trakt's
+own current documentation — **please verify against
+<https://docs.trakt.tv> yourself**, especially before relying on this in
+production, and expect to do one real end-to-end connect/disconnect test
+once real credentials exist (this implementation has not been exercised
+against the live Trakt API).

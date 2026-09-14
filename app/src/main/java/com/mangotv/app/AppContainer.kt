@@ -21,6 +21,7 @@ import com.mangotv.app.data.sync.SettingsSyncRepository
 import com.mangotv.app.data.sync.SyncManager
 import com.mangotv.app.data.sync.WatchlistSyncRepository
 import com.mangotv.app.data.trailer.TrailerRepository
+import com.mangotv.app.data.trakt.TraktRepository
 import com.mangotv.app.data.update.UpdatePreferencesRepository
 import com.mangotv.app.data.update.UpdateRepository
 
@@ -207,4 +208,10 @@ class AppContainer(context: Context) {
     // laziness here costs nothing.
     val updateRepository: UpdateRepository by lazy { UpdateRepository() }
     val updatePreferencesRepository: UpdatePreferencesRepository by lazy { UpdatePreferencesRepository(context) }
+
+    // Lazy, same reasoning as trailerRepository above: no side effect to
+    // arm early (it holds no local state of its own at all -- every call
+    // goes straight to the backend), and nothing needs it before Settings
+    // > Account is actually opened.
+    val traktRepository: TraktRepository by lazy { TraktRepository(authRepository) }
 }

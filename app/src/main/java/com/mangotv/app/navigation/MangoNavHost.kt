@@ -51,6 +51,7 @@ import com.mangotv.app.ui.settings.HomeRowsScreen
 import com.mangotv.app.ui.settings.SettingsScreen
 import com.mangotv.app.ui.settings.SoundSettingsScreen
 import com.mangotv.app.ui.settings.SubtitleSettingsScreen
+import com.mangotv.app.ui.settings.TraktConnectScreen
 import com.mangotv.app.ui.sources.SourcesScreen
 import com.mangotv.app.ui.trailer.TrailerPlayerScreen
 import com.mangotv.app.ui.components.CardActionsMenuOverlay
@@ -335,7 +336,14 @@ fun MangoNavHost() {
                 composable(MangoRoutes.SETTINGS_ACCOUNT) {
                     AccountScreen(
                         onNavigate = ::navigateTo,
-                        onSignedOut = { navigateClearingBackStack(MangoRoutes.AUTH_START) }
+                        onSignedOut = { navigateClearingBackStack(MangoRoutes.AUTH_START) },
+                        onConnectTrakt = { navController.navigate(MangoRoutes.SETTINGS_ACCOUNT_TRAKT_CONNECT) }
+                    )
+                }
+                composable(MangoRoutes.SETTINGS_ACCOUNT_TRAKT_CONNECT) {
+                    TraktConnectScreen(
+                        onConnected = { navController.popBackStack() },
+                        onCancel = { navController.popBackStack() }
                     )
                 }
                 composable(MangoRoutes.MOVIES) {

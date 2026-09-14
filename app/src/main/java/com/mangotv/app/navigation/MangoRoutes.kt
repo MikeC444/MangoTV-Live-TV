@@ -15,6 +15,7 @@ object MangoRoutes {
     const val SETTINGS_ADD_ADDON = "settings/addons/add"
     const val SETTINGS_HOME_ROWS = "settings/home_rows"
     const val SETTINGS_ACCOUNT = "settings/account"
+    const val SETTINGS_ACCOUNT_TRAKT_CONNECT = "settings/account/trakt/connect"
     const val SETTINGS_SOUNDS = "settings/sounds"
     const val SETTINGS_SUBTITLES = "settings/subtitles"
     const val MOVIES = "movies"

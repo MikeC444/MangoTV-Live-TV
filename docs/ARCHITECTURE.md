@@ -79,6 +79,8 @@ apart from "never existed" on a later pull.
 | `watchlist_items` | Item-level My List records. | Deliberately not a single blob replaced wholesale on every change. One row per `(user_id, provider_id, content_id, content_type)` slot, kept forever and toggled via `deleted_at` — removing and re-adding a title is an `UPDATE`, not a fresh row, which is what makes incremental sync (diffing on `updated_at`) meaningful. A partial index (`WHERE deleted_at IS NULL`) backs the "give me my current list" read path. |
 | `watch_history` | Durable per-(user, title, episode) playback log. | Bounded, not an append-only log — one row per unique movie/episode ever watched, upserted on each report. A generated `episode_key` column (`coalesce(season::text,'x') \|\| ':' \|\| coalesce(episode::text,'x')`) works around plain SQL treating `NULL = NULL` as non-matching, which would otherwise let the natural-key unique constraint silently admit duplicate movie rows. Keyset-paginated via `(user_id, watched_at DESC)` — no Fire TV screen consumes this yet (no History browse UI exists), but the data is captured and ready. |
 | `continue_watching` | One row per (user, title) — the resumable pointer. | Not a view over `watch_history`: written/removed independently (cleared once a title is completed or dismissed) and carries its own display fields (`backdrop_url`) history doesn't need. Maintained from application logic (`playbackProgressService.recordProgress`), not a DB trigger, so the "mark complete → clear continue_watching" behavior stays visible and testable in code. |
+| `trakt_connections` | One row per account with a linked Trakt account (1:1, like `user_settings`). | `access_token`/`refresh_token` are AES-256-GCM encrypted (`security/crypto.ts`), not hashed like this system's own session tokens — a Trakt token has to be recoverable in plaintext to ever be sent back to Trakt's API. See §5. |
+| `trakt_device_links` | One row per account with an in-progress Trakt pairing attempt (1:1). | Ephemeral OAuth Device Code flow state (RFC 8628) — `device_code`, the shown `user_code`, and polling bookkeeping. Stored in Postgres rather than an in-process map so pairing survives a restart mid-flow. |
 
 `content_type` (`MOVIE` | `TV_SHOW`) and `qr_auth_status` (`pending` |
 `completed` | `consumed` | `expired`) are shared Postgres enums
@@ -408,7 +410,64 @@ account — one item losing a race never affects any other item.
   way a plain network failure does, rather than crashing the app
   (Milestone 13's own motivating finding).
 
-## 5. Further reading
+## 5. Trakt account linking
+
+Settings > Account > Trakt (`ui/settings/AccountScreen.kt`,
+`data/trakt/TraktRepository.kt`, `server/src/services/traktService.ts`)
+links a user's Trakt account via the OAuth **Device Code** flow (RFC
+8628) rather than a browser-redirect Authorization Code flow — the same
+reasoning that shaped this app's own QR sign-in (§3.1): a TV with no
+convenient way to type into a web form, and no clean way for a browser to
+redirect back into a native app, is exactly what Device Code is for. The
+code is shown on the TV; the user approves it on a separate phone or
+computer at `verification_url` (or scans a QR code built from it, reusing
+`QrCodeImage.kt`); the TV never leaves its own screen and just keeps
+polling until it's authorized.
+
+```
+TV                          Backend                       Trakt (api.trakt.tv)
+│  POST /user/trakt/link     │                             │
+├────────────────────────────▶ POST /oauth/device/code     │
+│                             ├────────────────────────────▶
+│                             │ ◀── device_code, user_code,│
+│                             │      verification_url       │
+│ ◀── userCode,              │ (device_code stored,        │
+│      verificationUrl,      │  never sent to the TV)      │
+│      directVerificationUrl │                             │
+│  (shown + QR code)          │                             │
+│                             │        (user approves on a  │
+│                             │         separate device)    │
+│  GET /user/trakt/link       │                             │
+├────────────────────────────▶ POST /oauth/device/token     │
+│  (polled every interval)   ├────────────────────────────▶
+│                             │ ◀── access+refresh tokens  │
+│ ◀── {status:"connected",  │ (encrypted, stored keyed to │
+│      username}              │  this account)              │
+```
+
+Why the client secret and both tokens stay server-only: `TRAKT_CLIENT_ID`/
+`TRAKT_CLIENT_SECRET` (§3 in `docs/DEPLOYMENT.md`) live only in this
+backend's environment, the same "never bundled into anything shipped to a
+device" rule §0's `DATABASE_URL` follows — the device-token exchange
+(which needs the client secret) happens entirely server-side, so the Fire
+TV app never has anything to leak. The resulting Trakt access/refresh
+tokens never reach the device either: the TV only ever calls this
+backend's own `/user/trakt*` endpoints (never `api.trakt.tv` directly),
+mirroring the "Fire TV app never holds a database credential" principle
+from §0 one layer further out. Disconnecting best-effort-revokes the
+token with Trakt (`POST /oauth/revoke`) then deletes the stored
+connection regardless of whether the revoke itself succeeded — same
+always-clear-local-state-regardless rule as `POST /auth/logout` (§3.6).
+
+This currently implements account linking and the API connection layer
+only — no scrobbling, watchlist sync, or ratings sync exists yet to
+connect it to. `getConnectionStatus`'s just-in-time refresh (only a
+confirmed `invalid_grant` clears the stored connection; a network
+failure or Trakt outage leaves it as-is) is the same philosophy as
+`AuthRepository.ensureFreshSession()` §3.3, applied to a second, unrelated
+OAuth credential this backend happens to also hold.
+
+## 6. Further reading
 
 - [API endpoint reference](../server/README.md) — every route, request/response shape, and local backend setup.
 - [Deployment](DEPLOYMENT.md) — Neon, hosting, environment variables, domains, HTTPS, the QR activation URL.

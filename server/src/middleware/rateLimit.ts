@@ -59,3 +59,14 @@ export function createQrPollRateLimiter(): RateLimitRequestHandler {
     handler: rateLimitHandler,
   });
 }
+
+/** Same shape and reasoning as createQrPollRateLimiter — GET /user/trakt/link is polled every few seconds while the Trakt pairing screen is up. */
+export function createTraktPollRateLimiter(): RateLimitRequestHandler {
+  return rateLimit({
+    windowMs: 60_000,
+    limit: 40,
+    standardHeaders: true,
+    legacyHeaders: false,
+    handler: rateLimitHandler,
+  });
+}

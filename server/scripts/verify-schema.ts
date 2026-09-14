@@ -21,6 +21,8 @@ const EXPECTED_TABLES = [
   "watchlist_items",
   "watch_history",
   "continue_watching",
+  "trakt_connections",
+  "trakt_device_links",
   "schema_migrations",
 ];
 
@@ -219,6 +221,30 @@ async function checkConstraintsAndCascades(client: PoolClient): Promise<void> {
     )
   );
 
+  await expectSuccess(client, "insert a trakt_connections row", () =>
+    client.query(
+      `INSERT INTO trakt_connections (user_id, access_token, refresh_token, expires_at)
+       VALUES ($1, 'encrypted-access-token', 'encrypted-refresh-token', now() + interval '90 days')`,
+      [userId]
+    )
+  );
+
+  await expectSuccess(client, "insert a trakt_device_links row", () =>
+    client.query(
+      `INSERT INTO trakt_device_links (user_id, device_code, user_code, verification_url, interval_seconds, expires_at)
+       VALUES ($1, 'device-code', 'USER-CODE', 'https://trakt.tv/activate', 5, now() + interval '10 minutes')`,
+      [userId]
+    )
+  );
+
+  await expectError(client, "trakt_connections rejects a second row for the same user (PRIMARY KEY)", "23505", () =>
+    client.query(
+      `INSERT INTO trakt_connections (user_id, access_token, refresh_token, expires_at)
+       VALUES ($1, 'another-token', 'another-refresh', now() + interval '90 days')`,
+      [userId]
+    )
+  );
+
   await expectSuccess(client, "delete the user", () => client.query("DELETE FROM users WHERE id = $1", [userId]));
 
   const dependentCounts = await client.query<{ table_name: string; remaining: string }>(
@@ -229,7 +255,9 @@ async function checkConstraintsAndCascades(client: PoolClient): Promise<void> {
      UNION ALL SELECT 'addon_settings', count(*)::text FROM addon_settings WHERE user_addon_id = '00000000-0000-4000-8000-000000000004'
      UNION ALL SELECT 'watchlist_items', count(*)::text FROM watchlist_items WHERE user_id = $1
      UNION ALL SELECT 'watch_history', count(*)::text FROM watch_history WHERE user_id = $1
-     UNION ALL SELECT 'continue_watching', count(*)::text FROM continue_watching WHERE user_id = $1`,
+     UNION ALL SELECT 'continue_watching', count(*)::text FROM continue_watching WHERE user_id = $1
+     UNION ALL SELECT 'trakt_connections', count(*)::text FROM trakt_connections WHERE user_id = $1
+     UNION ALL SELECT 'trakt_device_links', count(*)::text FROM trakt_device_links WHERE user_id = $1`,
     [userId]
   );
   for (const row of dependentCounts.rows) {

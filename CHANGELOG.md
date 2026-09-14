@@ -2595,3 +2595,145 @@ in the area.
 
 **Issues fixed (this update):** see above (kdoc correction) — nothing
 functional.
+
+## Post-Milestone-17 — Trakt Account Linking
+
+**Status:** Complete (account linking + the API connection layer). No
+scrobbling/watchlist/ratings sync was built — none existed before this,
+and the request was explicitly to link accounts and build the connection
+layer, not invent new syncing features on top of it.
+
+**Context:** User request: "Implement Trakt account integration... Users
+must be able to connect and manage their Trakt account from Settings →
+Account." `AccountScreen`/`AccountViewModel` already existed (profile
+info + Sign Out); this adds a Trakt section to that same screen rather
+than creating a new tab, per the existing Settings design.
+
+**Why the Device Code flow, not a browser-redirect flow:** this app has
+no on-device browser step anywhere in its auth system — even its own
+account sign-in avoids that (QR flow, Milestone 4) specifically because a
+Fire TV remote is a poor way to interact with a web form. Trakt's OAuth
+**Device Code** flow (RFC 8628) fits the same shape exactly: the TV shows
+a short code, the user approves it on a *separate* phone/computer, and
+the TV just polls until it's authorized — no redirect back into the app
+is needed at all, so "returning the user to the app" is trivial (the app
+was never left). This was verified against Trakt's actual OAuth client
+library implementations (a PHP League OAuth2 provider, PyTrakt, and a Go
+device-auth package showing the exact status-code table) rather than
+Trakt's own docs site, which this sandbox's network egress policy blocks
+outbound access to (`docs.trakt.tv`, `trakt.docs.apiary.io`, `dl.google.com`
+all rejected by the proxy) — see `docs/DEPLOYMENT.md` §7 for the full
+verification note and what still needs a live check.
+
+**Why every Trakt credential and token stays server-side:** the device
+token exchange needs this app's Trakt client secret, and per this app's
+own existing rule ("the Fire TV app never holds a database credential and
+never connects to Postgres directly" — `docs/ARCHITECTURE.md` §0) that
+secret and the resulting user tokens never touch the device. The Fire TV
+app talks only to this backend's own `/user/trakt*` endpoints, exactly
+like it already does for TMDB (`/user/trailer`, `/user/release-date`) —
+never to `api.trakt.tv` directly.
+
+**New (server):**
+- `migrations/0014_trakt_connections.sql` — `trakt_connections` (one row
+  per linked account, tokens AES-256-GCM encrypted at rest) and
+  `trakt_device_links` (ephemeral per-account pairing state, so pairing
+  survives a restart mid-flow) — both 1:1 on `user_id`, same shape as
+  `user_settings`.
+- `src/security/crypto.ts` — `encryptSecret`/`decryptSecret`. This
+  system's existing `security/tokens.ts` only ever one-way hashes (right
+  for this app's own bearer tokens, which are never sent anywhere after
+  issuance); a Trakt token has to be recoverable in plaintext to ever be
+  sent back to Trakt's API, so a new reversible primitive was needed.
+  Keyed by a new `TOKEN_ENCRYPTION_KEY` env var.
+- `src/services/traktService.ts` — `startDeviceLink`, `pollDeviceLink`
+  (maps Trakt's raw device-token status codes: 200 connected, 400/429
+  pending, 418 denied, 404/409/410 expired), `getConnectionStatus`
+  (just-in-time refresh; only a confirmed `invalid_grant` clears the
+  connection — a network failure or Trakt outage leaves it as-is, the
+  same philosophy as `AuthRepository.ensureFreshSession()`), `disconnect`
+  (best-effort `POST /oauth/revoke`, always clears local state regardless
+  — same rule as `POST /auth/logout`).
+- `src/routes/trakt.ts` — `GET/POST/DELETE /user/trakt`, `GET/POST
+  /user/trakt/link`, mounted in `app.ts`. `createTraktPollRateLimiter`
+  added to `rateLimit.ts` (same 40/min shape as the QR flow's poll
+  limiter).
+- `tests/trakt.test.ts` — 26 tests: not-configured graceful degradation,
+  the full link→poll→connected happy path, each Trakt status-code
+  mapping, the poll-interval throttle, refresh (success/invalid_grant/
+  transient-failure), disconnect (with and without a successful revoke),
+  and cross-user isolation.
+- `scripts/verify-schema.ts` — extended with the two new tables, a
+  primary-key-uniqueness check, and cascade-delete checks.
+- `.env.example`, `docs/DEPLOYMENT.md` (§7, new), `docs/ARCHITECTURE.md`
+  (§5, new; database table added to §2), `server/README.md` — new env
+  vars (`TRAKT_CLIENT_ID`, `TRAKT_CLIENT_SECRET`, `TOKEN_ENCRYPTION_KEY`)
+  and endpoint docs.
+
+**New (Android):**
+- `data/network/TraktDtos.kt` / `TraktApiClient.kt` — wire types and the
+  HTTP client for `/user/trakt*`, mirroring `TrailerApiClient.kt`'s shape
+  exactly.
+- `data/trakt/TraktRepository.kt` — `getStatus`/`startLink`/`pollLink`/
+  `disconnect`, each a `Result`, using `AuthRepository.ensureFreshSession()`
+  for a fresh bearer token the same way `TrailerRepository` does. Wired
+  into `AppContainer` as a lazy val (no side effect to arm early).
+- `ui/settings/AccountScreen.kt` — new Trakt section between the profile
+  info and Sign Out: a loading spinner, "not available on this server"
+  for an unconfigured backend, an explanation + Connect button when
+  disconnected, connection status + username + Disconnect button when
+  connected, and an inline error + Retry otherwise. Refreshes on every
+  (re)entry into the screen (`LaunchedEffect(Unit)`), which is what picks
+  up a just-completed connect attempt on returning from the connect
+  screen. D-pad focus chain extended (nav bar ↔ Trakt action button ↔
+  Sign Out) rather than left as a dead end.
+- `ui/settings/TraktConnectScreen.kt` / `TraktConnectViewModel.kt` — the
+  pairing screen: big user code, the verification URL, and a QR code
+  (reusing the existing `QrCodeImage`/`QrCodeGenerator`) pointed at
+  `<verification_url>/<user_code>` to skip manual entry. Polls at the
+  server-given interval; auto-restarts on expiry; a `pollingDegraded`
+  flag after repeated failures (never yanks the code off screen for a
+  transient blip) — this is a near-exact structural mirror of
+  `QrSignInScreen`/`QrSignInViewModel`'s own lifecycle, since it's the
+  same kind of flow (show a code, wait for approval elsewhere, keep
+  polling). An explicit Cancel button is provided in addition to the
+  hardware Back button (which already works via Navigation-Compose's
+  default pop, same as `QrSignInScreen` — the abandoned pairing attempt
+  just expires server-side on its own).
+- `navigation/MangoRoutes.kt` / `MangoNavHost.kt` — new
+  `settings/account/trakt/connect` route.
+- No `AndroidManifest.xml` changes at all — the Device Code flow needs no
+  custom URI scheme, intent filter, or new activity.
+
+**Tests performed:**
+- Server: `npm run typecheck` (clean), `npm run migrate` + `npm run
+  verify-schema` (63 checks passed, including the two new tables' FK
+  cascades and PK uniqueness) against a real local Postgres 16 instance
+  stood up in this sandbox for the purpose, and the full `npm test` suite
+  (176 tests passed across 15 files, 26 of them new).
+- Grepped every new server file for `console.log`/`Log.` calls touching
+  token values — none exist; the shared `requestLogger` middleware never
+  logs bodies/headers/tokens by construction.
+- Android: manual brace/paren-balance check and duplicate-import check
+  across all 10 new/touched Kotlin files (all balanced, no duplicates),
+  plus a full manual re-read of every file cross-referencing every
+  `MangoButton`/`TvFocusSurface`/`FullScreenErrorState`/`QrCodeImage`
+  parameter name and every DTO field against the server's actual JSON
+  shapes.
+- **Not performed:** an actual Kotlin/Gradle/AGP compile or a live Trakt
+  API call. Same Android-SDK constraint noted since Milestone 0 — this
+  sandbox has no Android SDK, and `dl.google.com` (needed to install one)
+  is rejected by the network egress policy, confirmed by a direct attempt.
+  `build-apk.yml` is the real compile verification, to run after this is
+  pushed. No live Trakt application/credentials were available in this
+  session either, so the actual `api.trakt.tv` wire calls (device code
+  request, token polling, refresh, revoke, `/users/settings`) are
+  implemented per the cross-checked library evidence in
+  `docs/DEPLOYMENT.md` §7 but have not been exercised end-to-end against
+  the real Trakt API — see that section for exactly what to verify once
+  a real Trakt application exists.
+
+**Issues discovered:** none in existing code — this is new, additive
+functionality alongside it, not a fix.
+
+**Issues fixed:** N/A — see above.
