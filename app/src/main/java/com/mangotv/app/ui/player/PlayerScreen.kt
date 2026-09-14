@@ -272,9 +272,10 @@ private fun PlaybackContent(
     // has to actively select it (DPAD_CENTER/Enter) to start scrubbing, or
     // LEFT/RIGHT would fall through to normal focus traversal and never let
     // the user move focus past the timeline to reach the icon row. Reset
-    // whenever focus leaves the timeline by any path (UP, BACK, controls
-    // hiding), so a stale "still scrubbing" state can never survive a zone
-    // change.
+    // whenever focus leaves the timeline by any path (UP, or controls
+    // hiding -- which is also how a single BACK press clears this, see
+    // BackHandler's own comment below), so a stale "still scrubbing" state
+    // can never survive a zone change.
     var timelineScrubbing by remember { mutableStateOf(false) }
     LaunchedEffect(focusZone) {
         if (focusZone != PlayerFocusZone.TIMELINE) timelineScrubbing = false
@@ -680,7 +681,18 @@ private fun PlaybackContent(
     BackHandler {
         uiSoundPlayer?.playBack()
         when {
-            timelineScrubbing -> timelineScrubbing = false
+            // No separate "just exit scrub mode" branch here on purpose --
+            // timelineScrubbing can only ever be true while controlsVisible
+            // already is (scrubbing requires the timeline to be focused,
+            // which requires controls to be showing), so a dedicated branch
+            // ahead of controlsVisible below meant a single BACK press while
+            // scrubbing silently exited scrub mode with no visible change,
+            // and hiding the controls needed a second press. Falling
+            // straight into controlsVisible = false instead hides
+            // everything in one press, and still clears scrubbing as a
+            // side effect (controlsVisible's own LaunchedEffect resets
+            // focusZone to NONE, which timelineScrubbing's LaunchedEffect
+            // above reacts to).
             overlayStack.isNotEmpty() -> {
                 popOverlay()
                 // Only once the whole stack is closed (not a single level of
