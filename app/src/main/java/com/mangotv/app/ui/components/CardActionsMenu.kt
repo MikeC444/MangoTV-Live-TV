@@ -17,10 +17,12 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Info
 import androidx.compose.material.icons.filled.List
 import androidx.compose.material.icons.filled.PlayArrow
+import androidx.compose.material.icons.outlined.CheckCircle
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -138,6 +140,11 @@ fun CardActionsMenuOverlay(
     val coroutineScope = rememberCoroutineScope()
     val savedIds by myListRepository.items.collectAsStateWithLifecycle()
     val isInMyList = savedIds.any { it.id == content.id }
+    // Derived the same way as isInMyList above (from the live
+    // myListRepository.items snapshot, not content.watched) so this is
+    // always accurate regardless of which screen's Content this menu was
+    // opened from -- some callers stamp watched onto Content, some don't.
+    val isWatched = savedIds.any { it.id == content.id && it.watched }
     val firstRowFocusRequester = remember(content.id) { FocusRequester() }
 
     // Gated on canFocusActions rather than firing as soon as content is set
@@ -210,6 +217,17 @@ fun CardActionsMenuOverlay(
                     label = if (isInMyList) "Remove from My List" else "Add to My List",
                     onClick = {
                         coroutineScope.launch { myListRepository.toggle(content) }
+                        state.dismiss()
+                    }
+                )
+                CardActionRow(
+                    icon = if (isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                    label = if (isWatched) "Watched" else "Mark as watched",
+                    onClick = {
+                        // Non-suspend: markWatched() already fires
+                        // fire-and-forget on MyListRepository's own
+                        // long-lived scope, unlike toggle() above.
+                        myListRepository.markWatched(content)
                         state.dismiss()
                     }
                 )

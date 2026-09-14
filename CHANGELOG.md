@@ -2912,3 +2912,51 @@ filled immediately and the title appears in My List's Watched filter.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-23 — "Mark As Watched" On The Long-Press Menu Too
+
+**Status:** Complete.
+
+**Context:** User request: add the same "Mark as watched" action to a
+poster's long-press quick-actions menu (`CardActionsMenu.kt`), not only
+Detail's three-dot menu (Post-Milestone-22). This menu already renders
+once at the NavHost root for every `ContentCard` in the app (Home's rows,
+My List, Movies/TV Shows/Genre grids, Detail's Similar row -- see its own
+kdoc), so this one change reaches every poster, not just certain screens.
+
+**Changes:**
+- `CardActionsMenu.kt` -- added a `CardActionRow` for "Mark as watched"
+  right after the existing "Add/Remove My List" row (both concern My
+  List status), calling `myListRepository.markWatched(content)` directly
+  (non-suspend -- no `coroutineScope.launch` needed, unlike the
+  neighboring "Add/Remove My List" row's `toggle()` call, which is
+  suspend). Works for a movie or TV show, same reasoning as
+  Post-Milestone-22's Detail button: `markWatched()` itself has no type
+  restriction.
+- Added a new `isWatched` local val, derived from the already-collected
+  `savedIds` (`myListRepository.items`) the exact same way the existing
+  `isInMyList` is -- not from `content.watched` -- so the row's
+  icon/label are correct regardless of which screen's `Content` this menu
+  happened to be opened from (some screens stamp `watched` onto `Content`
+  by now; this reads the single source of truth directly instead of
+  trusting that every caller does). Filled `CheckCircle` + "Watched" once
+  true, outlined `CheckCircle` + "Mark as watched" otherwise -- same
+  swap Post-Milestone-22 already established for Detail's own button.
+  Every row here already calls `state.dismiss()` right after its action,
+  so (unlike Detail's button) there's no expectation of watching the icon
+  change live in an still-open menu -- it just closes immediately either
+  way.
+
+**Tests performed:** Same sandbox limitation as every recent milestone
+(no route to `dl.google.com`): brace/paren/bracket balance check (clean)
+and a full manual re-read. `Icons.Filled.CheckCircle` alongside
+`Icons.Outlined.CheckCircle` in the same file -- confident (not
+compiled) this doesn't collide, same reasoning and precedent as
+Post-Milestone-22. **Not performed:** an actual Gradle/Kotlin compile or
+on-device check -- on-device verification should long-press a poster on
+Home (or any grid), tap "Mark as watched," and confirm the poster's own
+watched tick appears and the title shows up in My List's Watched filter.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
