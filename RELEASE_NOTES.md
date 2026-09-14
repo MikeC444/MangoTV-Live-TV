@@ -22,6 +22,7 @@ run the release workflow for that version.
 - Settings > Home Rows loads faster with multiple addons installed
 - Select a Source now shows results as soon as each addon responds, instead of waiting for the slowest one before showing anything
 - The Home page hero now rotates through 10 random movies/TV shows from your whole catalog, picked fresh each time you launch the app, instead of always the same first row's top 10
+- Fixed needing to press BACK twice to hide the player controls while the timeline was selected
 - Update banner's Update button is now white instead of amber
 - Fixed the Close/Open Settings buttons on the update overlays being unselectable
 - Allow-installing-updates overlay's Open Settings button is now white instead of orange
