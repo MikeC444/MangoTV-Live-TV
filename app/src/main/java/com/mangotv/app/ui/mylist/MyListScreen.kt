@@ -5,6 +5,7 @@ import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.mangotv.app.ui.browse.RowsBrowseContent
+import com.mangotv.app.ui.browse.RowsBrowseLayout
 
 @Composable
 fun MyListScreen(
@@ -20,6 +21,7 @@ fun MyListScreen(
         uiState = uiState,
         onNavigate = onNavigate,
         onRetry = {},
+        layout = RowsBrowseLayout.GRID,
         emptyMessage = if (selectedFilter == MyListFilter.WATCHED) {
             "Nothing watched yet. Titles you finish will show up here."
         } else {

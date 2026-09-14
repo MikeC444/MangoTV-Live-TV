@@ -2960,3 +2960,70 @@ watched tick appears and the title shows up in My List's Watched filter.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-24 — My List Becomes a Grid Catalogue Like Movies/TV Shows
+
+**Status:** Complete.
+
+**Context:** User request: My List should look like the Movies tab -- a
+scrollable multi-column catalogue -- instead of a single horizontal row
+you scroll sideways through (`RowsBrowseLayout.ROWS`, `My List`'s only
+consumer of that layout since it was introduced).
+
+**Changes:**
+- `RowsBrowseScreen.kt` -- `RowsBrowseGridContent` (Movies/TV Shows/Genre
+  Results' grid) gained optional `filterOptions`/`selectedFilterIndex`/
+  `onFilterSelected` params. When non-empty, they replace `CatalogSortBar`
+  in the exact same "sort_bar" LazyColumn slot with a row of `FilterPill`s,
+  rather than adding a second bar above/below it -- sort reorders an
+  unchanging set of items, filter narrows which items exist at all, and My
+  List has no use for the other today, so this is a slot swap. Every
+  index offset that assumes exactly one bar item between the title and the
+  first grid row (`targetRowIndex + 2`, etc.) needed no changes, since the
+  slot itself still holds exactly one item either way -- this is what kept
+  the change small against a screen whose focus/scroll machinery has
+  already been tuned through several rounds of real stutter bugs (see the
+  file's own doc comments). Added a `filterChipFocusRequesters` list
+  (mirroring `RowsBrowseLoadedContent`'s own, one per chip so returning
+  from the nav bar lands on whichever filter is selected) alongside the
+  existing single `sortBarFocusRequester`, and made `contentFocusRequester`/
+  the nav bar's `onNavigateDown` pick whichever the active layout needs.
+  `RowsBrowseContent`'s GRID dispatch branch now threads filterOptions
+  through to this function (previously ROWS-only).
+- `FilterPill.kt` -- added optional `focusUp`/`focusDown` params (default
+  null, so existing callers are unaffected), mirroring `CatalogSortPill`'s
+  own, so a filter pill embedded in the grid's fixed bar slot can wire the
+  same explicit up/down handoff the sort bar already needed there.
+- `MyListScreen.kt` -- passes `layout = RowsBrowseLayout.GRID`. No
+  `MyListViewModel`/data changes needed: it already produces exactly one
+  `HomeSection`, and `RowsBrowseContent` already flattens every section's
+  items before handing them to the grid, so the existing All/Watched
+  filtering logic carries over unchanged.
+- `RowsBrowseLayout.ROWS` and `RowsBrowseLoadedContent` (the original
+  horizontal-shelf renderer) are now unused -- My List was their only
+  caller. Left in place rather than deleted: removing ~140 lines of
+  focus/scroll logic I can't compile-test felt like a separate cleanup
+  decision from the layout change actually requested, not a call to make
+  unilaterally in the same pass. Updated the stale doc comments that used
+  to say "My List keeps this" so they don't mislead a future reader.
+
+**Tests performed:** Same sandbox limitation as every recent milestone (no
+route to `dl.google.com`): brace/paren/bracket balance check on all three
+touched files (clean), and a full manual re-read confirming every index
+offset in `RowsBrowseGridContent` (the two `+ 2` `LaunchedEffect`s, the
+initial-focus effect, `onNavigateDown`'s scroll target) still holds given
+the bar slot always contains exactly one item regardless of which content
+it renders. Confirmed `RowsBrowseGridContent` has no other call sites
+needing the same treatment (Movies/TV Shows/Genre Results never pass
+`filterOptions`, so they're unaffected) and that `FilterPill`'s two new
+optional params don't change its existing callers (`RowsBrowseLoadedContent`'s
+own filter bar, which doesn't pass them). **Not performed:** an actual
+Gradle/Kotlin compile or on-device check -- on-device verification should
+open My List, confirm it now scrolls as a multi-column grid, confirm the
+All/Watched filter pills still work and still restore focus correctly via
+the nav bar's DOWN key and UP from the first grid row, and confirm Movies/
+TV Shows/Genre Results are visually and behaviorally unchanged.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.

@@ -31,7 +31,13 @@ fun FilterPill(
     selected: Boolean,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
-    focusRequester: FocusRequester? = null
+    focusRequester: FocusRequester? = null,
+    // Same optional up/down wiring CatalogSortPill already offers (see
+    // RowsBrowseScreen.kt) -- needed when this pill sits in a fixed slot
+    // between a nav bar and a scrollable grid, rather than as an ordinary
+    // LazyColumn sibling default focus search already handles on its own.
+    focusUp: FocusRequester? = null,
+    focusDown: FocusRequester? = null
 ) {
     var focused by remember { mutableStateOf(false) }
     val contentColor = when {
@@ -45,6 +51,8 @@ fun FilterPill(
         shape = RoundedCornerShape(percent = 50),
         backgroundColor = if (selected) MangoAmber else MangoSurfaceHigh,
         focusRequester = focusRequester,
+        focusUp = focusUp,
+        focusDown = focusDown,
         onFocusChanged = { focused = it },
         bringIntoViewOnFocus = false
     ) {
