@@ -74,10 +74,16 @@ data class Content(
     val providerId: String? = null,
     val watchProgress: WatchProgress? = null,
     val seasons: List<Season> = emptyList(),
-    // True only for a My List entry the player has marked watched (see
-    // MyListRepository.markWatched) -- never populated from a provider's own
-    // network response, so this is always false outside of My List's own
-    // cards today. ContentCard reads it to draw the watched tick.
+    // True once a title is a My List entry with watched=true -- set by the
+    // player crossing the completion threshold (MyListRepository.
+    // markWatched), the history backfill (same method), or a user
+    // explicitly toggling it via Detail's three-dot menu or a poster's
+    // long-press menu (MyListRepository.toggleWatched). Never populated
+    // from a provider's own network response; every screen that shows a
+    // ContentCard cross-references myListRepository.items itself to stamp
+    // this onto the Content it builds (see e.g. HomeViewModel's own
+    // watchedIds) rather than a provider ever knowing about it directly.
+    // ContentCard reads it to draw the watched tick.
     val watched: Boolean = false
 )
 

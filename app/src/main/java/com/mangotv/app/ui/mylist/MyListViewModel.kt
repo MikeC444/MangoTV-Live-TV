@@ -50,7 +50,18 @@ class MyListViewModel(application: Application) : AndroidViewModel(application) 
             HomeSection(
                 id = "my_list",
                 title = "My List",
-                items = map { it.toContent() }
+                // Newest-added first. myListRepository.items itself is
+                // maintained oldest-first throughout its whole lifecycle --
+                // toggle()/markWatched()/toggleWatched() append a genuinely
+                // new item to the end and never reorder an existing one on
+                // update, and a server pull replaces the list wholesale with
+                // the server's own `added_at ASC` order (see
+                // WatchlistSyncRepository.pullFromServer/reconcile) -- so
+                // reversing here is a pure display concern: every other
+                // reader of myListRepository.items (savedIds, isInMyList,
+                // the sync repository itself) still sees the untouched
+                // oldest-first list.
+                items = reversed().map { it.toContent() }
             )
         )
     }

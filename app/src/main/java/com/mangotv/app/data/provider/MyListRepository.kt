@@ -174,6 +174,55 @@ class MyListRepository(context: Context) {
         }
     }
 
+    /**
+     * Manual watched toggle, driven by Detail's three-dot menu and the
+     * poster long-press menu's "Mark as watched"/"Watched" action -- unlike
+     * [markWatched] (the player's own one-way, false-to-true-only
+     * auto-detection call, which must never flip a title back to unwatched
+     * just because playback happened to report it that way), this flips
+     * [SavedListItem.watched] in either direction: adds the item
+     * (watched=true) if it isn't saved yet, or flips watched -> unwatched ->
+     * watched on each call otherwise. Only ever changes the watched flag --
+     * never removes the item from My List entirely, which stays [toggle]'s
+     * own separate concern, exactly like the neighboring "Add/Remove My
+     * List" action treats list membership and watched status as
+     * independent.
+     *
+     * Same non-suspend, fire-and-forget-on-this-repository's-own-scope
+     * shape as [markWatched], for the same reason (see its own kdoc).
+     */
+    fun toggleWatched(content: Content) {
+        val providerId = content.providerId ?: return
+        scope.launch {
+            val current = _items.value
+            val existing = current.find { it.id == content.id }
+
+            val changedItem: SavedListItem
+            val updated: List<SavedListItem>
+            if (existing != null) {
+                changedItem = existing.copy(watched = !existing.watched, updatedAt = Iso8601.nowString())
+                updated = current.map { if (it.id == content.id) changedItem else it }
+            } else {
+                changedItem = SavedListItem(
+                    id = content.id,
+                    type = content.type,
+                    title = content.title,
+                    posterUrl = content.posterUrl,
+                    backdropUrl = content.backdropUrl,
+                    year = content.year,
+                    rating = content.rating,
+                    providerId = providerId,
+                    watched = true,
+                    updatedAt = Iso8601.nowString()
+                )
+                updated = current + changedItem
+            }
+            _items.value = updated
+            persist(updated)
+            onLocalChange?.invoke(WatchlistChange.Added(changedItem))
+        }
+    }
+
     /** Applies the server's current active-item list — persists locally without notifying [onLocalChange]; see its own kdoc for why. Replaces the local list wholesale (pull always trusts the server as source of truth), which is safe here because push is item-level, not the other way around. */
     suspend fun applyRemote(items: List<SavedListItem>) = withContext(Dispatchers.IO) {
         _items.value = items

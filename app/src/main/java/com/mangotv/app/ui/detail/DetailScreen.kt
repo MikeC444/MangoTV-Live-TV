@@ -82,7 +82,7 @@ fun DetailScreen(
                     onNavigate = onNavigate,
                     isInMyList = isInMyList,
                     onToggleMyList = viewModel::toggleMyList,
-                    onMarkWatched = viewModel::markWatched,
+                    onToggleWatched = viewModel::toggleWatched,
                     resumeEntry = resumeEntry,
                     lastStreamIdFor = viewModel::lastStreamIdFor,
                     releaseDateState = releaseDateState,
@@ -109,7 +109,7 @@ private fun DetailContent(
     onNavigate: (String) -> Unit,
     isInMyList: Boolean,
     onToggleMyList: () -> Unit,
-    onMarkWatched: () -> Unit,
+    onToggleWatched: () -> Unit,
     resumeEntry: ContinueWatchingEntry?,
     lastStreamIdFor: (season: Int?, episode: Int?) -> String?,
     onTrailer: (() -> Unit)?,
@@ -254,7 +254,7 @@ private fun DetailContent(
                             navigateToPlayback(pid, episode?.seasonNumber, episode?.episodeNumber)
                         }
                     },
-                    onWatched = onMarkWatched,
+                    onWatched = onToggleWatched,
                     isWatched = content.watched,
                     onWatchlist = onToggleMyList,
                     isInMyList = isInMyList,

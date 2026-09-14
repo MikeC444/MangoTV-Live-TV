@@ -3027,3 +3027,77 @@ TV Shows/Genre Results are visually and behaviorally unchanged.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-25 — Remove-From-Watched, and Newest-Added-First in My List
+
+**Status:** Complete.
+
+**Context:** User request: two follow-ups to the watched-tracking work.
+(1) Every "Mark as watched" surface (Post-Milestone-22/23) only ever set
+`watched=true` -- there was no way to undo a mis-tap or change of mind,
+short of manually editing the account's data. (2) My List's new grid
+(Post-Milestone-24) still rendered items in `myListRepository.items`' own
+storage order (oldest-added first, inherited from the server's
+`added_at ASC`), rather than newest-first.
+
+**Changes:**
+- `MyListRepository.kt` -- added `toggleWatched(content)`, a bidirectional
+  sibling to the existing one-way `markWatched(content)`: adds the item
+  (watched=true) if untracked, otherwise flips `watched` in whichever
+  direction it wasn't already. `markWatched()` itself is unchanged and
+  still the only thing `PlayerViewModel`'s live auto-detection and the
+  history backfill call -- neither should ever be capable of *unwatching*
+  something just because of how a playback report or a historical row
+  happened to read, only a deliberate user action should. Only ever flips
+  the `watched` flag, never removes the item from My List entirely, which
+  stays the separate, existing `toggle()`'s job.
+- `DetailViewModel.kt` -- renamed `markWatched()` to `toggleWatched()` and
+  pointed it at the new repository method (the old name was actively
+  misleading once tapping it again could unmark); threaded the rename
+  through `DetailScreen.kt`'s `onMarkWatched` -> `onToggleWatched` param.
+- `CardActionsMenu.kt` -- its "Mark as watched" row now calls
+  `myListRepository.toggleWatched()` instead of `markWatched()`.
+- `DetailHeroSection.kt` / `CardActionsMenu.kt` -- both watched
+  buttons/rows now say "Remove from Watched" once already watched
+  (previously just "Watched"), matching the action-oriented phrasing the
+  neighboring "Add to My List"/"Remove from My List" control already uses,
+  rather than only describing the current state.
+- `Content.kt` -- updated `watched`'s own doc comment, which had drifted
+  stale twice over (still said "the player has marked watched," and still
+  said "always false outside of My List's own cards today" from before
+  Post-Milestone-20 stamped it everywhere else too).
+- `MyListViewModel.kt` -- `toSections()` now reverses the item list before
+  building the displayed `HomeSection`. `myListRepository.items` itself
+  stays oldest-first end to end (`toggle()`/`markWatched()`/
+  `toggleWatched()` all append a new item to the end and never reorder an
+  existing one in place; `WatchlistSyncRepository.pullFromServer()`/
+  `reconcile()` mirror the server's own `added_at ASC` order the same
+  way) -- reversing at display time was the only change needed, and
+  every other reader of `myListRepository.items` (`savedIds`,
+  `isInMyList`, the sync repository's own push/pull logic) is unaffected
+  since none of them depend on its order. Deliberately not sorted by
+  `SavedListItem.addedAtMillis`: that field isn't part of `WatchlistItemDto`
+  at all, so it gets reset to "now" on every server pull for every item in
+  the response -- sorting by it would have looked fine locally and then
+  silently reshuffled toward "arbitrary" after the next app launch or sync.
+
+**Tests performed:** Same sandbox limitation as every recent milestone (no
+route to `dl.google.com`): brace/paren/bracket balance check on all eight
+touched files (clean), and a full manual re-read. Specifically traced
+every existing call site of `markWatched()` (`PlayerViewModel`,
+`WatchlistSyncRepository`'s backfill) to confirm neither was accidentally
+repointed at `toggleWatched()`, and traced `myListRepository.items`'
+write sites (`toggle`, `markWatched`, `toggleWatched`,
+`WatchlistSyncRepository.reconcile`/`pullFromServer`) to confirm the
+"append new, never reorder existing" invariant the reversed display
+depends on actually holds everywhere the list is written. **Not
+performed:** an actual Gradle/Kotlin compile or on-device check --
+on-device verification should mark a title watched, confirm the tick
+appears, tap the same control again, confirm the tick disappears and the
+title drops out of My List's Watched filter (while staying in All); and
+should add several titles to My List and confirm the most recently added
+one appears first in the grid.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.
