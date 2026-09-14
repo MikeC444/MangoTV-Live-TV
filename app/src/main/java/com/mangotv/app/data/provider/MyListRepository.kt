@@ -45,6 +45,14 @@ data class SavedListItem(
     val providerId: String,
     val addedAtMillis: Long = System.currentTimeMillis(),
     /**
+     * True once the player has reported this title watched past the
+     * completion threshold (see PlayerViewModel.reportProgress) -- drives
+     * both the poster's watched tick (via Content.watched) and My List's
+     * "Watched" filter. False for a title the user only ever added
+     * manually and hasn't (yet) finished.
+     */
+    val watched: Boolean = false,
+    /**
      * This item's own last-modified time, ISO-8601 UTC — the cloud sync
      * (Milestone 7) analog of PlayerPreferences'/HomeRowPreferences'
      * single account-wide updatedAt, kept per item here since watchlist
@@ -116,6 +124,53 @@ class MyListRepository(context: Context) {
             _items.value = updated
             persist(updated)
             onLocalChange?.invoke(WatchlistChange.Added(item))
+        }
+    }
+
+    /**
+     * Marks [content] watched: flags an already-saved item, or adds it (as
+     * already-watched) if it isn't saved yet -- called by the player
+     * (PlayerViewModel.reportProgress) once a movie crosses the completion
+     * threshold. A manually-added item keeps its position/addedAt; this
+     * only ever flips watched false -> true, never the reverse.
+     *
+     * Non-suspend and fire-and-forget on this repository's own long-lived
+     * [scope] rather than the caller's, mirroring
+     * ContinueWatchingSyncRepository.reportProgress's own reasoning: the
+     * dispose-time report that most often triggers this fires from a plain
+     * onDispose{} lambda whose owning ViewModel may be torn down a moment
+     * later, so this can't ride viewModelScope.
+     */
+    fun markWatched(content: Content) {
+        val providerId = content.providerId ?: return
+        scope.launch {
+            val current = _items.value
+            val existing = current.find { it.id == content.id }
+            if (existing?.watched == true) return@launch
+
+            val changedItem: SavedListItem
+            val updated: List<SavedListItem>
+            if (existing != null) {
+                changedItem = existing.copy(watched = true, updatedAt = Iso8601.nowString())
+                updated = current.map { if (it.id == content.id) changedItem else it }
+            } else {
+                changedItem = SavedListItem(
+                    id = content.id,
+                    type = content.type,
+                    title = content.title,
+                    posterUrl = content.posterUrl,
+                    backdropUrl = content.backdropUrl,
+                    year = content.year,
+                    rating = content.rating,
+                    providerId = providerId,
+                    watched = true,
+                    updatedAt = Iso8601.nowString()
+                )
+                updated = current + changedItem
+            }
+            _items.value = updated
+            persist(updated)
+            onLocalChange?.invoke(WatchlistChange.Added(changedItem))
         }
     }
 

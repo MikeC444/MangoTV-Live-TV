@@ -73,7 +73,12 @@ data class Content(
     val director: String? = null,
     val providerId: String? = null,
     val watchProgress: WatchProgress? = null,
-    val seasons: List<Season> = emptyList()
+    val seasons: List<Season> = emptyList(),
+    // True only for a My List entry the player has marked watched (see
+    // MyListRepository.markWatched) -- never populated from a provider's own
+    // network response, so this is always false outside of My List's own
+    // cards today. ContentCard reads it to draw the watched tick.
+    val watched: Boolean = false
 )
 
 enum class RowStyle {

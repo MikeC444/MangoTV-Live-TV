@@ -12,12 +12,21 @@ fun MyListScreen(
     viewModel: MyListViewModel = viewModel()
 ) {
     val uiState by viewModel.uiState.collectAsStateWithLifecycle()
+    val selectedFilter by viewModel.selectedFilter.collectAsStateWithLifecycle()
+    val filters = MyListFilter.entries
     RowsBrowseContent(
         screenTitle = "My List",
         navLabel = "My List",
         uiState = uiState,
         onNavigate = onNavigate,
         onRetry = {},
-        emptyMessage = "Your list is empty. Add titles from a Detail page or Home's featured title to see them here."
+        emptyMessage = if (selectedFilter == MyListFilter.WATCHED) {
+            "Nothing watched yet. Titles you finish will show up here."
+        } else {
+            "Your list is empty. Add titles from a Detail page or Home's featured title to see them here."
+        },
+        filterOptions = filters.map { it.label },
+        selectedFilterIndex = filters.indexOf(selectedFilter),
+        onFilterSelected = { index -> viewModel.selectFilter(filters[index]) }
     )
 }

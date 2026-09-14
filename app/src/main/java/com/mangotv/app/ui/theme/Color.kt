@@ -44,3 +44,9 @@ val FocusBorder = Color(0xFFFFC873)
 // Ratings / progress
 val ProgressTrack = Color(0x33FFFFFF)
 val ProgressFill = MangoCoral
+
+// Watched tick badge -- deliberately a distinct green rather than
+// MangoAmber/MangoTeal (both already mean something else: focus/progress and
+// quality tier, respectively), so "watched" reads unambiguously against a
+// poster of any color.
+val WatchedGreen = Color(0xFF2ECC71)

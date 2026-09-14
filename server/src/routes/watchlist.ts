@@ -17,6 +17,7 @@ function serialize(item: watchlistService.WatchlistItem) {
     backdropUrl: item.backdropUrl,
     year: item.year,
     rating: item.rating,
+    watched: item.watched,
     updatedAt: item.updatedAt.toISOString(),
     deletedAt: item.deletedAt ? item.deletedAt.toISOString() : null,
   };

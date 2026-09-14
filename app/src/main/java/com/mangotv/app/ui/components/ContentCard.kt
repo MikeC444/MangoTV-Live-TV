@@ -11,8 +11,13 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -38,6 +43,7 @@ import com.mangotv.app.ui.theme.ProgressTrack
 import com.mangotv.app.ui.theme.TextPrimary
 import com.mangotv.app.ui.theme.TextSecondary
 import com.mangotv.app.ui.theme.TextTertiary
+import com.mangotv.app.ui.theme.WatchedGreen
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -109,6 +115,28 @@ fun ContentCard(
                 contentScale = ContentScale.Crop,
                 modifier = Modifier.fillMaxSize()
             )
+
+            // Always visible (not gated on focus like the rating/progress
+            // overlays below) -- a solid-filled circle rather than a
+            // translucent one so the tick reads clearly against poster art
+            // of any color, at any focus state.
+            if (content.watched) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.TopStart)
+                        .padding(6.dp)
+                        .size(22.dp)
+                        .background(WatchedGreen, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        imageVector = Icons.Filled.Check,
+                        contentDescription = "Watched",
+                        tint = Color.White,
+                        modifier = Modifier.size(14.dp)
+                    )
+                }
+            }
 
             val ratingOverlayAlpha = animateFloatAsState(
                 targetValue = if (focused && !isContinueWatching) 1f else 0f,

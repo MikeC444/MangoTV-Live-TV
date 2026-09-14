@@ -22,6 +22,7 @@ function validItem(overrides: Partial<Record<string, unknown>> = {}) {
     backdropUrl: "https://example.com/backdrop.jpg",
     year: 2024,
     rating: 8.1,
+    watched: false,
     updatedAt: "2025-01-01T00:00:00.000Z",
     ...overrides,
   };
@@ -80,6 +81,36 @@ describe("POST /user/watchlist", () => {
     const response = await request(app).post("/user/watchlist").set("Authorization", `Bearer ${session.token}`).send(item);
     expect(response.status).toBe(200);
     expect(response.body).toEqual({ ...item, deletedAt: null });
+  });
+
+  it("defaults watched to false when the client omits it", async () => {
+    const session = await createTestSession();
+    const { watched, ...itemWithoutWatched } = validItem();
+    const response = await request(app)
+      .post("/user/watchlist")
+      .set("Authorization", `Bearer ${session.token}`)
+      .send(itemWithoutWatched);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ...itemWithoutWatched, watched: false, deletedAt: null });
+  });
+
+  it("round-trips watched: true (the player marking a title watched)", async () => {
+    const session = await createTestSession();
+    const item = validItem({ watched: true });
+    const response = await request(app).post("/user/watchlist").set("Authorization", `Bearer ${session.token}`).send(item);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ...item, deletedAt: null });
+  });
+
+  it("a newer upsert flips watched on an already-saved item without touching its other fields", async () => {
+    const session = await createTestSession();
+    const auth = { Authorization: `Bearer ${session.token}` };
+    await request(app).post("/user/watchlist").set(auth).send(validItem({ updatedAt: "2025-01-01T00:00:00.000Z" }));
+
+    const nowWatched = validItem({ updatedAt: "2025-01-02T00:00:00.000Z", watched: true });
+    const response = await request(app).post("/user/watchlist").set(auth).send(nowWatched);
+    expect(response.status).toBe(200);
+    expect(response.body).toEqual({ ...nowWatched, deletedAt: null });
   });
 
   it("a later GET reflects an added item", async () => {

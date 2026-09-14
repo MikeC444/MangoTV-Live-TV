@@ -10,6 +10,7 @@ export interface WatchlistItem {
   backdropUrl: string | null;
   year: number | null;
   rating: number | null;
+  watched: boolean;
   updatedAt: Date;
   /** Non-null means this slot is currently removed -- present so a client can tell "still active" apart from "was removed since I last knew about it" on the same response shape POST and DELETE both return. */
   deletedAt: Date | null;
@@ -24,6 +25,7 @@ interface WatchlistRow {
   backdrop_url: string | null;
   year: number | null;
   rating: number | null;
+  watched: boolean;
   updated_at: Date;
   deleted_at: Date | null;
 }
@@ -38,12 +40,13 @@ function mapRow(row: WatchlistRow): WatchlistItem {
     backdropUrl: row.backdrop_url,
     year: row.year,
     rating: row.rating,
+    watched: row.watched,
     updatedAt: row.updated_at,
     deletedAt: row.deleted_at,
   };
 }
 
-const ROW_COLUMNS = `provider_id, content_id, content_type, title, poster_url, backdrop_url, year, rating, updated_at, deleted_at`;
+const ROW_COLUMNS = `provider_id, content_id, content_type, title, poster_url, backdrop_url, year, rating, watched, updated_at, deleted_at`;
 
 /** This account's currently-active watchlist -- what a fresh sign-in or app launch pulls down to seed/replace the local cache. Never includes soft-deleted rows. */
 export async function listActiveWatchlist(userId: string): Promise<WatchlistItem[]> {
@@ -75,14 +78,15 @@ export async function listActiveWatchlist(userId: string): Promise<WatchlistItem
  */
 export async function upsertWatchlistItem(userId: string, input: WatchlistItemInput): Promise<WatchlistItem> {
   const result = await pool.query<WatchlistRow>(
-    `INSERT INTO watchlist_items (user_id, provider_id, content_id, content_type, title, poster_url, backdrop_url, year, rating, updated_at, deleted_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, NULL)
+    `INSERT INTO watchlist_items (user_id, provider_id, content_id, content_type, title, poster_url, backdrop_url, year, rating, watched, updated_at, deleted_at)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, NULL)
      ON CONFLICT (user_id, provider_id, content_id, content_type) DO UPDATE SET
        title = EXCLUDED.title,
        poster_url = EXCLUDED.poster_url,
        backdrop_url = EXCLUDED.backdrop_url,
        year = EXCLUDED.year,
        rating = EXCLUDED.rating,
+       watched = EXCLUDED.watched,
        updated_at = EXCLUDED.updated_at,
        deleted_at = NULL
      WHERE EXCLUDED.updated_at > watchlist_items.updated_at
@@ -97,6 +101,7 @@ export async function upsertWatchlistItem(userId: string, input: WatchlistItemIn
       input.backdropUrl ?? null,
       input.year ?? null,
       input.rating ?? null,
+      input.watched,
       new Date(input.updatedAt),
     ]
   );

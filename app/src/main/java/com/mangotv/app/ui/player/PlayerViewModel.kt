@@ -39,6 +39,7 @@ class PlayerViewModel(
     private val continueWatchingRepository = (application as MangoTvApplication).container.continueWatchingRepository
     private val continueWatchingSyncRepository = (application as MangoTvApplication).container.continueWatchingSyncRepository
     private val lastSourceRepository = (application as MangoTvApplication).container.lastSourceRepository
+    private val myListRepository = (application as MangoTvApplication).container.myListRepository
 
     private val providerId: String =
         URLDecoder.decode(savedStateHandle.get<String>("providerId").orEmpty(), "UTF-8")
@@ -183,6 +184,23 @@ class PlayerViewModel(
             lastSourceRepository.setLastStreamId(providerId, contentId, contentType, season, episodeNumber, streamId)
         }
 
+        // A movie counts as watched once it crosses the same >85%-of-
+        // duration completion threshold playbackProgressService.
+        // recordProgress already applies server-side, not only on
+        // ExoPlayer's own literal STATE_ENDED -- most viewers never sit
+        // through end credits. This only decides whether to add the movie
+        // to My List; the raw `completed` flag passed below still goes to
+        // the server unchanged, which independently re-derives the same
+        // rule for Continue Watching, so there's no need to duplicate that
+        // decision here. Scoped to movies only: a single episode crossing
+        // this threshold doesn't mean the show itself is "watched", which
+        // My List has no per-episode concept of anyway.
+        val crossedCompletionThreshold = contentType == ContentType.MOVIE &&
+            positionMs.toDouble() / durationMs.toDouble() > COMPLETION_THRESHOLD
+        if (contentType == ContentType.MOVIE && (completed || crossedCompletionThreshold)) {
+            myListRepository.markWatched(state.content)
+        }
+
         continueWatchingSyncRepository.reportProgress(
             providerId = providerId,
             contentId = contentId,
@@ -201,5 +219,11 @@ class PlayerViewModel(
 
     companion object {
         private const val MIN_REPORTABLE_POSITION_MS = 10_000L
+
+        // Matches playbackProgressService.recordProgress's own
+        // MOVIE_COMPLETION_FRACTION -- "anywhere past 85%" means strictly
+        // more than, not at least, and this only ever needs to match that
+        // rule's sense of "watched", not restate it as the source of truth.
+        private const val COMPLETION_THRESHOLD = 0.85
     }
 }

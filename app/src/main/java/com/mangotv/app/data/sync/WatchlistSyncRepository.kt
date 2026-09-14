@@ -266,6 +266,7 @@ class WatchlistSyncRepository(
         year = year,
         rating = rating,
         providerId = providerId,
+        watched = watched,
         updatedAt = updatedAt
     )
 
@@ -278,6 +279,7 @@ class WatchlistSyncRepository(
         backdropUrl = backdropUrl,
         year = year,
         rating = rating,
+        watched = watched,
         updatedAt = updatedAt
     )
 }
