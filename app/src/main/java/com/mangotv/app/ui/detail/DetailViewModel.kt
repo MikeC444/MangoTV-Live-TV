@@ -143,6 +143,28 @@ class DetailViewModel(application: Application, private val savedStateHandle: Sa
         viewModelScope.launch { myListRepository.toggle(content) }
     }
 
+    /**
+     * Backs the three-dot menu's "Mark as watched" button -- the same
+     * MyListRepository.markWatched() the player already calls
+     * automatically once a movie crosses the completion threshold, just
+     * user-triggered here instead of playback-triggered. Works for a TV
+     * show too: the movie-only scoping lives in PlayerViewModel's own
+     * caller logic (a single episode crossing 85% shouldn't auto-mark a
+     * whole show watched), not in markWatched() itself, which has no type
+     * restriction -- a user explicitly marking a show they finished is a
+     * distinct, deliberate action, not that same auto-detection rule
+     * applied more broadly.
+     *
+     * Non-suspend: markWatched() already fires fire-and-forget on
+     * MyListRepository's own long-lived scope, so no viewModelScope.launch
+     * wrapper is needed (unlike toggleMyList() above, whose toggle() call
+     * is genuinely suspend).
+     */
+    fun markWatched() {
+        val content = (uiState.value as? DetailUiState.Success)?.content ?: return
+        myListRepository.markWatched(content)
+    }
+
     init {
         load()
         // Re-publishes the current content/similar whenever watched status

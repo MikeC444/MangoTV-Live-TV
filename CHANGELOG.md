@@ -2854,3 +2854,61 @@ next app launch or sign-in, without noticeably slowing that launch down.
 **Issues discovered:** none beyond the one described in Context.
 
 **Issues fixed:** see Changes above.
+
+## Post-Milestone-22 — Wire Up Detail's "Mark As Watched" Button
+
+**Status:** Complete.
+
+**Context:** User request: the three-dot menu on a movie/TV show's Detail
+page already had a "Mark as watched" button (`DetailHeroSection`'s
+`Icons.Outlined.CheckCircle` `HeroIconButton`, revealed by tapping the
+three-dot "More options" button next to Play) -- but `DetailScreen.kt`
+wired its `onWatched` callback to a literal no-op (`onWatched = {}`), so
+tapping it did nothing. This button predates every "watched" work this
+session did.
+
+**Changes:**
+- `DetailViewModel.kt` -- added `markWatched()`: reads the current
+  `DetailUiState.Success.content` and calls the existing
+  `MyListRepository.markWatched(content)` directly (non-suspend, since
+  `markWatched()` already fires fire-and-forget on its own scope --
+  no `viewModelScope.launch` needed, unlike `toggleMyList()`). Works for a
+  TV show, not just a movie: `markWatched()` itself has no type
+  restriction -- the movie-only scoping the rest of this feature uses
+  lives in `PlayerViewModel`'s own auto-detection logic (a single episode
+  crossing 85% shouldn't auto-mark a whole show), which doesn't apply to
+  a user's own explicit, deliberate choice here.
+- `DetailScreen.kt` -- threaded a new `onMarkWatched: () -> Unit` through
+  `DetailContent` (wired to `viewModel::markWatched`), replacing the
+  `onWatched = {}` stub with `onWatched = onMarkWatched`, and passing the
+  already-available `content.watched` through as `DetailHeroSection`'s
+  new `isWatched` parameter.
+- `DetailHeroSection.kt` -- added `isWatched: Boolean = false`; the
+  button's icon/description now swap to a filled checkmark / "Watched"
+  once true, the same way its neighboring Watchlist button already swaps
+  Add/Check on `isInMyList` -- without this, a tap would silently update
+  `MyListRepository` with no visible confirmation on a button whose
+  neighbor already sets that visual-feedback expectation. Deliberately
+  stays a one-way action (no "unmark" tap), matching
+  `MyListRepository.markWatched()`'s own false-to-true-only contract used
+  everywhere else this session.
+
+**Tests performed:** Same sandbox limitation as every recent milestone
+(no route to `dl.google.com`): brace/paren/bracket balance check on all
+three touched files (clean), full manual re-read, and confirmed
+`DetailHeroSection` has exactly one call site (`DetailScreen.kt`) so no
+other caller needed updating. `Icons.Filled.CheckCircle` was added
+alongside the file's existing `Icons.Outlined.CheckCircle` import --
+confident (not verified by compiling) this doesn't collide, since Kotlin
+resolves same-named extension properties by their differing receiver
+type (`Icons.Filled` vs `Icons.Outlined`), the same pattern already used
+elsewhere in this codebase (e.g. `Icons.Filled.Check` alongside other
+icon families). **Not performed:** an actual Gradle/Kotlin compile or
+on-device check -- `build-apk.yml` CI is the real compile check; on-device
+verification should open a movie and a TV show's Detail page, tap the
+three dots, tap "Mark as watched," and confirm the icon switches to
+filled immediately and the title appears in My List's Watched filter.
+
+**Issues discovered:** none beyond the one described in Context.
+
+**Issues fixed:** see Changes above.

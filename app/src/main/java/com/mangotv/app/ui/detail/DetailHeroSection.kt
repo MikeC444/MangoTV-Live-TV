@@ -26,6 +26,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.Star
@@ -99,6 +100,14 @@ fun DetailHeroSection(
     onNavigateUpPastHero: () -> Unit = {},
     onNavigateDownFromHero: () -> Unit = {},
     isInMyList: Boolean = false,
+    // Reflects Content.watched -- true once this exact title is in My
+    // List with watched=true, from live playback, the manual "Mark as
+    // watched" button below, or the history backfill. Swaps the button's
+    // icon/description the same way isInMyList already swaps the
+    // watchlist button's -- onWatched itself stays a one-way action
+    // (mirrors MyListRepository.markWatched()'s own false->true-only
+    // contract), so this never offers an "unmark" affordance.
+    isWatched: Boolean = false,
     // Null hides the button entirely -- shown only once a lookup has
     // actually found a YouTube trailer for this title (see
     // DetailViewModel.TrailerState), never as a dead/no-op button for a
@@ -391,8 +400,8 @@ fun DetailHeroSection(
                 ) {
                     Row(verticalAlignment = Alignment.CenterVertically) {
                         HeroIconButton(
-                            icon = Icons.Outlined.CheckCircle,
-                            contentDescription = "Mark as watched",
+                            icon = if (isWatched) Icons.Filled.CheckCircle else Icons.Outlined.CheckCircle,
+                            contentDescription = if (isWatched) "Watched" else "Mark as watched",
                             onClick = onWatched,
                             focusUp = navUpFocusRequester,
                             compact = compact
